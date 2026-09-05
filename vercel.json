@@ -1,0 +1,7 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    { "path": "/api/cron/tmdb-refresh", "schedule": "0 19 * * *" },
+    { "path": "/api/cron/tmdb-purge", "schedule": "30 19 * * *" }
+  ]
+}

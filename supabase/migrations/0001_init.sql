@@ -381,7 +381,10 @@ begin
   update public.film_tmdb_snapshot set
     title_zh=null, title_original=null, overview=null, poster_path=null, backdrop_path=null,
     runtime_minutes=null, release_date=null, tw_release_date=null, genre_ids=null, payload=null, etag=null,
-    state = case when state = 'gone' then 'gone' else 'pending' end,
+    -- ★ 顯式轉型不可省：三個分支全是常值時 CASE 會解析成 text，而 text → enum
+    --   沒有隱含轉換 ⇒ 函式在**執行期**失敗（create function 不檢查函式體）。
+    --   實測 2026-09-06 才發現，詳見 0005。
+    state = (case when state = 'gone' then 'gone' else 'pending' end)::public.tmdb_cache_state,
     next_refresh_at = least(next_refresh_at, now())
   where expires_at <= now() and (payload is not null or poster_path is not null or overview is not null);
   get diagnostics n = row_count; return n;

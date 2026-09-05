@@ -2336,6 +2336,7 @@ TMDB 上四話各自獨立、沒有連映版條目，而一筆 `viewing_record` 
 | 11 | **`vercel_edge` preset 已 deprecated**，不要為了效能設 `NITRO_PRESET=vercel-edge` | `v2.nitro.build/deploy/providers/vercel` |
 | 12 | **Node 版本要對齊。** `nuxt@4.5.2` engines `^22.19.0 \|\| ^24.11.0 \|\| >=26.0.0`；Vercel 停在 20.x 裝不起來 | npm registry |
 | 79 | **★ `@nuxtjs/supabase` 會把來訪者的 session 寫進 `__NUXT_DATA__`，於是「每一條可快取的 SSR 路由」都在外洩身分——與該頁抓了什麼資料無關。** 詳見下方專節 | 2026-09-05 實測（dev 與 production build 皆重現） |
+| 80 | **★ `package.json` 的 `imports` 別名（`"#pipeline/*": "./src/*"`）在 Nitro 打包時不補副檔名。** `server/**` 若以 `#pipeline/tmdb/client` 做**值**匯入，執行期會 `ENOENT … open '…/src/tmdb/client'`（沒有 `.ts`）。致命的是 `pnpm typecheck`、`pnpm test`、`pnpm lint` **全綠**——tsc 走 tsconfig `paths` 會補副檔名，vitest 有自己的 `resolve.alias`，只有 rollup 不補。⇒ `server/**` → `src/**` 的值匯入一律走相對路徑；型別匯入用 `#pipeline/` 是安全的（編譯期就抹掉，打包器看不到） | 2026-09-06 實測（Step 9，端點 500） |
 
 
 ### 踩雷 #79 詳述：為什麼 #1 的理由涵蓋不到這個情況
@@ -2440,6 +2441,7 @@ diff /tmp/a /tmp/b                     # 除了 SSR 時戳外必須完全相同
 | 73 | **★ Supabase 的專案樣板自帶 `ALTER DEFAULT PRIVILEGES … GRANT … TO anon, authenticated, service_role`，涵蓋 tables / sequences / functions 三種物件。** 也就是**每一張新表出生就對 anon 有 `arwdDxtm`（含 DELETE/TRUNCATE），每一支新函式出生就對 anon 有 EXECUTE**，而且是**直接授予 anon**、不經由 PUBLIC ⇒ `revoke … from public` 拿不掉。任何「我沒 grant 所以 anon 讀不到」的推論在 Supabase 上都是錯的，RLS 是唯一還在擋的東西。查證指令：`select pg_get_userbyid(defaclrole), defaclobjtype, defaclacl from pg_default_acl;` | 2026-09-05 實測（新專案即如此） |
 | 74 | **`alter default privileges … revoke execute on functions from public` 在 Supabase 上擋不住未來的函式。** 對 anon/authenticated 的 revoke 有效，但 PUBLIC 那份拿不掉——新函式的 `proacl` 會塌回 `NULL`，而 `NULL` 就是內建預設（PUBLIC 有 EXECUTE）。⇒ 不要相信「日後新增的函式預設不可執行」這個保證，改用 migration 結尾的白名單自我檢查 | 2026-09-05 實測（PG 17.6） |
 | 75 | **函式的 blanket revoke 必須放在所有 `create function` 之後。** 放在中間的話，後面才建立的函式會重新拿到 #73 那份預設授權。表與序列的 revoke 則相反，要放在 `grant` **之前**，否則會把剛給的權限一起洗掉 | 同上 |
+| 81 | **★ 「作品有 `tmdb_id`」不等於「有 `film_tmdb_snapshot` 列」，而待刷新佇列是從快照表 join 出去的。** 實測 2026-09-06：2,480 部帶 `tmdb_id` 的作品只有 2,401 列快照，**79 部從未進過 `tmdb_refresh_due`** ⇒ 永遠沒有海報，而刷新排程回報「全部刷完了」。缺的那批全是舊 log 匯入時 `upsertTmdbFilm()` 建的（`seed_films` 與 `link_film_to_tmdb` 都有補佔位列，只有它漏了）——也就是 David 紀錄實際指到的作品，多刷排行最顯眼的位置。⇒ 這種「少了 N 但沒有錯誤訊息」的不變量要用 trigger 釘在資料庫層（`0004`），不要交給每一個寫入者記得 | 2026-09-06 實測 |
 | 76 | **`db.<ref>.supabase.co`（direct connection）只有 AAAA 記錄。** 沒有 IPv6 的機器一律 `getaddrinfo ENOTFOUND`，與憑證無關。改用 session pooler `aws-N-<region>.pooler.supabase.com:**5432**`（**5432 是 session mode，6543 才是 transaction mode**），使用者名稱要寫成 `postgres.<ref>`。`inet_server_addr()` 實測是同一台 DB，DDL 與 prepared statement 行為相同 | 2026-09-05 實測 |
 | 77 | **`supabase gen types typescript` 即使給了 `--db-url` 仍需要 Docker**（CLI 2.20 / 2.30 / 2.48 實測皆然，錯誤為 `failed to inspect docker image`）。沒有 Docker 的機器要嘛改用 Management API（需 personal access token），要嘛自己從資料庫目錄產生（本專案採後者，見 `scripts/gen-types.ts`） | 2026-09-05 實測 |
 | 78 | **自產型別時 `Relationships[].isOneToOne` 不可以是 `null`。** `GenericRelationship` 宣告為 `isOneToOne?: boolean`，一旦出現 `null`，整個 `Database` 就不滿足 `GenericSchema`，於是**所有** `select()` 的列型別靜默塌成 `never`——錯誤訊息只會說「Property 'x' does not exist on type 'never'」，完全指不到根因。SQL 端記得 `coalesce(bool_or(...), false)` | 2026-09-05 實測 |
@@ -2466,6 +2468,8 @@ diff /tmp/a /tmp/b                     # 除了 SSR 時戳外必須完全相同
 | 62 | **Nuxt UI 的 locale 具名匯出是底線 `zh_tw`**，不是 `'zh-tw'` | 實讀 `dist/runtime/locale/` |
 | 63 | **v3→v4 已改名**：`ButtonGroup`→`FieldGroup`、`PageMarquee`→`Marquee`、`PageAccordion` 移除；`UForm` 的 `nullify`→`nullable`，巢狀 form 要顯式 `nested` 與 `name`。抄 2025 年的範例會踩到 | `ui.nuxt.com/docs/getting-started/migration` |
 | 64 | **`UForm` 不內建任何驗證函式庫**（官方明確警告）。`zod` peer 範圍 `^3.24.0 \|\| ^4.0.0`，要自己裝 | `ui.nuxt.com/docs/components/form` |
+| 82 | **★ `UInput` 沒有 IME 組字保護，`USelectMenu` 有。** Vue 原生的 `v-model` 會掛 `compositionstart/end` 並在組字中跳過 `onInput`；Nuxt UI 4.11.0 的 `Input.vue` 自己接 `@input` → `updateInput(value)`，**那層保護不存在**。所以任何用 `UInput` 做「邊打邊查」的地方，注音打「鬼」的四個中間態（ㄍ／ㄍㄨ／ㄍㄨㄟ／ㄍㄨㄟˇ）會各送一次查詢，使用者在選出字之前先看到四次「找不到」。`USelectMenu` 的搜尋框走 reka-ui 的 `ListboxFilter`，那支有 `useComposing()`（`shouldDeferInput`），組字中不更新 `searchTerm`，所以**不必**再擋一次。正解是 `app/composables/useImeGuard.ts` | 2026-09-06 David 以實體注音鍵盤回報；CDP `Input.imeSetComposition` 重現並驗證修復（`/search` 修前 4 次查詢、修後 0 次；`USelectMenu` 修前後皆 0） |
+| 83 | **★ Blink 的 implicit form submission 不看 `isComposing`。** 平常「注音選字按 Enter 不會誤送表單」，靠的是**輸入法在 OS 層把 Enter 吃掉**（頁面只收到 `keyCode 229` 的 keydown、沒有 keypress），不是瀏覽器有保護。實測：組字中若送出帶 keypress 的 `keyCode 13`（Windows 微軟注音、Android 軟鍵盤都有前科），`isComposing` 明明是 `true`，表單照樣送出。`UForm` 也救不了——它用的是原生 `<form @submit.prevent>`，送出時機由瀏覽器決定。正解是在表單上掛 `@keydown="blockSubmitWhileComposing"`（`useImeGuard.ts`），三行 | 2026-09-06 實測 Chrome 152 / CDP，三組對照（229 無 keypress→不送；13 有 keypress + composing→**送**；13 無 composing→送） |
 
 ## 7.5 資料匯入（來自 SPEC 實測）
 
@@ -2477,7 +2481,7 @@ diff /tmp/a /tmp/b                     # 除了 SSR 時戳外必須完全相同
 | 68 | 年份**不可作硬篩**（《紅豬》核准 113 年、TMDB 1992），只加分不懲罰 |
 | 69 | TMDB 的 `original_title` 常為母語而非英文（政府給 `Porco Rosso`、TMDB 存 `紅の豚`）→ 必須雙查詢 |
 | 70 | **缺少片長交叉驗證會產生假陽性**（《一屍到底》配到 `Making Of One Cut of the Dead`、《貓的報恩》配到 `Batman Returns`） |
-| 71 | **TMDB 免費 key 在規模化匯入時會被節流**（實測後跑的批次慢約 6 倍）。管線必須可中斷可續跑 |
+| 71 | ~~**TMDB 免費 key 在規模化匯入時會被節流**（實測後跑的批次慢約 6 倍）~~ → ⚠️ **這是推論被寫成了實測。** 當時只量到「批次間變慢」，沒有量 429。兩次實測都推翻它：110–113 年全量匯入 9,076 次請求，重試 0、節流 0（併發≈1）；Step 9 回填 2,479 次請求、**併發 8**，重試 0、節流 0（2026-09-06）。慢的原因至今未確認，但不是 429。**「管線必須可中斷可續跑」這個結論仍然成立**，只是理由不是節流 |
 | 72 | **Supabase 免費專案閒置 7 天會自動暫停。** 上線前須以排程 ping 維持活躍 |
 
 ---
