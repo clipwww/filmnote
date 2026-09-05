@@ -62,7 +62,28 @@ export interface TicketMeta {
 }
 
 /**
- * meta 行：`林口威秀 (7廳) 2D 16:00 2張 NT$520`
+ * meta 的**第一段：影城（含廳別）**。`林口MITSUI OUTLET PARK威秀影城 (7廳)`
+ *
+ * ⚠️ **這一段必須是不可切開的單位**（呼叫端給它 `whitespace-nowrap`）。
+ * 資料庫存的是政府影城主檔的**官方全名**，不是口語簡稱。實測 108 家的名稱長度
+ * （全形計 2）中位 14、p95 22、最長 30，而超過 24 的只有一家——
+ * `林口MITSUI OUTLET PARK威秀影城`，正好是 David 68% 場次的主場。
+ *
+ * 375px 的票根卡裡可用 277px，13px 實量：
+ *   最長影城名 + `(7廳)`  248.9px  ✅ 單行放得下
+ *   整串擠成一行          360.5px  ❌ 必換行，斷點會落在名稱中間
+ *
+ * 斷在名稱中間的後果是「影城」跑到第二行開頭、緊接著「數位」，
+ * 讀起來像在一個叫**「影城 數位」**的地方看的——量詞串的結構整個糊掉。
+ */
+export function venueSegment(m: Pick<TicketMeta, 'venueName' | 'hallLabel'>): string | null {
+  const parts = [m.venueName, m.hallLabel ? `(${m.hallLabel})` : null]
+    .filter((p): p is string => !!p && p.length > 0)
+  return parts.length ? parts.join(' ') : null
+}
+
+/**
+ * meta 的**第二段：版本／時間／張數／票價**。`數位 16:00 2張 NT$520`
  *
  * **開眼式括號量詞串，不用中點分隔。** 中點串（`A · B · C`）是 Letterboxd 的
  * 簽名手法之一，也是 AI 生成設計的預設長相，§0 已明文避開。括號與量詞是
@@ -70,16 +91,23 @@ export interface TicketMeta {
  *
  * 票價一律排最後（§4.3）。
  */
-export function ticketMetaLine(m: TicketMeta): string {
-  const parts: (string | null | undefined)[] = [
-    m.venueName,
-    m.hallLabel ? `(${m.hallLabel})` : null,
+export function detailSegment(m: Omit<TicketMeta, 'venueName' | 'hallLabel'>): string | null {
+  const parts = [
     m.formatLabel,
     m.watchedTime ? m.watchedTime.slice(0, 5) : null,
     m.ticketCount ? `${m.ticketCount}張` : null,
     costText(m.cost),
-  ]
-  return parts.filter((p): p is string => !!p && p.length > 0).join(' ')
+  ].filter((p): p is string => !!p && p.length > 0)
+  return parts.length ? parts.join(' ') : null
+}
+
+/**
+ * 兩段串成一行。給不需要斷行控制的地方用（例如純文字的 aria-label）；
+ * **畫面上的票根卡不要用這個**，它會把影城名跟其餘量詞串黏成一條，
+ * 375px 下必然斷在影城名中間。
+ */
+export function ticketMetaLine(m: TicketMeta): string {
+  return [venueSegment(m), detailSegment(m)].filter(Boolean).join(' ')
 }
 
 /**

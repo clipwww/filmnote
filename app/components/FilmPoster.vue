@@ -16,10 +16,30 @@
  * 的 w-12 容器裡只剩約 16px 可用，於是每行一個字再被截斷，變成「卡哇人」
  * 這種直式擠壓——那不是「沒有海報」，那是版面錯誤。
  *
- *   monogram：小尺寸用。取片名首字當字標，配底色，不放全名
+ *   monogram：小尺寸用。取片名首字當字標，不放全名
  *   card    ：大尺寸用（作品頁側欄）。放全名，line-clamp 收尾，不用 break-all
  *
  * break-all 一律不用：它會在任意字元間斷行，中文標題會被切成直條。
+ *
+ * ── 底色只有一個，不做雜湊配色（§4.3）────────────────────────
+ * 原本是由片名雜湊出六種色（emerald / blue / violet / pink…），砍掉的理由有三：
+ *
+ * 1. **它違反 §0「資料是墨，不是彩虹」，而且它連資料都不是。** 顏色是從片名
+ *    雜湊出來的，不編碼任何東西——只是「看起來有在分類」。全站唯一允許的
+ *    彩色是琥珀，而琥珀只塗介面不塗資料（§1.0）。
+ * 2. **它當初要解的問題已經消失。** 雜湊配色是為了讓一整面文字磚不糊成一片；
+ *    Step 9 之後 2,452 / 2,669 部有海報（91.9%），無海報磚變成散落在真海報
+ *    之間的少數，不再是一整面牆。
+ * 3. 磚與磚之間本來就有邊框與 gap，不需要靠底色分。
+ *
+ * ⚠️ **次要文字必須用 `text-toned` 不能用 `text-muted`。** 磚底（`bg-elevated`）
+ * 比卡片底深一階，`text-muted` 在上面只有亮 3.92 / 暗 3.51，不及格；
+ * `text-toned` 是亮 5.57 / 暗 6.15。整條文字階要跟著往上推一階。
+ *
+ * ⚠️ **無海報磚是永久狀態不是過渡。** 那 268 部沒有 tmdb_id 的作品不會自己
+ * 變出海報。§0 的驗收標準原封不動：**無海報的卡片要好到使用者不會希望它
+ * 變成海報**——這條在 8% 的時候比在 100% 的時候更難達到，因為它旁邊就擺著
+ * 真海報可以比。
  */
 const props = withDefaults(defineProps<{
   titleZh?: string | null
@@ -48,14 +68,6 @@ const monogram = computed(() => {
   const cleaned = label.value.replace(/^[《〈「『【（([\s"']+/u, '')
   return [...(cleaned || label.value)][0] ?? '?'
 })
-
-/** 由片名決定底色，讓相鄰的列不會糊成一片同色。刻意用 hex，與圖表色票同源。 */
-const tint = computed(() => {
-  const palette = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#14b8a6', '#ec4899']
-  let h = 0
-  for (const ch of label.value) h = (h * 31 + ch.codePointAt(0)!) >>> 0
-  return palette[h % palette.length]!
-})
 </script>
 
 <template>
@@ -72,27 +84,22 @@ const tint = computed(() => {
     <!-- 小尺寸：字標。不試圖塞下整個片名。 -->
     <div
       v-else-if="variant === 'monogram'"
-      class="flex size-full items-center justify-center"
-      :style="{ backgroundColor: `${tint}1a`, color: tint }"
+      class="flex size-full items-center justify-center bg-elevated"
       :title="label"
       role="img"
       :aria-label="`${label}（無海報）`"
     >
-      <span class="text-xl font-semibold leading-none select-none">{{ monogram }}</span>
+      <span class="text-xl font-semibold leading-none text-highlighted select-none">{{ monogram }}</span>
     </div>
 
     <!-- 大尺寸：放得下全名。line-clamp 收尾，不用 break-all。 -->
     <div
       v-else
-      class="flex size-full flex-col items-center justify-center gap-2 px-3 py-4 text-center"
-      :style="{ backgroundColor: `${tint}14` }"
+      class="flex size-full flex-col items-center justify-center gap-2 bg-elevated px-3 py-4 text-center"
       role="img"
       :aria-label="`${label}（無海報）`"
     >
-      <span
-        class="text-sm font-medium leading-snug line-clamp-5 break-words"
-        :style="{ color: tint }"
-      >{{ label }}</span>
+      <span class="text-sm font-medium leading-snug text-highlighted line-clamp-5 break-words">{{ label }}</span>
     </div>
   </div>
 </template>

@@ -78,7 +78,7 @@ async function confirmRemove() {
         全部紀錄
       </h1>
       <UButton to="/app/records/new" icon="i-lucide-plus">
-        記一筆
+        記一場
       </UButton>
     </div>
 

@@ -70,7 +70,7 @@
      在 `@layer theme` 裡，輸給任何未分層的規則。於是暗色模式下實心元件的字
      還是紙色，貼在紙色／琥珀底上：
        neutral solid  紙字 on paper-50   1.10:1  ← 幾乎看不見
-       primary solid  紙字 on amber-400  2.23:1  ← 「記一筆」就是這顆
+       primary solid  紙字 on amber-400  2.23:1  ← 「記一場」就是這顆
        badge          同上               2.23:1
      補上之後量到 13.6:1 與 6.69:1。（2026-09-06 實測 Chrome 152） */
   --ui-text-inverted: var(--color-paper-900);

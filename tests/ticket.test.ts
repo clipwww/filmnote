@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { displayTitle } from '../app/utils/film-title'
-import { costText, dateBand, ticketMetaLine } from '../app/utils/ticket'
+import { costText, dateBand, detailSegment, ticketMetaLine, venueSegment } from '../app/utils/ticket'
 
 describe('dateBand', () => {
   it('拆出年月日與星期', () => {
@@ -44,6 +44,36 @@ describe('costText', () => {
   it('一般金額加千分位', () => {
     expect(costText(520)).toBe('NT$520')
     expect(costText(9860)).toBe('NT$9,860')
+  })
+})
+
+describe('meta 的兩段（§4.3）', () => {
+  const full = {
+    venueName: '林口MITSUI OUTLET PARK威秀影城',
+    hallLabel: '7廳',
+    formatLabel: '數位',
+    watchedTime: '16:00:00',
+    ticketCount: 2,
+    cost: 520,
+  }
+
+  it('影城與廳別自成一段，永遠不被切開', () => {
+    expect(venueSegment(full)).toBe('林口MITSUI OUTLET PARK威秀影城 (7廳)')
+  })
+
+  it('第二段不含影城——否則 375px 下斷點會落在名稱中間', () => {
+    const d = detailSegment(full)
+    expect(d).toBe('數位 16:00 2張 NT$520')
+    expect(d).not.toContain('威秀')
+  })
+
+  it('沒有影城時第一段整段不存在，不留一個孤零零的括號', () => {
+    expect(venueSegment({ venueName: null, hallLabel: null })).toBeNull()
+    expect(venueSegment({ venueName: null, hallLabel: '7廳' })).toBe('(7廳)')
+  })
+
+  it('第二段全空時回 null，不回空字串', () => {
+    expect(detailSegment({ formatLabel: null, watchedTime: null, ticketCount: null, cost: null })).toBeNull()
   })
 })
 

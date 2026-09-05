@@ -54,7 +54,13 @@ const title = computed(() => titleZh.value || titleOriginal.value)
 /** 副標只在它跟主標不同時才出現，否則同一個字會印兩次。 */
 const subtitle = computed(() => (titleOriginal.value && titleOriginal.value !== title.value ? titleOriginal.value : ''))
 
-const meta = computed(() => ticketMetaLine(props.record))
+/**
+ * meta 是**兩段不是一行**（§4.3）。第一段是影城（含廳別），永遠不被切開；
+ * 第二段是版本／時間／張數／票價。桌機兩段並在同一行，375px 自然落成兩行——
+ * **那個斷點是刻意的，不是碰巧的**。
+ */
+const venueMeta = computed(() => venueSegment(props.record))
+const detailMeta = computed(() => detailSegment(props.record))
 
 /**
  * 有沒有海報**在這裡決定**，不丟給 FilmPoster 的 fallback——
@@ -68,10 +74,15 @@ const filmHref = computed(() =>
 
 <template>
   <article class="flex items-start gap-3 rounded-sm border border-default bg-default px-3 py-3 sm:gap-4 sm:px-4">
-    <!-- 日期帶。tabular-nums 讓多張卡的數字對得齊（Inter 供應，見 §2.2）。 -->
+    <!--
+      日期帶**染琥珀**（§4.3），不是中性面：琥珀承載表面，票根的撕線位置整條
+      變成重點色，卡片一眼就讀成票根而不是列表列。對比已驗——日期數字
+      text-highlighted 14.03:1／14.08:1，星期 text-muted 4.65:1／4.65:1。
+      tabular-nums 讓多張卡的數字對得齊（由 Inter 供應，見 §2.2）。
+    -->
     <div
       v-if="band"
-      class="w-9 shrink-0 self-stretch border-r border-default pr-3 text-center leading-tight tabular-nums"
+      class="-my-3 -ms-3 w-11 shrink-0 self-stretch bg-amber-50 py-3 text-center leading-tight tabular-nums sm:-ms-4 dark:bg-amber-950"
     >
       <div v-if="showYear" class="text-[11px] text-dimmed">
         {{ band.year }}
@@ -110,10 +121,25 @@ const filmHref = computed(() =>
         {{ subtitle }}
       </p>
 
-      <!-- meta 行一次插值。切成多個元素靠空白分隔會被 Vue 的 whitespace
-           'condense' 吃掉，render 成 `2D16:00`（見 utils/ticket.ts 檔頭）。 -->
-      <p v-if="meta" class="mt-1 text-[13px] leading-normal text-muted tabular-nums">
-        {{ meta }}
+      <!--
+        兩段各自一次插值，段與段之間靠 flex 的 gap 分隔——**不要**靠文字裡的空白，
+        那會被 Vue 的 whitespace 'condense' 吃掉，render 成 `威秀影城數位`
+        （見 utils/ticket.ts 檔頭）。影城那一段 whitespace-nowrap，寧可整段換行
+        也不要斷在名稱中間。
+      -->
+      <p
+        v-if="venueMeta || detailMeta"
+        class="mt-1 flex flex-wrap gap-x-2 text-[13px] leading-normal text-muted tabular-nums"
+      >
+        <!--
+          truncate（= nowrap + overflow hidden + ellipsis）而不是只有 nowrap：
+          §4.3 算的 277px 可用寬是「沒有海報也沒有操作鈕」的乾淨卡片；
+          `/app/records` 的卡多了編輯／刪除兩顆鈕，375px 下內容欄只剩約 197px，
+          純 nowrap 會讓影城名直接畫到海報上面去（實測 218px 的字塞進 133px 的欄）。
+          省略號讀起來是「名字更長」，跟斷在名稱中間變成另一個地名不一樣。
+        -->
+        <span v-if="venueMeta" class="max-w-full truncate">{{ venueMeta }}</span>
+        <span v-if="detailMeta">{{ detailMeta }}</span>
       </p>
 
       <p
@@ -124,8 +150,12 @@ const filmHref = computed(() =>
       </p>
     </div>
 
-    <!-- 海報是選配的鑲嵌。沒有就整欄不存在，卡片自然變寬。 -->
-    <div v-if="hasPoster" class="w-14 shrink-0">
+    <!--
+      海報是選配的鑲嵌。沒有就整欄不存在，卡片自然變寬。
+      `<640px` 直接不顯示（`SCREENS.md §2.3`）——票根卡本來就完整，而 375px 下
+      那 56px 是影城全名需要的空間。
+    -->
+    <div v-if="hasPoster" class="hidden w-14 shrink-0 sm:block">
       <FilmPoster
         :title-zh="record.film?.titleZh"
         :title-original="record.film?.titleOriginal"

@@ -7,7 +7,7 @@ import type { Database } from '~/types/database.types'
 import { recordSchema, toRecordRow } from '~/schemas/record'
 
 definePageMeta({ layout: 'default' })
-useSeoMeta({ title: '記一筆' })
+useSeoMeta({ title: '記一場' })
 
 const supabase = useSupabaseClient<Database>()
 const user = useSupabaseUser()
@@ -94,12 +94,12 @@ async function onSubmit(event: FormSubmitEvent<RecordForm>) {
         // 紀錄已經建立，票價沒寫進去不該讓整筆消失。明說哪一半失敗即可。
         // ★ 不用 color: 'warning'——Nuxt UI 的 warning 預設就是 Tailwind amber，
         //   跟我們的 primary 同色會撞（DESIGN_SYSTEM §1.5）。用 error + 明確文案。
-        toast.add({ title: '紀錄存好了，票價沒存成功', description: costError.message, color: 'error' })
+        toast.add({ title: '記好了，但票價沒存成功', description: costError.message, color: 'error' })
       }
     }
 
     writeLastVenue(form.venueId)
-    toast.add({ title: '記下來了', color: 'success' })
+    toast.add({ title: '記好了', color: 'success' })
     await navigateTo('/app/records')
   }
   catch (e) {
@@ -114,7 +114,7 @@ async function onSubmit(event: FormSubmitEvent<RecordForm>) {
 <template>
   <div class="mx-auto max-w-xl px-4 py-8">
     <h1 class="text-2xl font-bold tracking-tight">
-      記一筆
+      記一場
     </h1>
     <p class="mt-1 text-sm text-muted">
       片名、日期、場所填完就能存，其餘都可以之後再補。
@@ -245,7 +245,7 @@ async function onSubmit(event: FormSubmitEvent<RecordForm>) {
       </UCollapsible>
 
       <UButton type="submit" size="lg" block :loading="saving">
-        存起來
+        記下來
       </UButton>
     </UForm>
   </div>
