@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>影記 — /app/films/new 手動新增作品</title>
+<style>
+[hidden] { display: none !important; }
+
+:root {
+  color-scheme: light;
+  --paper-25:#FDF9F1; --paper-50:#F8EDDC; --paper-100:#EADDCA; --paper-200:#DACCB9;
+  --paper-300:#C5B5A3; --paper-400:#948777; --paper-500:#776A5D; --paper-600:#5F5348;
+  --paper-700:#4A4036; --paper-800:#3D332C; --paper-900:#29211A; --paper-950:#1D1610;
+  --amber-50:#FFF1C2; --amber-100:#F9E4A4; --amber-400:#C9A62B;
+  --amber-600:#866500; --amber-900:#422D04; --amber-950:#2D1D02;
+
+  --bg: var(--paper-50); --surface: var(--paper-25); --sunken: var(--paper-100);
+  --line: var(--paper-200); --line-strong: var(--paper-300);
+  --text-0: var(--paper-900); --text-1: var(--paper-700);
+  --text-2: var(--paper-500); --text-3: var(--paper-400);
+  --accent: var(--amber-600); --accent-soft: var(--amber-50);
+  --accent-soft-2: var(--amber-100); --accent-on: var(--paper-25);
+  --radius-chip:2px; --radius-card:4px; --radius-poster:3px;
+  --font-sans:'Inter','PingFang TC','Noto Sans CJK TC','Noto Sans TC','Microsoft JhengHei','Source Han Sans TC',sans-serif;
+  --font-orig:'Inter','PingFang TC','Hiragino Sans','Noto Sans JP','Apple SD Gothic Neo','Noto Sans KR',sans-serif;
+  line-break: strict;
+}
+:root.dark {
+  color-scheme: dark;
+  --bg: var(--paper-950); --surface: var(--paper-900); --sunken: var(--paper-800);
+  --line: var(--paper-800); --line-strong: var(--paper-700);
+  --text-0: var(--paper-50); --text-1: var(--paper-200);
+  --text-2: var(--paper-400); --text-3: var(--paper-500);
+  --accent: var(--amber-400); --accent-soft: var(--amber-950);
+  --accent-soft-2: var(--amber-900); --accent-on: var(--paper-900);
+}
+
+* { box-sizing: border-box; }
+body { margin:0; background: var(--bg); color: var(--text-1);
+  font-family: var(--font-sans); font-size:16px; line-height:1.75;
+  font-variant-numeric: tabular-nums; }
+main { max-width: 1040px; margin:0 auto; padding: 24px 20px 96px; }
+
+.topbar { display:flex; align-items:center; gap:12px; padding:12px 20px;
+  border-bottom:1px solid var(--line); background: var(--surface); }
+.topbar .back { color: var(--accent); text-decoration:none; font-size:15px; }
+.topbar h1 { margin:0; font-size:16px; font-weight:600; color: var(--text-0); }
+
+h2.sec { font-size:20px; line-height:1.4; color:var(--text-0); margin:56px 0 4px;
+  padding-bottom:8px; border-bottom:1px solid var(--line); font-feature-settings:'palt' 1; }
+p.note { font-size:13px; line-height:1.5; color:var(--text-2); margin:4px 0 16px; max-width:60ch; }
+code { font-family: var(--font-sans); color: var(--text-0); font-size:.92em; }
+
+/* ── 版面：表單 + 即時票根預覽 ─────────────────────────────── */
+.split { display:grid; grid-template-columns: minmax(0,1fr) 300px; gap:32px; align-items:start; margin-top:24px; }
+@media (max-width: 800px) { .split { grid-template-columns: 1fr; } .preview-col { order:-1; } }
+
+.lede { font-size:16px; line-height:1.75; color:var(--text-0); max-width:34ch; margin:0 0 24px; }
+.lede span { color: var(--text-2); }
+
+.field { margin-bottom:20px; }
+.field > label { display:block; font-size:13px; line-height:1.5; color:var(--text-1); margin-bottom:4px; }
+.field .req { color: var(--accent); }
+.field .opt { color: var(--text-3); }
+.inp {
+  width:100%; font:inherit; font-size:16px; line-height:1.5;
+  color:var(--text-0); background: var(--surface);
+  border:1px solid var(--line-strong); border-radius: var(--radius-card);
+  padding:9px 12px;
+}
+.inp::placeholder { color: var(--text-3); }
+.inp:focus { outline:2px solid var(--accent); outline-offset:2px; border-color: var(--accent); }
+.hint { font-size:13px; line-height:1.5; color:var(--text-2); margin-top:4px; }
+.hint.carried { color: var(--accent); }
+.row2 { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+.row-unit { display:flex; align-items:center; gap:8px; }
+.row-unit .inp { width:120px; }
+.row-unit span { font-size:13px; color:var(--text-2); }
+
+/* 上傳區：不是虛線框（那是 SaaS 預設），是一張淺色的紙 */
+/* 上傳區跟文字欄位同一種待遇：同底、同邊框。
+   它是選填的，不該是整份表單裡最重的一塊——那會把注意力從唯一的必填欄拉走。
+   也不用虛線框（那是 SaaS 預設，而且會讀成「這裡是空的」）。 */
+.drop {
+  background: var(--surface); border:1px solid var(--line-strong);
+  border-radius: var(--radius-card); padding:20px; text-align:center;
+}
+.drop b { display:block; font-size:15px; color:var(--text-0); font-weight:600; }
+.drop span { display:block; font-size:13px; color:var(--text-2); margin-top:2px; }
+
+/* 註記樣式，不是 alert box */
+.aside {
+  border-inline-start:2px solid var(--line-strong);
+  padding:2px 0 2px 12px; margin:24px 0;
+  font-size:13px; line-height:1.6; color:var(--text-2); max-width:44ch;
+}
+.aside b { color: var(--text-1); font-weight:600; }
+
+.actions { display:flex; gap:12px; align-items:center; margin-top:28px; flex-wrap:wrap; }
+.btn { border:0; border-radius: var(--radius-card); padding:10px 18px; font:inherit;
+  font-size:15px; font-weight:600; background: var(--accent); color: var(--accent-on); cursor:pointer; }
+.btn.ghost { background:transparent; color: var(--text-1); border:1px solid var(--line-strong); font-weight:400; }
+.btn:disabled { background: var(--sunken); color: var(--text-3); cursor:not-allowed; }
+
+/* ── 票根預覽 ──────────────────────────────────────────── */
+.preview-col .cap { font-size:13px; color:var(--text-2); margin:0 0 8px; }
+.tc { display:grid; grid-template-columns:44px minmax(0,1fr); background:var(--surface);
+  border:1px solid var(--line); border-radius:var(--radius-card); overflow:hidden; }
+.tc-date { background: var(--accent-soft); border-inline-end:1px solid var(--line);
+  display:flex; flex-direction:column; align-items:center; justify-content:center; padding:10px 0; }
+.tc-date .d { font-size:18px; line-height:1.2; font-weight:600; color:var(--text-0); }
+.tc-date .wd { font-size:12px; line-height:1.5; color:var(--text-2); }
+.tc-body { padding:10px 14px; min-width:0; }
+.title-zh { font-size:16px; line-height:1.45; font-weight:600; color:var(--text-0);
+  font-feature-settings:'palt' 1; overflow-wrap:anywhere; }
+.title-og { font-family:var(--font-orig); font-size:13px; line-height:1.5; color:var(--text-2); }
+.tc-meta { font-size:13px; line-height:1.5; color:var(--text-1); margin-top:2px; }
+.tc-meta .ph { color: var(--text-3); }
+
+.spec { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:20px; margin-top:16px; }
+.spec > div { background:var(--surface); border:1px solid var(--line); border-radius:var(--radius-card); padding:14px; }
+.spec h3 { margin:0 0 8px; font-size:13px; font-weight:600; color:var(--text-2); }
+.bar { height:4px; background:var(--sunken); border-radius:2px; overflow:hidden; }
+.bar i { display:block; height:100%; width:62%; background:var(--accent); }
+.chip { display:inline-block; font-size:12px; line-height:1.5; padding:0 6px;
+  border:1px solid var(--line-strong); border-radius:var(--radius-chip); color:var(--text-2); }
+.chip.warn { border-color:var(--accent); color:var(--accent); }
+.poster-ph { width:70px; height:105px; background:var(--sunken);
+  border:1px solid var(--line); border-radius:var(--radius-poster); }
+table { border-collapse:collapse; width:100%; font-size:13px; line-height:1.6; margin-top:8px; }
+th,td { text-align:left; padding:6px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+th { color:var(--text-2); font-weight:600; }
+.wide { overflow-x:auto; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a class="back" href="#">← 回到記錄</a>
+  <h1>新增作品</h1>
+</div>
+
+<main>
+  <p class="note" style="margin-top:16px">
+    <code>/app/films/new</code>　審查用說明物，不是要移植的程式碼。對應 <code>SCREENS §11</code>、<code>SPEC US-13~18</code>。
+    <strong>這一頁是「找不到片」流程的終點，是硬約束 (1) 最重要的落點——它必須讀起來像流程的下一步，不像錯誤畫面，也不像後台表單。</strong>
+  </p>
+
+  <h2 class="sec">1. 主版面（接續記錄的情境）</h2>
+  <div class="split">
+    <div>
+      <p class="lede">這部片還不在片庫裡。<br><span>填一點資料就能開始記錄。</span></p>
+
+      <div class="field">
+        <label>中文片名 <span class="req">必填</span></label>
+        <input class="inp" value="劇場版 吉伊卡哇 人魚島的秘密">
+        <p class="hint carried">從你剛剛搜尋的字帶過來，可以改。</p>
+      </div>
+
+      <div class="field">
+        <label>原文片名 <span class="opt">選填</span></label>
+        <input class="inp" placeholder="ちいかわ">
+      </div>
+
+      <div class="row2">
+        <div class="field">
+          <label>國別 <span class="opt">選填</span></label>
+          <input class="inp" value="日本">
+        </div>
+        <div class="field">
+          <label>上映年 <span class="opt">選填</span></label>
+          <input class="inp" value="2024">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>片長 <span class="opt">選填</span></label>
+        <div class="row-unit"><input class="inp" placeholder="96"><span>分鐘</span></div>
+      </div>
+
+      <div class="field">
+        <label>海報 <span class="opt">選填</span></label>
+        <div class="drop">
+          <b>拖曳或點擊上傳</b>
+          <span>長邊會縮到 500px。沒有也沒關係——右邊那張卡現在就是完整的。</span>
+        </div>
+      </div>
+
+      <p class="aside">
+        你新增的作品<b>只有你看得到</b>，審核通過後才會進入公共片庫。<br>
+        之後比對到 TMDB 會自動補上海報與詳細資料，你不用回頭維護。
+      </p>
+
+      <div class="actions">
+        <button class="btn">建立並繼續記錄</button>
+        <button class="btn ghost">取消</button>
+      </div>
+    </div>
+
+    <div class="preview-col">
+      <p class="cap">這部片在你的紀錄裡會長這樣</p>
+      <div class="tc">
+        <div class="tc-date"><span class="d">06</span><span class="wd">六</span></div>
+        <div class="tc-body">
+          <div class="title-zh">劇場版 吉伊卡哇 人魚島的秘密</div>
+          <div class="title-og">ちいかわ</div>
+          <div class="tc-meta"><span class="ph">影城與場次在下一步填</span></div>
+        </div>
+      </div>
+      <p class="cap" style="margin-top:12px">
+        <strong style="color:var(--text-1)">預覽即時跟著上面的欄位變。</strong>
+        它存在的理由只有一個：讓人在按下按鈕之前就看到「沒有海報也是一張完整的票根」，
+        而不是先想像出一個破圖再被安慰。
+      </p>
+    </div>
+  </div>
+
+  <h2 class="sec">2. 兩個入口，兩種收尾</h2>
+  <p class="note">
+    <code>/search</code> 與 <code>/app/records/new</code> 都連到這一頁，但使用者手上的東西不同。
+    <strong>差別只在返回目標與按鈕文案，表單本身完全一樣。</strong>
+  </p>
+  <div class="wide"><table>
+    <tr><th>從哪裡來</th><th>頂端返回</th><th>主要動作</th><th>按下之後</th></tr>
+    <tr>
+      <td><code>/app/records/new</code><br><span style="color:var(--text-2)">手上有一筆記到一半的紀錄</span></td>
+      <td>← 回到記錄</td><td>建立並繼續記錄</td>
+      <td>回 <code>/app/records/new</code>，這部片已選好，其餘欄位<strong>原樣還在</strong></td>
+    </tr>
+    <tr>
+      <td><code>/search</code><br><span style="color:var(--text-2)">只是在找片，手上沒有紀錄</span></td>
+      <td>← 回到搜尋</td><td>建立並記一場</td>
+      <td>去 <code>/app/records/new</code>，這部片已選好</td>
+    </tr>
+  </table></div>
+  <p class="aside" style="max-width:60ch">
+    <b>未登入從 <code>/search</code> 進來</b>：先導到登入並帶 <code>?next=</code>，登入後<b>直接回到這一頁且片名還在</b>。
+    把人丟回搜尋首頁等於要他重打一次，而他本來就是因為找不到才走到這裡的。
+  </p>
+
+  <h2 class="sec">3. 海報的四個狀態</h2>
+  <p class="note">
+    <code>ugc-poster</code> 是 private bucket 走 signed URL。<strong>四個狀態長得不一樣，而且都不可以出現破圖圖示。</strong>
+  </p>
+  <div class="spec">
+    <div>
+      <h3>① 沒有海報（預設，也是完成態）</h3>
+      <div class="tc" style="grid-template-columns:44px minmax(0,1fr)">
+        <div class="tc-date"><span class="d">06</span><span class="wd">六</span></div>
+        <div class="tc-body"><div class="title-zh">劇場版 吉伊卡哇</div><div class="title-og">ちいかわ</div></div>
+      </div>
+      <p class="cap" style="margin-top:8px">海報欄<strong>不存在</strong>，卡片自然變寬。不留灰色佔位、不畫破圖。</p>
+    </div>
+    <div>
+      <h3>② 上傳中</h3>
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <div class="poster-ph"></div>
+        <div style="flex:1">
+          <div class="bar"><i></i></div>
+          <p class="cap" style="margin-top:6px">62%　<a href="#" style="color:var(--accent)">取消</a></p>
+        </div>
+      </div>
+      <p class="cap" style="margin-top:8px">結構性骨架，不用轉圈（§10）。</p>
+    </div>
+    <div>
+      <h3>③ 待審核</h3>
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <div class="poster-ph" style="background:var(--accent-soft);border-color:var(--accent)"></div>
+        <div style="flex:1">
+          <span class="chip warn">審核中</span>
+          <p class="cap" style="margin-top:6px">只有你看得到。通過後其他人才看得到。</p>
+        </div>
+      </div>
+    </div>
+    <div>
+      <h3>④ 被拒</h3>
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <div class="poster-ph"></div>
+        <div style="flex:1">
+          <span class="chip">未通過</span>
+          <p class="cap" style="margin-top:6px">
+            這張圖是有著作權的海報，我們不能存。<br>
+            <a href="#" style="color:var(--accent)">換一張</a>　或　<a href="#" style="color:var(--accent)">就這樣不放海報</a>
+          </p>
+        </div>
+      </div>
+      <p class="cap" style="margin-top:8px">說發生了什麼與怎麼修，不道歉（§8）。「就這樣不放」要是一個真的選項。</p>
+    </div>
+  </div>
+
+  <h2 class="sec">4. 已比對到 TMDB 的作品：沒有海報欄位</h2>
+  <p class="note">
+    <code>SPEC</code> 明寫「已比對到 TMDB 的作品<strong>禁止上傳海報</strong>——無必要，只增加曝險」。
+    <strong>做法是那一欄根本不出現，不是出現一個停用的欄位。</strong>停用欄位等於公告「這裡本來有東西」，
+    然後逼使用者去想為什麼不能用。
+  </p>
+  <div class="split">
+    <div>
+      <div class="field">
+        <label>中文片名 <span class="req">必填</span></label>
+        <input class="inp" value="沙丘：第二部">
+      </div>
+      <div class="field">
+        <label>原文片名 <span class="opt">選填</span></label>
+        <input class="inp" value="Dune: Part Two">
+      </div>
+      <p class="aside">
+        這部片已經比對到 TMDB，<b>海報與詳細資料會自動帶入</b>，不用也不能自己上傳。
+      </p>
+      <div class="actions"><button class="btn">建立並繼續記錄</button></div>
+    </div>
+    <div class="preview-col">
+      <p class="cap">預覽</p>
+      <div class="tc" style="grid-template-columns:44px minmax(0,1fr) auto">
+        <div class="tc-date"><span class="d">06</span><span class="wd">六</span></div>
+        <div class="tc-body"><div class="title-zh">沙丘：第二部</div><div class="title-og">Dune: Part Two</div></div>
+        <div class="poster-ph" style="width:52px;height:78px;border:0;border-radius:0;align-self:stretch;height:auto"></div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="sec">5. 只有中文片名擋得住人</h2>
+  <div class="wide"><table>
+    <tr><th>欄位</th><th>必填</th><th>空的時候</th></tr>
+    <tr><td>中文片名</td><td><span class="req" style="color:var(--accent);font-weight:600">是</span></td>
+        <td>主要動作停用；錯誤顯示在欄位旁邊，不在頁面頂端（§10）</td></tr>
+    <tr><td>原文片名 / 國別 / 上映年 / 片長 / 海報</td><td>否</td>
+        <td><strong>票根卡上那一項就是不存在</strong>，不渲染「—」或「未知」佔位（同 §4.3 的票價規則）</td></tr>
+  </table></div>
+  <p class="aside" style="max-width:60ch">
+    <b>擋住人比資料不完整更糟。</b>US-14 寫的是「只需填片名與年份，補資料的成本夠低我才願意做」——
+    連年份都不該擋。缺的欄位之後比對到 TMDB 會自己補上（US-18）。
+  </p>
+</main>
+</body>
+</html>

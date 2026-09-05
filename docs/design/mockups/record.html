@@ -640,7 +640,7 @@ table.facts td:last-child{color:var(--text);font-variant-numeric:tabular-nums;}
           <!-- UButton block；sticky + safe-area-inset -->
           <div class="submit-bar">
             <p class="form-error" id="formError" hidden role="alert"></p>
-            <button class="btn-primary" type="button" id="submitBtn">記下來</button>
+            <button class="btn-primary" type="button" id="submitBtn">記一場</button>
             <!-- UToast -->
             <div class="toast" id="toast" role="status" hidden>記好了</div>
           </div>
@@ -1384,7 +1384,7 @@ document.getElementById('ticketsPlus').addEventListener('click', renderPreview);
 chips.addEventListener('click', renderPreview);
 
 /* ============================================================
-   送出（DS §8：按鈕「記下來」、toast「記好了」）
+   送出（DS §8.1：按鈕「記一場」、toast「記好了」）
    ============================================================ */
 var submitBtn = document.getElementById('submitBtn');
 var formError = document.getElementById('formError');
