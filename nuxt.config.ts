@@ -1,4 +1,5 @@
 import process from 'node:process'
+import { fileURLToPath } from 'node:url'
 
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
@@ -8,6 +9,15 @@ export default defineNuxtConfig({
 
   modules: ['@nuxt/ui', '@nuxtjs/supabase'],
   css: ['~/assets/css/main.css'],
+
+  // ★ `#pipeline` 在 package.json 的 imports 裡是 "#pipeline/*": "./src/*"，
+  //   而 Node 的 subpath imports **不補副檔名**——`#pipeline/match/matcher`
+  //   會去找不存在的 `./src/match/matcher`（實檔是 .ts）。rollup 與 TS 的
+  //   Bundler 模式都照 Node 的語意走，所以 server/** 裡的值匯入在執行期 ENOENT，
+  //   而 tsx、vitest、tsc 走的是 tsconfig paths，**全部照樣綠燈**。
+  //   這個別名補上 Vite/rollup 端的解析（它會補副檔名），兩條路徑才會一致。
+  //   同一類錯誤在本專案已出現三次，都是「測試與正式執行走不同解析路徑」。
+  alias: { '#pipeline': fileURLToPath(new URL('./src', import.meta.url)) },
 
   app: {
     head: {

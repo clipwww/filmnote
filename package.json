@@ -1,11 +1,12 @@
 {
   "name": "filmnote",
   "type": "module",
+  "private": true,
+  "packageManager": "pnpm@10.28.2",
+  "description": "影記 — 台灣在地觀影紀錄",
   "imports": {
     "#pipeline/*": "./src/*"
   },
-  "private": true,
-  "description": "影記 — 台灣在地觀影紀錄",
   "engines": {
     "node": ">=22.12.0"
   },
@@ -26,7 +27,8 @@
     "ingest:rating": "tsx src/pipeline/ingest-rating.ts",
     "ingest:cinema": "tsx src/pipeline/ingest-cinema.ts",
     "db:sql": "tsx --env-file=.env scripts/db.ts",
-    "import:mylog": "tsx --env-file=.env scripts/import-mylog.ts"
+    "import:mylog": "tsx --env-file=.env scripts/import-mylog.ts",
+    "tmdb:backfill": "tsx --env-file=.env scripts/tmdb-backfill.ts"
   },
   "dependencies": {
     "@internationalized/date": "^3.12.3",
@@ -54,6 +56,12 @@
     "vitest": "^5.0.0",
     "vue-tsc": "^3.2.0"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "vue-demi"
+    ]
+  },
   "overrides": {
     "typescript": "5.9.3"
   },
@@ -62,12 +70,5 @@
     "esbuild@0.28.2": true,
     "vue-demi@0.14.10": true,
     "fsevents@2.3.3": true
-  },
-  "packageManager": "pnpm@10.28.2",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild",
-      "vue-demi"
-    ]
   }
 }
