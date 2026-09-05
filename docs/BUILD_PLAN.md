@@ -13,16 +13,102 @@
 
 | # | 問題 | 修正 |
 |---|---|---|
-| A | `auth.uid() is null ⇒ 視為 service_role 放行`。anon 的 `auth.uid()` 同樣是 NULL，等於對未登入者關掉全部守門 | 一律改用 `current_user in ('postgres','service_role','supabase_admin')` |
-| B | 未做 `revoke execute ... from public`，PostgREST 把 `link_film_to_tmdb` 曝露給 anon | blanket revoke + `alter default privileges ... from **public**`（不是 anon/authenticated）+ 逐支 grant |
+| A | `auth.uid() is null ⇒ 視為 service_role 放行`。anon 的 `auth.uid()` 同樣是 NULL，等於對未登入者關掉全部守門 | `is_service_context()` 改判 **`session_user` + PostgREST 的 JWT `role` claim**。⚠️ 本欄原本寫「改用 `current_user in (…)`」，**那同樣是錯的**——見下方「修正 A 的更正」與踩雷 #31 |
+| B | 未做 `revoke execute ... from public`，PostgREST 把 `link_film_to_tmdb` 曝露給 anon | blanket revoke + 逐支 grant，但 revoke 的對象必須是 **`public, anon, authenticated` 三個一起**，且函式的 revoke 要放在**所有 `create function` 之後**。⚠️ 只 revoke `public` 不夠——見下方「修正 B 的更正」與踩雷 #73 |
 | C | `ugc-poster` bucket 設 `public: true` + anon select ⇒ 未審核海報全網可列舉 | **單一 bucket 但 `public: false`**，storage RLS 以 film 的審核狀態把關；讀取走 signed URL（不是付費牆，法遵不受影響） |
 | D | `film_identity` / `film_tmdb_snapshot` / `username` 用 `using (true)` ⇒ 私有 UGC 片名、全站舊 username 外洩 | 三張表的 SELECT policy 鏡射 film / profile 的可見性 |
 | E | `profile.role` / `service_status` 對 anon 可讀 ⇒ 管理員名單與三振紀錄公開 | **拆表**：`profile`（公開身分欄位）+ `profile_private`（role/service_status/strike_count，anon 無 policy 無 grant） |
 | F | 所有 policy 用裸 `auth.uid()` / `is_staff()` | 全部包成 `(select ...)` 提成 InitPlan |
 
+### 修正 A 的更正（2026-09-05 於真實 Supabase 專案實測後改寫）
+
+**`current_user` 不能用來判斷特權情境，這條原文是可被利用的。** 踩雷 #31 早就寫著這件事，但本表 A 欄仍採用了 `current_user`，兩處互相矛盾。
+
+原因：`is_service_context()` 是被 `merge_films` / `link_film_to_tmdb` / `seed_films` 這類 **SECURITY DEFINER** 函式呼叫的，而在 definer 內 `current_user` 是**函式擁有者 `postgres`**，不是呼叫者。實測（PG 17.6 + PostgREST）：
+
+```
+一般登入使用者（is_staff() = false）在 SECURITY DEFINER 內：
+  current_user = 'postgres'   session_user = 'authenticator'
+  request.jwt.claims->>'role' = 'authenticated'
+  ⇒ is_service_context() 回 true
+```
+
+於是任何**已註冊的一般使用者**都能成功呼叫 `POST /rest/v1/rpc/merge_films`（實測回 **HTTP 204**），把任意兩部作品合併：敗方 `visibility` 被壓成 `private` 而從公開片庫消失，所有人指向它的 `viewing_record` 被搬走。這是全站級破壞。
+
+§5 Step 7 的驗收之所以抓不到，是因為它只測**匿名**（`$ANON` → 期望 401），沒測**已登入的一般使用者**。修正後該驗收應增加一列：以一般使用者 JWT 呼叫 `merge_films` → 必須 `403 / 42501`。
+
+正解（兩個來源都不受 SECURITY DEFINER 影響）：
+
+```sql
+create or replace function public.is_service_context()
+returns boolean language sql stable set search_path = '' as $$
+  select session_user in ('postgres','supabase_admin','supabase_storage_admin')
+      or coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role',
+                  '') = 'service_role';
+$$;
+```
+
+`session_user` 走 PostgREST 時**一律**是 `authenticator`（anon 與 service_role 皆然），只有直連才是 `postgres`；`request.jwt.claims.role` 是 PostgREST 依已驗簽 JWT 設定的，使用者無法覆寫——他們只能呼叫逐支 grant 的 RPC，而沒有任何一支會呼叫 `set_config`。實測對照表：
+
+| 呼叫路徑 | `current_user`（definer 內） | `session_user` | `jwt.claims.role` |
+|---|---|---|---|
+| 直連 postgres（migration / `db:sql`） | `postgres` | `postgres` | *(none)* |
+| PostgREST + publishable key | **`postgres`** | `authenticator` | `anon` |
+| PostgREST + 使用者 JWT | **`postgres`** | `authenticator` | `authenticated` |
+| PostgREST + secret key | **`postgres`** | `authenticator` | `service_role` |
+
+§12 的 migration 結尾另加一條迴歸守衛：`is_service_context()` 的原始碼若再出現 `current_user`，整份 migration 直接 raise。
+
+### 修正 B 的更正（同上，實測後改寫）
+
+**Supabase 的專案樣板自帶一份 `pg_default_acl`，直接把權限授給 `anon` / `authenticated`，而不是經由 PUBLIC。** 踩雷 #29 說「預設 EXECUTE 授予的是 PUBLIC，寫成 `from anon, authenticated` 是無效的」——這句只對了一半。實測任一新專案：
+
+```
+grantor=postgres  schema=public  objtype=f  →  postgres=X | anon=X | authenticated=X | service_role=X
+grantor=postgres  schema=public  objtype=r  →  postgres=arwdDxtm | anon=arwdDxtm | authenticated=arwdDxtm | …
+grantor=postgres  schema=public  objtype=S  →  （序列同上）
+```
+
+也就是說：**每一張新表出生就對 `anon` 有 `arwdDxtm`（含 DELETE / TRUNCATE），每一支新函式出生就對 `anon` 有 EXECUTE。** 只 `revoke … from public` 完全拿不掉這一份。
+
+本計畫第一次套用時，§12 結尾的自我檢查就是被這個擋下來的：
+
+```
+error: SECURITY DEFINER 對 anon/PUBLIC 開放 EXECUTE：link_film_to_tmdb, handle_new_user,
+film_sync_identity, apply_three_strikes, approve_film, rename_username, merge_films,
+apply_tmdb_snapshot, purge_expired_tmdb_cache, seed_films
+```
+
+objtype=`r` 那一列的影響更值得注意：§1.3 宣稱的「`pp_read_self` + **無 anon grant**」這層縱深防禦，在修正前**根本不存在**——`profile_private` / `import_run` / `copyright_strike` 等表實際上對 anon 是全開的，只剩 RLS 一層擋著。
+
+正解有三個要點：
+
+1. revoke 的對象一律寫成 **`public, anon, authenticated`** 三個一起。
+2. **表與序列**的 blanket revoke 要放在 §13 的 `grant` **之前**（否則會把要給的權限一起洗掉）。
+3. **函式**的 revoke 要放在**所有 `create function` 之後**（新增 §15.5）——否則 §14 / §15 才建立的函式會落在 revoke 後面，重新拿到 Supabase 預設授予 anon 的 EXECUTE。
+
+### ⚠️ 修正 B 承諾的「日後新增的函式預設不可執行」在 Supabase 上做不到
+
+`alter default privileges … revoke execute on functions from anon, authenticated` **有效**（實測 `pg_default_acl` 該列會被改寫）。但 **`from public` 那一份拿不掉**。migration 跑完後新建一支探測函式：
+
+```
+zz_probe.proacl = '=X/postgres | postgres=X/postgres | service_role=X/postgres'
+                        ↑ 這就是 PUBLIC
+has_function_privilege('anon',   'zz_probe()', 'execute') = true
+has_function_privilege('public', 'zz_probe()', 'execute') = true
+```
+
+新函式的 `proacl` 會塌回 `NULL`，而 `NULL` 就是「內建預設」＝ PUBLIC 有 EXECUTE。試過先清空整列再 revoke、調換順序，結果相同。
+
+⇒ **唯一可靠的守門是 §12 結尾的自我檢查**，且該檢查必須從「只查 SECURITY DEFINER」擴大成「**查所有** anon/PUBLIC 可執行的函式，比對一份顯式白名單」。日後新增 RPC 若忘了在 §15.5 revoke，migration 會失敗而不是靜默裸奔。
+
 D+E 的副作用是**提權防線可以少一層**：`profile` 表裡根本沒有 role 欄位，`profile_update_self` 的 `with check (id = (select auth.uid()))` 就已經封死；`film` 的 UPDATE policy 直接在 `with check` 裡把 `review_state` / `visibility` / `tmdb_id` 釘成常數，也不再需要 guard trigger。表級 CHECK 仍保留作為最後一層。
 
 ## 1.2 完整 migration
+
+> 本節與 `supabase/migrations/0001_init.sql` **逐字相同**（該檔以本節產生）。
+> 2026-09-05 已在真實 Supabase 專案（PostgreSQL 17.6）套用並通過全部驗收，
+> 對已 seed 的資料重跑亦不損一列。修改任一邊都必須同步另一邊。
 
 檔案：`supabase/migrations/0001_init.sql`（**覆蓋**現有那份 1353 行的提案 3 草稿；它尚未套用到任何專案）。
 
@@ -67,10 +153,29 @@ returns text language sql immutable set search_path = '' as $$
     lower(extensions.unaccent(coalesce(src,''))), '[^a-z0-9]+', '-', 'g')), '');
 $$;
 
--- 服務情境判定。★ 絕不用 auth.uid() is null —— anon 的 uid 同樣是 NULL。
+-- 服務情境判定。兩個都不能用，理由不同：
+--
+--   ✗ auth.uid() is null      —— anon 的 uid 同樣是 NULL，等於對全世界關掉守門
+--                                （docs/BUILD_PLAN.md §1.1 修正 A、踩雷 #30）
+--   ✗ current_user in (…)     —— 在 SECURITY DEFINER 內 current_user 是**函式擁有者**
+--                                (postgres)，任何拿得到 EXECUTE 的人都會被判成服務端
+--                                （踩雷 #31）。§1.1 修正 A 採用了這個寫法，但它是錯的。
+--
+--   2026-09-05 實測（PG 17.6 / PostgREST）已證實可利用：
+--     一般登入使用者（is_staff() = false）呼叫 rpc/merge_films → HTTP 204，
+--     任意兩部作品被合併、敗方 visibility 被壓成 private。
+--
+--   ✓ 正解是兩個都不受 SECURITY DEFINER 影響的來源：
+--     ① session_user —— 直連資料庫（migration / psql）時是 postgres；
+--                        走 PostgREST 時一律是 authenticator，anon 與 service_role 皆然
+--     ② PostgREST 依「已驗簽的 JWT」設定的 request.jwt.claims.role
+--        使用者無法自行覆寫：他們只能呼叫我們逐支 grant 的 RPC，沒有任何一支呼叫 set_config
 create or replace function public.is_service_context()
 returns boolean language sql stable set search_path = '' as $$
-  select current_user in ('postgres','service_role','supabase_admin','supabase_storage_admin');
+  select session_user in ('postgres','supabase_admin','supabase_storage_admin')
+      or coalesce(
+           nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role',
+           '') = 'service_role';
 $$;
 
 -- 法定期間以工作日計（只扣週末，不含國定假日 ⇒ 蓄意保守，期限只會更晚不會更早）
@@ -152,7 +257,11 @@ language sql stable security definer set search_path = '' as $$
   select coalesce((select p.show_cost from public.profile p where p.id = uid), false);
 $$;
 
--- 新使用者：username 取 email @ 前綴，衝突時補流水號
+-- 新使用者：username 取 email @ 前綴，衝突時補流水號。
+-- ★ 整段包 exception handler（docs/BUILD_PLAN.md §7.2 踩雷 #27）：
+--   此 trigger 一旦 raise，Supabase 的註冊整筆失敗，使用者只看到
+--   "Database error saving new user" 且完全無法登入。profile 缺列可事後補
+--   （見下方 backfill），註冊失敗補不回來 —— 失敗方向必須指向「先讓人進得來」。
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = '' as $$
 declare base text; cand text; n integer := 0;
@@ -164,16 +273,44 @@ begin
     cand := case when n = 0 then base else base || n::text end;
     exit when not exists (select 1 from public.username u where u.name = cand);
     n := n + 1;
+    if n > 10000 then cand := 'user' || replace(new.id::text, '-', ''); exit; end if;
   end loop;
   insert into public.profile (id, username) values (new.id, cand) on conflict (id) do nothing;
   insert into public.profile_private (id) values (new.id) on conflict (id) do nothing;
   insert into public.username (name, profile_id, kind) values (cand, new.id, 'active')
     on conflict (name) do nothing;
   return new;
+exception when others then
+  raise warning 'handle_new_user 失敗 (user=%): % —— 帳號仍建立，profile 待 backfill', new.id, sqlerrm;
+  return new;
 end $$;
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created after insert on auth.users
   for each row execute function public.handle_new_user();
+
+-- Backfill：Step 1 的骨架先於 schema 上線，那時登入的帳號沒有 profile 列。
+-- 沒有 profile_private 的帳號 account_is_servable() 回 false ⇒ 個人頁對外消失、
+-- 連自己都建不了紀錄。這段補齊並保持冪等，日後 trigger 萬一吞掉錯誤也靠它復原。
+do $$ declare u record; base text; cand text; n integer;
+begin
+  for u in select id, email from auth.users
+            where id not in (select id from public.profile) loop
+    base := coalesce(nullif(regexp_replace(lower(split_part(u.email,'@',1)),'[^a-z0-9_-]','','g'),''),'user');
+    base := left(base, 24);
+    if length(base) < 2 then base := base || 'x'; end if;
+    n := 0;
+    loop
+      cand := case when n = 0 then base else base || n::text end;
+      exit when not exists (select 1 from public.username x where x.name = cand);
+      n := n + 1;
+    end loop;
+    insert into public.profile (id, username) values (u.id, cand) on conflict (id) do nothing;
+    insert into public.username (name, profile_id, kind) values (cand, u.id, 'active')
+      on conflict (name) do nothing;
+  end loop;
+  insert into public.profile_private (id) select p.id from public.profile p
+    on conflict (id) do nothing;
+end $$;
 
 -- 改名。舊名不刪除，改 kind 繼續佔位 ⇒ 舊網址可解析，且舊名不會被別人搶走。
 create or replace function public.rename_username(p_new text)
@@ -678,7 +815,12 @@ select f.id, f.slug, f.tmdb_id, f.imdb_id, f.title_zh, f.title_original, f.count
        case when s.expires_at > now() then s.backdrop_path end as tmdb_backdrop_path,
        case when s.expires_at > now() then s.overview end      as overview,
        case when s.expires_at > now() then s.tw_release_date end as tw_release_date,
-       f.updated_at
+       f.updated_at,
+       -- 搜尋用。內容是 lower(title_zh || ' ' || title_original) 的 generated column，
+       -- 兩個欄位本來就公開，所以不外洩任何東西；曝露它是為了讓 `like` 走得到
+       -- film_search_trgm（gin_trgm_ops）。實測 2,669 列：走索引 4 個 buffer，
+       -- 對 title_zh / title_original 各做 ilike 則是 seq scan、144 個 buffer。
+       f.search_text
 from public.film f left join public.film_tmdb_snapshot s on s.film_id = f.id
 where f.merged_into_film_id is null and f.visibility = 'public' and f.moderation_state = 'visible';
 comment on view public.film_public is
@@ -855,6 +997,22 @@ create policy report_read on public.data_report for select to authenticated
 -- -----------------------------------------------------------------------------
 -- 13. 權限（表層 GRANT 不做欄位級；函式一律先 revoke 再逐支 grant）
 -- -----------------------------------------------------------------------------
+-- ★★ 實測更正（2026-09-05，PostgreSQL 17.6）：docs/BUILD_PLAN.md §1.1 修正 B 與踩雷 #29
+--    只說對了一半。Postgres 的「內建」預設把函式 EXECUTE 授予 PUBLIC 沒錯，但 Supabase 的
+--    專案樣板另外還有一份 pg_default_acl：
+--      alter default privileges for role postgres in schema public
+--        grant all      on tables    to anon, authenticated, service_role;
+--        grant all      on sequences to anon, authenticated, service_role;
+--        grant execute  on functions to anon, authenticated, service_role;
+--    ⇒ 每一張新表、每一支新函式「出生就對 anon 全開」，而且那是**直接授予 anon**，
+--      不是經由 PUBLIC。只 revoke PUBLIC 完全拿不掉它。
+--    這也是本檔第一次套用時 §16 自我檢查擋下來的東西（10 支 definer 函式對 anon 可執行）。
+--    因此下面一律「revoke from public, anon, authenticated」三個對象一起寫。
+revoke all on all tables    in schema public from anon, authenticated;
+revoke all on all sequences in schema public from anon, authenticated;
+alter default privileges for role postgres in schema public revoke all on tables    from anon, authenticated;
+alter default privileges for role postgres in schema public revoke all on sequences from anon, authenticated;
+
 grant usage on schema public to anon, authenticated;
 grant select on public.profile, public.username, public.film, public.film_identity,
   public.film_tmdb_snapshot, public.certificate, public.venue, public.screening_format,
@@ -872,24 +1030,8 @@ grant update on public.profile_private, public.film, public.viewing_record to au
 grant select on public.tmdb_refresh_due to service_role;
 grant usage on all sequences in schema public to authenticated;
 
--- ★ Postgres 函式的預設 EXECUTE 授予對象是 PUBLIC，不是 anon/authenticated。
---   revoke 寫錯對象等於沒做，這正是提案 1 的 bug 與提案 3 P0 破口的共同根源。
-revoke execute on all functions in schema public from public;
-alter default privileges in schema public revoke execute on functions from public;
-alter default privileges for role postgres in schema public revoke execute on functions from public;
-
--- policy 內用到的 helper 必須對查詢角色開 EXECUTE，否則全站 403。
-grant execute on function public.is_staff(), public.is_admin(),
-  public.account_is_servable(uuid), public.owner_shows_cost(uuid),
-  public.record_owner(uuid), public.record_is_public(uuid),
-  public.film_usable_by(uuid, uuid), public.resolve_film(text),
-  public.resolve_username(text), public.slugify(text) to anon, authenticated;
-grant execute on function public.rename_username(text) to authenticated;
-grant execute on function public.merge_films(uuid, uuid, text),
-  public.approve_film(uuid, boolean) to authenticated, service_role;
-grant execute on function public.link_film_to_tmdb(uuid, integer),
-  public.apply_tmdb_snapshot(uuid), public.purge_expired_tmdb_cache(),
-  public.seed_films(jsonb) to service_role;
+-- 函式權限見 §15.5 —— 必須在**所有**函式建立完之後才做，否則 §14 / §15 新建的
+-- 函式會落在 revoke 之後，重新拿到 Supabase 預設授予 anon 的 EXECUTE。
 
 -- -----------------------------------------------------------------------------
 -- 14. UGC 海報 Storage
@@ -907,7 +1049,6 @@ create or replace function public.ugc_poster_film(p_name text) returns uuid
 language sql immutable set search_path = '' as $$
   select case when split_part(p_name,'/',1) ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
               then split_part(p_name,'/',1)::uuid end; $$;
-grant execute on function public.ugc_poster_film(text) to anon, authenticated;
 
 drop policy if exists ugc_poster_read on storage.objects;
 create policy ugc_poster_read on storage.objects for select to anon, authenticated
@@ -948,7 +1089,40 @@ language sql stable security invoker set search_path = '' as $$
       left join public.viewing_record_cost c on c.record_id = r.id
       where r.user_id = auth.uid()), '[]'::jsonb));
 $$;
-grant execute on function public.export_my_data() to authenticated;
+
+-- -----------------------------------------------------------------------------
+-- 15.5 函式權限 —— ★ 必須放在所有 create function 之後
+--
+--   兩個獨立的機制會讓函式「出生就對外開放」，兩個都要處理：
+--     ① Postgres 內建預設：新函式的 EXECUTE 授予 PUBLIC
+--     ② Supabase 專案樣板的 pg_default_acl：另外直接授予 anon / authenticated
+--
+--   實測（PG 17.6）：`alter default privileges … revoke execute on functions from public`
+--   **無法**阻止未來的函式被 PUBLIC 執行 —— 新函式的 proacl 會塌回 NULL，
+--   而 NULL 就是「內建預設」＝ PUBLIC 有 EXECUTE。對 anon/authenticated 的
+--   alter default privileges revoke 則確實有效（實測 pg_default_acl 該列會被改寫）。
+--
+--   ⇒ 唯一可靠的作法是「函式全部建好之後顯式 revoke，再逐支 grant」。
+--     未來新增 RPC 時若忘了照做，由 §16 的自我檢查擋下（本檔第一次套用就是它擋住的）。
+-- -----------------------------------------------------------------------------
+revoke execute on all functions in schema public from public, anon, authenticated;
+alter default privileges for role postgres in schema public
+  revoke execute on functions from public, anon, authenticated;
+
+-- policy 內用到的 helper 必須對查詢角色開 EXECUTE，否則全站 403。
+grant execute on function public.is_staff(), public.is_admin(),
+  public.account_is_servable(uuid), public.owner_shows_cost(uuid),
+  public.record_owner(uuid), public.record_is_public(uuid),
+  public.film_usable_by(uuid, uuid), public.resolve_film(text),
+  public.resolve_username(text), public.slugify(text),
+  public.ugc_poster_film(text) to anon, authenticated;
+grant execute on function public.rename_username(text),
+  public.export_my_data() to authenticated;
+grant execute on function public.merge_films(uuid, uuid, text),
+  public.approve_film(uuid, boolean) to authenticated, service_role;
+grant execute on function public.link_film_to_tmdb(uuid, integer),
+  public.apply_tmdb_snapshot(uuid), public.purge_expired_tmdb_cache(),
+  public.seed_films(jsonb) to service_role;
 
 -- -----------------------------------------------------------------------------
 -- 16. 上線前自我檢查 —— 把最致命且靜默的失誤變成 migration 失敗
@@ -974,13 +1148,29 @@ begin
      and coalesce(array_to_string(p.proconfig, ','), '') not like '%search_path%';
   if bad is not null then raise exception 'SECURITY DEFINER 未釘 search_path：%', bad; end if;
 
+  -- ★ 這條檢查不限 SECURITY DEFINER，而是「所有」anon/PUBLIC 可執行的函式。
+  --   原因：實測 PG 17.6 上 `alter default privileges … revoke execute on functions
+  --   from public` **無法**阻止未來新增的函式被 PUBLIC 執行（新函式的 proacl 會塌回
+  --   NULL ＝ 內建預設 ＝ PUBLIC 有 EXECUTE）。§1.1 修正 B 的保證在 Supabase 上不成立，
+  --   所以「哪些函式可以被匿名執行」只能靠這份顯式白名單守住。
+  --   新增 RPC 時若忘了在 §15.5 revoke，這裡就會讓整份 migration 失敗。
   select string_agg(p.proname, ', ') into bad from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-   where n.nspname = 'public' and p.prosecdef
+   where n.nspname = 'public' and p.prokind = 'f'
      and p.proname not in ('is_staff','is_admin','account_is_servable','owner_shows_cost',
-                           'record_owner','record_is_public','film_usable_by','resolve_film','resolve_username')
+                           'record_owner','record_is_public','film_usable_by','resolve_film',
+                           'resolve_username','slugify','ugc_poster_film')
      and (has_function_privilege('anon', p.oid, 'execute')
           or has_function_privilege('public', p.oid, 'execute'));
-  if bad is not null then raise exception 'SECURITY DEFINER 對 anon/PUBLIC 開放 EXECUTE：%', bad; end if;
+  if bad is not null then raise exception '函式對 anon/PUBLIC 開放 EXECUTE：%', bad; end if;
+
+  -- ★ 迴歸守衛：is_service_context() 絕不可回頭用 current_user。
+  --   在 SECURITY DEFINER 內 current_user 是函式擁有者 (postgres)，任何拿得到
+  --   EXECUTE 的使用者都會被判成服務端（踩雷 #31，已實測可利用）。
+  if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'public' and p.proname = 'is_service_context'
+                and pg_get_functiondef(p.oid) ~ 'current_user') then
+    raise exception 'is_service_context() 使用了 current_user —— 在 SECURITY DEFINER 內會被提權';
+  end if;
 
   if exists (select 1 from storage.buckets where id = 'ugc-poster' and public) then
     raise exception 'ugc-poster 為 public bucket，未審核海報將全網可列舉'; end if;
@@ -1022,7 +1212,7 @@ end $$;
 
 **寫得到**：只有 `takedown_notice` 的 INSERT。
 
-**完全讀不到**：`profile_private`（role / service_status / strike_count）、`import_run`、`film_merge_log`、`legal_acceptance`、`counter_notice`、`copyright_strike`、`data_report`、`tmdb_refresh_due`、任何 pending/private 作品與其海報。**可執行的函式**只有九支 RLS helper 加 `resolve_film` / `resolve_username` / `slugify` / `ugc_poster_film`——`merge_films`、`link_film_to_tmdb`、`seed_films`、`purge_expired_tmdb_cache` 對 anon 一律 403。
+**完全讀不到**：`profile_private`（role / service_status / strike_count）、`import_run`、`film_merge_log`、`legal_acceptance`、`counter_notice`、`copyright_strike`、`data_report`、`tmdb_refresh_due`、任何 pending/private 作品與其海報。**可執行的函式**恰為十一支（`is_staff` / `is_admin` / `account_is_servable` / `owner_shows_cost` / `record_owner` / `record_is_public` / `film_usable_by` / `resolve_film` / `resolve_username` / `slugify` / `ugc_poster_film`）——`merge_films`、`approve_film`、`link_film_to_tmdb`、`seed_films`、`purge_expired_tmdb_cache`、`export_my_data`、`rename_username` 對 anon 一律 401。這份清單同時是 §12 自我檢查的白名單，新增 RPC 忘了 revoke 會讓 migration 失敗。
 
 ## 1.5 UGC 作品 private → public 的轉換路徑
 
@@ -1379,7 +1569,10 @@ export SITE="http://localhost:3000"     # Step 11 之後改成 https://filmnote.
 - 瀏覽器走完 Google 登入 → 回到 `/confirm` → 轉進 `/app`；DevTools → Application → Cookies 有 `sb-<ref>-auth-token`。
 - 在 `/app` 印出 `useSupabaseUser().value` → 有 `sub`、**沒有 `id`**（v2 回傳的是 JWT claims 不是 User，踩雷 #13）。全 codebase `grep -rn 'user.value.id\|user\.id' app server` 必須為 0 筆。
 - 未登入直接打 `$SITE/app/new` → 被導到 `/login`（驗 `include: ['/app(/*)?']` 的 RegExp 真的匹配子路徑，踩雷 #15）。
-- `npm run build` 後 `ls .output/public/index.html` 存在（首頁確實被 prerender）、`ls .output/public/app` 不存在。
+- `npm run build` 後 `ls -d .output/public/app` **不存在**（`ssr:false` 的路由不會產生靜態檔）。
+  ⚠️ **不要**斷言 `.output/public/index.html` 存在——`/` 走的是 `isr` 不是 `prerender`，兩者互斥：
+  prerender 在 build 時產生靜態檔，ISR 是首次請求才算繪並在邊緣快取。實測 `.output/public/`
+  只有 `_nuxt/`。`/` 的 SSR 改以原始 HTML 內容驗證：`curl -s $SITE/ | grep -c '<首頁文字>'` ≥ 1。
 
 ---
 
@@ -1562,7 +1755,20 @@ curl -s -X POST "$URL/storage/v1/object/list/ugc-poster-pending" \
 - 審核通過後：作品進公共片庫、海報改由 `ugc-poster` 供應且**已不在 pending bucket**、`film_identity` 多一筆 `slug:`。
 - 合併兩部作品後：`viewing_record` 一列都沒少、敗方的 `gov:` 鍵指向存活者；**再跑一次 seed 不會復活出重複列**。
 - 非 admin 帳號呼叫 `admin_approve_film` → `42501`。
-- **匿名破壞性寫入測試**（提案 3 的 P0 破口）：`curl -X POST "$URL/rest/v1/rpc/admin_merge_film" -H "apikey: $ANON" -d '{...}'` → `401/404`，**不得是 200**。
+- **破壞性寫入測試（兩種身分都要測，只測匿名會漏掉真正的破口）**：
+  ```bash
+  # ① 匿名 —— 沒有 EXECUTE，應該連函式都看不到
+  curl -X POST "$URL/rest/v1/rpc/merge_films" -H "apikey: $ANON" \
+       -d '{"p_loser":"<A>","p_winner":"<B>"}'            # 401/404，不得 200/204
+  # ② 已登入的一般使用者（is_staff() = false）★ 這條才是實際被攻破的那一條
+  curl -X POST "$URL/rest/v1/rpc/merge_films" -H "apikey: $ANON" \
+       -H "Authorization: Bearer $USER_JWT" \
+       -d '{"p_loser":"<A>","p_winner":"<B>"}'            # 必須 403 / 42501 權限不足
+  # ③ service_role —— 排程與 seed 靠這條，必須仍然可用
+  curl -X POST "$URL/rest/v1/rpc/merge_films" -H "apikey: $SECRET" \
+       -H "Authorization: Bearer $SECRET" -d '{...}'            # 204
+  ```
+  ②在採用 `current_user` 判準時實測回 **204**（合併成功），見 §1.1「修正 A 的更正」。
 
 ---
 
@@ -1621,7 +1827,8 @@ curl -s "$URL/rest/v1/dmca_notice?select=*" -H "apikey: $ANON"                  
 - `curl -I https://filmnote.tw/film/{slug}` 打兩次 → 第二次 `x-vercel-cache: HIT`。
 - `curl -I https://filmnote.tw/u/{username}` → **沒有** `x-vercel-cache`。
 - **重跑 Step 4 的全部十條驗收，這次打正式站。**（CDN 是新的變因，本機通過不代表線上通過。）
-- `/legal/terms` 與 `/` 是 build 時就存在的靜態檔。
+- `/legal/terms` 是 build 時就存在的靜態檔（`prerender: true`）。
+- `/` **不是**靜態檔（`isr: 300`）：`curl -I https://filmnote.tw/` 打兩次，第二次應出現 `x-vercel-cache: HIT`。
 
 ---
 
@@ -1695,9 +1902,9 @@ curl -s "$URL/rest/v1/dmca_notice?select=*" -H "apikey: $ANON"                  
 
 | # | 踩雷點 | 來源 |
 |---|---|---|
-| 29 | **`alter default privileges … revoke execute on functions from anon, authenticated` 是無效的。** 新函式的預設 EXECUTE 授予的是 **PUBLIC**。寫錯對象 → 下一次 migration 新增的任何 RPC 預設就是 anon 可呼叫 | judge-leak，提案 1 §0.1 |
+| 29 | **只 revoke PUBLIC 或只 revoke anon/authenticated，兩種寫法單獨都不夠。** Postgres 內建預設把 EXECUTE 給 **PUBLIC**，而 Supabase 另外還直接授給 **anon/authenticated**（見 #73）。必須三個對象一起 revoke | judge-leak + 2026-09-05 實測 |
 | 30 | **絕不用 `auth.uid() is null` 當「service_role 直連，放行」的判準。** anon 的 `auth.uid()` 同樣是 NULL —— 這條件把守門邏輯對未登入者整組關掉（提案 3 因此讓 anon 可呼叫破壞性 RPC） | judge-practical |
-| 31 | **也不能用 `current_user` 判斷特權情境。** 所有 SECURITY DEFINER 的 owner 都是 postgres → 日後新增的 definer 函式會讓 guard 觸發器整組跳過。用 `session_user` + 顯式 transaction-local 旗標 | judge-practical |
+| 31 | **也不能用 `current_user` 判斷特權情境（★ 實測已攻破，非理論風險）。** 在 SECURITY DEFINER 內 `current_user` 是函式擁有者 `postgres`，於是**任何拿得到 EXECUTE 的人**都被判成服務端。實測：一般登入使用者呼叫 `rpc/merge_films` 回 **HTTP 204**，任意兩部作品被合併。改用 `session_user` + PostgREST 的 `request.jwt.claims.role`，見 §1.1「修正 A 的更正」 | judge-practical + 2026-09-05 實測 |
 | 32 | **Postgres 的 view 預設以擁有者權限執行 = 完全繞過 RLS。** 忘了 `security_invoker=true` 就是把底表全站公開 | PG 文件；提案 1 §6 |
 | 33 | **絕不對 SELECT 做欄位級 `revoke`。** 一旦 `revoke select (cost)`，PostgREST 預設的 `select=*` 直接 permission denied，錯誤訊息毫無上下文 | judge-practical（提案 2 的正確判斷） |
 | 34 | **RLS 的 `WITH CHECK` 只看得到 NEW，看不到 OLD**，無法表達「此欄不准被改」。必須靠 BEFORE 觸發器 | judge-leak |
@@ -1713,6 +1920,12 @@ curl -s "$URL/rest/v1/dmca_notice?select=*" -H "apikey: $ANON"                  
 | 44 | **`permit_no` 不能當主鍵。** 110–112 年 CSV 無系列前綴，四系列各自從 001 編號而大量撞號（128/143/157 筆） | SPEC |
 | 45 | **`create policy … on storage.objects` 需要該表擁有權。** SQL Editor 通常可以，CLI migration 偶爾需要 `supabase_admin` | 提案 1 自陳風險 |
 | 46 | **`delete from auth.users` 是否為 postgres 可執行需實測。** 若否，帳號刪除須改走 Edge Function + Admin API | 同上 |
+| 73 | **★ Supabase 的專案樣板自帶 `ALTER DEFAULT PRIVILEGES … GRANT … TO anon, authenticated, service_role`，涵蓋 tables / sequences / functions 三種物件。** 也就是**每一張新表出生就對 anon 有 `arwdDxtm`（含 DELETE/TRUNCATE），每一支新函式出生就對 anon 有 EXECUTE**，而且是**直接授予 anon**、不經由 PUBLIC ⇒ `revoke … from public` 拿不掉。任何「我沒 grant 所以 anon 讀不到」的推論在 Supabase 上都是錯的，RLS 是唯一還在擋的東西。查證指令：`select pg_get_userbyid(defaclrole), defaclobjtype, defaclacl from pg_default_acl;` | 2026-09-05 實測（新專案即如此） |
+| 74 | **`alter default privileges … revoke execute on functions from public` 在 Supabase 上擋不住未來的函式。** 對 anon/authenticated 的 revoke 有效，但 PUBLIC 那份拿不掉——新函式的 `proacl` 會塌回 `NULL`，而 `NULL` 就是內建預設（PUBLIC 有 EXECUTE）。⇒ 不要相信「日後新增的函式預設不可執行」這個保證，改用 migration 結尾的白名單自我檢查 | 2026-09-05 實測（PG 17.6） |
+| 75 | **函式的 blanket revoke 必須放在所有 `create function` 之後。** 放在中間的話，後面才建立的函式會重新拿到 #73 那份預設授權。表與序列的 revoke 則相反，要放在 `grant` **之前**，否則會把剛給的權限一起洗掉 | 同上 |
+| 76 | **`db.<ref>.supabase.co`（direct connection）只有 AAAA 記錄。** 沒有 IPv6 的機器一律 `getaddrinfo ENOTFOUND`，與憑證無關。改用 session pooler `aws-N-<region>.pooler.supabase.com:**5432**`（**5432 是 session mode，6543 才是 transaction mode**），使用者名稱要寫成 `postgres.<ref>`。`inet_server_addr()` 實測是同一台 DB，DDL 與 prepared statement 行為相同 | 2026-09-05 實測 |
+| 77 | **`supabase gen types typescript` 即使給了 `--db-url` 仍需要 Docker**（CLI 2.20 / 2.30 / 2.48 實測皆然，錯誤為 `failed to inspect docker image`）。沒有 Docker 的機器要嘛改用 Management API（需 personal access token），要嘛自己從資料庫目錄產生（本專案採後者，見 `scripts/gen-types.ts`） | 2026-09-05 實測 |
+| 78 | **自產型別時 `Relationships[].isOneToOne` 不可以是 `null`。** `GenericRelationship` 宣告為 `isOneToOne?: boolean`，一旦出現 `null`，整個 `Database` 就不滿足 `GenericSchema`，於是**所有** `select()` 的列型別靜默塌成 `never`——錯誤訊息只會說「Property 'x' does not exist on type 'never'」，完全指不到根因。SQL 端記得 `coalesce(bool_or(...), false)` | 2026-09-05 實測 |
 
 ## 7.4 Nuxt UI / ECharts
 
@@ -1756,8 +1969,17 @@ curl -s "$URL/rest/v1/dmca_notice?select=*" -H "apikey: $ANON"                  
 
 ## 8.1 資料庫（最高優先）
 
-1. **本計畫的 SQL 未在真實 Postgres 上執行過。** 第一件事是對本機專案 `supabase db reset` 跑一次。特別留意：`create policy … on storage.objects` 是否需要 `supabase_admin`；`delete from auth.users` 是否為 postgres 可執行（若否，`delete_my_account()` 必須改走 Edge Function + Admin API）；`admin_add_strike()` 內對 `profile` 的 UPDATE 會觸發 guard trigger，其 transaction-local bypass 旗標在 AFTER trigger 情境下是否確實生效。
-2. **特權情境判定（`session_user` / `current_user`）的三個判準需逐一實測**：PostgREST + service_role key 時 `current_user` 是否為 `service_role`；PostgREST + user JWT 呼叫 DEFINER 函式時 `session_user` 是否為 `authenticator`；`db reset` / seed 時 `session_user` 是否為 `postgres`。任一不符，guard 觸發器會在錯誤方向失效（要麼擋住 seed，要麼放行使用者）。
+1. ~~**本計畫的 SQL 未在真實 Postgres 上執行過。**~~ → ✅ **2026-09-05 已在真實 Supabase 專案（PostgreSQL 17.6）套用完成**，並對已 seed 的資料重跑驗證冪等（2,669 / 3,116 / 111 三個數字不變）。已確認：`create policy … on storage.objects` 以直連 `postgres` 執行**不需要** `supabase_admin`（踩雷 #45 解除）。**仍未驗證**：`delete from auth.users` 是否為 postgres 可執行（`delete_my_account()` 尚未實作，留待 US-47）。`admin_add_strike()` 與 guard trigger 的互動已不適用——本版沒有 transaction-local bypass 旗標，管制欄位改由 policy 的 `with check` 釘死。
+2. ~~**特權情境判定的三個判準需逐一實測。**~~ → ✅ **已實測，且結果推翻了 §1.1 修正 A 的原始寫法**（見該節「修正 A 的更正」）：
+
+   | 呼叫路徑 | `current_user`（DEFINER 內） | `session_user` | `jwt.claims.role` |
+   |---|---|---|---|
+   | 直連 postgres | `postgres` | `postgres` | *(none)* |
+   | PostgREST + publishable key | **`postgres`** | `authenticator` | `anon` |
+   | PostgREST + 使用者 JWT | **`postgres`** | `authenticator` | `authenticated` |
+   | PostgREST + secret key | **`postgres`** | `authenticator` | `service_role` |
+
+   關鍵：`current_user` 在 SECURITY DEFINER 內**永遠是 `postgres`**，三種呼叫者完全無法區分——這正是踩雷 #31。`service_role` 也**不會**讓 `current_user` 變成 `service_role`。可用的判準只有 `session_user`（區分直連 vs PostgREST）與 `request.jwt.claims.role`（區分 anon / authenticated / service_role）。
 3. **Vercel ISR 是否會把 cookie 納入快取 key，官方文件從未明文說明。**「`/u/**` 不可快取」是綜合 Nitro cache 文件與 Vercel ISR 文件推導的工程判斷。**上線前務必實測 Step 4 的第 ③④ 條。**
 4. **`viewing_record_select` 的 policy 內含 EXISTS 子查詢**（檢查 film 與 profile 狀態）。需以 `EXPLAIN (ANALYZE, BUFFERS)` 對真實資料量確認是 semi-join 而非逐列求值。若成為瓶頸，備案是反正規化——但那會引入一致性風險且**失敗方向指向外洩**（提案 2 的教訓），非不得已不做。
 5. **helper 函式對 anon 開放 EXECUTE 會形成 oracle**（「這個 record 是否公開且已開票價」）。實務上 UUID 不可猜測，且 helper 放在不曝露的 schema——但**這個保護只存在於 Supabase 專案設定（`db-schemas`），不在 SQL 裡**。需確認該設定只有 `public`（與 `graphql_public`）。
@@ -1769,7 +1991,11 @@ curl -s "$URL/rest/v1/dmca_notice?select=*" -H "apikey: $ANON"                  
 
 ## 8.2 Nuxt / 套件
 
-11. **沒有實際 scaffold 過 Nuxt 4.5.2 + `@nuxtjs/supabase` 2.0.10 + `@nuxt/ui` 4.11.0 的組合。** 所有結論來自官方文件、npm tarball 的 dist 原始碼與 GitHub issues 的交叉比對，不是執行結果。**是否有相依衝突（尤其 `@nuxt/kit` 版本）未實際跑過安裝驗證。**
+11. ~~**沒有實際 scaffold 過該組合。**~~ → ✅ **2026-09-05 已完成安裝與 build**，版本全部命中基準（nuxt 4.5.2 / @nuxt/ui 4.11.0 / @nuxtjs/supabase 2.0.10 / tailwindcss 4.3.3 / echarts 6.1.0 / vue-echarts 8.2.0 / typescript 5.9.3 / vue 3.5.42），**無相依衝突**。三個安裝期的坑：
+
+    - **npm 10.9.4 裝不起這棵樹**：arborist 解 `nuxt` 的 peer set 時崩潰（`Cannot read properties of null (reading 'edgesOut')`），與 `overrides` 無關（拿掉照樣崩）。npm 11 正常。本專案最終改用 **pnpm 10.28.2**。
+    - **pnpm 與 npm 11 都預設不跑依賴的 install script**：`esbuild` 需要它下載平台 binary、`vue-demi` 需要它切 Vue 2/3 版本。漏了的話 `vue-demi/lib` 整個不存在，`@floating-ui/vue` 與 `@vueuse/core`（Nuxt UI 的相依）會在執行期壞掉。pnpm 用 `pnpm.onlyBuiltDependencies` 明確批准。
+    - **`#pipeline/*` 別名必須同時宣告在 `package.json` 的 `imports`**，只寫在 tsconfig 與 vitest.config 是不夠的：`#` 開頭是 Node subpath imports，vitest 走自己的 alias 所以測試全綠，但 `tsx` 跑 CLI 會 `ERR_PACKAGE_IMPORT_NOT_DEFINED`。**測試與正式執行走不同解析路徑，全綠不代表 CLI 能跑。**
 12. **`@nuxtjs/supabase` 官方文件站沒有任何一頁講 hybrid rendering 的建議設定**（issue #605 明確指出這個缺口）。`routeRules` 與 `redirectOptions` 的搭配是從原始碼推導的，不是官方背書。
 13. **模組的 redirect middleware 在 `ssr:false` 路由上的執行時機**未在官方文件找到說明。
 14. **issue #606（`page:start` 每次導航都 `await getClaims()`）**：回報者宣稱 2.0.9 修好，但核對 2.0.10 的 dist，該段仍存在且仍 await。「JWKS 端點不可達時導航是否會 hang」未實測。
