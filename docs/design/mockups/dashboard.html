@@ -1,0 +1,2094 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>影記 統計</title>
+
+<script>
+  /* 首載尊重 prefers-color-scheme；使用者選過就記在 localStorage。
+     .dark / .light 是明確選擇，兩者皆無時交給 @media 判斷。 */
+  (function () {
+    try {
+      var v = localStorage.getItem('filmnote-theme');
+      if (v === 'dark' || v === 'light') document.documentElement.classList.add(v);
+    } catch (e) {}
+  })();
+</script>
+
+<style>
+/* ══════════════════════════════════════════════════════════════════════
+   §1 色彩　紙與墨（暖軸、極低彩度）
+   亮色 token 定義在 :root，暗色只重新定義同一組 token。
+   ══════════════════════════════════════════════════════════════════════ */
+:root {
+  color-scheme: light;
+
+  /* 中性：紙 */
+  --paper-0: #FCFBF8;
+  --paper-1: #F6F4EE;
+  --paper-2: #EDEAE3;
+  --paper-3: #DEDACF;
+
+  /* 中性：墨 */
+  --ink-0: #171512;
+  --ink-1: #4A453D;
+  --ink-2: #6E675C;
+  --ink-3: #8C8477;
+
+  /* 語意別名 */
+  --bg:        var(--paper-0);
+  --surface:   var(--paper-1);
+  --sunken:    var(--paper-2);
+  --line:      var(--paper-3);
+  --line-soft: var(--paper-2);
+  --text-0:      var(--ink-0);
+  --text-1:    var(--ink-1);
+  --text-2:    var(--ink-2);
+  --text-3:    var(--ink-3);
+
+  /* 重點色：琥珀（§1.2）。亮色用 amber-600，對 paper-0 5.00:1 */
+  --accent:      #8A6800;
+  --accent-on:   #FFFFFF;
+  --accent-soft: #FBF6E4;
+  --scrim: rgba(23, 21, 18, 0.44);
+
+  /* 序列色階：墨階（§1.3）。零值是中性的 paper-2，不屬於色階 */
+  --heat-0: #EDEAE3;
+  --heat-1: #D6D0C4;
+  --heat-2: #B3AB9B;
+  --heat-3: #8C8477;
+  --heat-4: #615B50;
+  --heat-5: #3A362F;
+  --heat-6: #171512;
+
+  /* 出席圖三階（§5.4） */
+  --att-0: #EDEAE3;
+  --att-1: #B3AB9B;
+  --att-2: #171512;
+
+  /* §3 形狀 */
+  --radius-chip: 2px;
+  --radius-card: 4px;
+  --radius-poster: 3px;
+
+  /* z 階（§10：固定的階，不用任意值） */
+  --z-nav: 10;
+  --z-sticky: 20;
+  --z-toggle: 45;
+  --z-scrim: 40;
+  --z-drawer: 50;
+
+  /* YearStrip 的格子尺寸，與 profile.html 同名同值 */
+  --cell: 8px;
+  --cell-gap: 2px;
+
+  /* §2.5 中文排版基準 */
+  line-break: strict;
+  --week-start: 0; /* 0 = 週日起始（台灣慣例，§5.4） */
+}
+
+/* 暗色是「放映廳」，不是亮色反相（§7） */
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    color-scheme: dark;
+    --paper-0: #12110F;
+    --paper-1: #1C1A17;
+    --paper-2: #2A2621;
+    --paper-3: #3D3830;
+    --ink-0: #F2EFE8;
+    --ink-1: #C4BDB0;
+    --ink-2: #A8A196;
+    --ink-3: #787164;
+    --accent: #C9A62B;
+    --accent-on: #171512;
+    --accent-soft: #2A1F05;
+    --scrim: rgba(0, 0, 0, 0.62);
+    --heat-0: #1F1D19;
+    --heat-1: #2E2B25;
+    --heat-2: #454037;
+    --heat-3: #615B50;
+    --heat-4: #8C8477;
+    --heat-5: #B3AB9B;
+    --heat-6: #E4DFD4;
+    --att-0: #1F1D19;
+    --att-1: #615B50;
+    --att-2: #E4DFD4;
+  }
+}
+:root.dark {
+  color-scheme: dark;
+  --paper-0: #12110F;
+  --paper-1: #1C1A17;
+  --paper-2: #2A2621;
+  --paper-3: #3D3830;
+  --ink-0: #F2EFE8;
+  --ink-1: #C4BDB0;
+  --ink-2: #A8A196;
+  --ink-3: #787164;
+  --accent: #C9A62B;
+  --accent-on: #171512;
+  --accent-soft: #2A1F05;
+  --scrim: rgba(0, 0, 0, 0.62);
+  --heat-0: #1F1D19;
+  --heat-1: #2E2B25;
+  --heat-2: #454037;
+  --heat-3: #615B50;
+  --heat-4: #8C8477;
+  --heat-5: #B3AB9B;
+  --heat-6: #E4DFD4;
+  --att-0: #1F1D19;
+  --att-1: #615B50;
+  --att-2: #E4DFD4;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   §2 字體排印　拉丁走 Inter，中文交給平台字型（§2.1 決策）
+   ══════════════════════════════════════════════════════════════════════ */
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text-0);
+  font-family: 'Inter', 'PingFang TC', 'Noto Sans CJK TC', 'Noto Sans TC',
+               'Microsoft JhengHei', 'Source Han Sans TC', sans-serif;
+  font-feature-settings: 'cv05', 'ss01';
+  font-size: 16px;
+  line-height: 1.75;
+  /* §10：頁面 body 永遠不橫向捲動。用 clip 不用 hidden——hidden 會讓 body 變成
+     捲動容器，把上面兩條 position:sticky 一起弄壞 */
+  overflow-x: clip;
+}
+
+h1, h2, h3, h4 {
+  margin: 0;
+  font-feature-settings: 'palt' 1;
+  word-break: auto-phrase;
+  text-wrap: balance;
+}
+
+/* 數字一律 tabular-nums，由 Inter 供應（§2.2） */
+.num, table, .strip-year, .strip-total {
+  font-variant-numeric: tabular-nums slashed-zero;
+}
+
+/* §2.3 原文片名有自己的堆疊：小一級、淡一階 */
+.title-original {
+  font-family: 'Inter', 'PingFang TC', 'Hiragino Sans', 'Noto Sans JP',
+               'Apple SD Gothic Neo', 'Noto Sans KR', 'Noto Sans Thai', sans-serif;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-2);
+  margin: 2px 0 0;
+}
+
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+
+:where(a, button, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-chip);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   版面
+   ══════════════════════════════════════════════════════════════════════ */
+.wrap {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+@media (min-width: 768px) { .wrap { padding: 0 32px; } }
+
+/* — UDashboardNavbar — */
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-nav);
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+.nav-in {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 56px;
+}
+.brand {
+  font-size: 18px;
+  line-height: 1.4;
+  font-weight: 600;
+  color: var(--text-0);
+  letter-spacing: 0; /* CJK 不加字距（§2.5） */
+}
+.nav-links { display: none; gap: 20px; margin-left: 8px; flex: 1; }
+@media (min-width: 768px) { .nav-links { display: flex; } }
+.nav-links a {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+  text-decoration: none;
+  padding: 4px 0;
+}
+.nav-links a[aria-current='page'] {
+  color: var(--text-0);
+  border-bottom: 2px solid var(--accent);
+}
+.nav-right { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+
+/* — UButton — */
+.btn {
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 6px 12px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text-0);
+  cursor: pointer;
+}
+.btn-primary {
+  background: var(--accent);
+  color: var(--accent-on);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.btn-lg { font-size: 16px; padding: 10px 20px; line-height: 1.5; }
+
+/* — UAvatar — */
+.avatar {
+  width: 28px; height: 28px;
+  border-radius: 9999px;
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  color: var(--text-1);
+  font-size: 12px;
+  line-height: 26px;
+  text-align: center;
+  font-weight: 600;
+}
+
+/* 選定年份的常駐脈絡列 */
+.context {
+  position: sticky;
+  top: 56px;
+  z-index: var(--z-sticky);
+  background: var(--bg);
+  border-bottom: 1px solid var(--line-soft);
+}
+.context-in {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.context-year {
+  font-size: 20px;
+  line-height: 1.4;
+  font-weight: 600;
+  color: var(--text-0);
+}
+
+.page-head { padding: 32px 0 8px; }
+.page-title { font-size: 28px; line-height: 1.35; font-weight: 600; }
+.page-sub { margin: 4px 0 0; font-size: 13px; line-height: 1.5; color: var(--text-2); }
+
+/* ── band：一條 band 一張圖，滿容器寬 ────────────────────────────── */
+.band {
+  padding: 40px 0;
+  border-top: 1px solid var(--line-soft);
+}
+.band:first-of-type { border-top: 0; }
+.band-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.band-title { font-size: 20px; line-height: 1.4; font-weight: 600; }
+.band-scope {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-chip);
+  padding: 0 6px;
+}
+
+/* §4.4 數字不做成 stat tile：排成一行有量詞的句子當圖說 */
+.finding {
+  margin: 12px 0 20px;
+  font-size: 16px;
+  line-height: 1.75;
+  color: var(--text-1);
+  max-width: 34ch; /* §2.4 中文行長 */
+}
+.finding.wide { max-width: 52ch; }
+.finding strong { font-weight: 600; color: var(--text-0); }
+.finding .n {
+  font-size: 1.5em;
+  line-height: 1;
+  font-weight: 600;
+  color: var(--text-0);
+  font-variant-numeric: tabular-nums slashed-zero;
+}
+.footnote {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+  max-width: 52ch;
+}
+
+.chart { width: 100%; }
+
+/* 圖例（舊專案沒有，§5.5 補上） */
+.legend {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.legend-item { display: flex; align-items: center; gap: 5px; }
+.sw {
+  width: 11px; height: 11px;
+  border-radius: var(--radius-chip);
+  border: 1px solid var(--line-soft);
+  display: inline-block;
+}
+
+/* 資料表 fallback（§5.6） */
+details.data {
+  margin-top: 16px;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 8px;
+}
+details.data summary {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+  cursor: pointer;
+}
+details.data table {
+  border-collapse: collapse;
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  width: 100%;
+  max-width: 560px;
+}
+details.data th, details.data td {
+  text-align: left;
+  padding: 3px 12px 3px 0;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--text-1);
+}
+details.data th { color: var(--text-2); font-weight: 400; }
+details.data td.n { text-align: right; padding-right: 0; color: var(--text-0); }
+.table-scroll { overflow-x: auto; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   YearStrip（自製元件，SCREENS §2.1）— 每格是一週，兼任年份選擇器
+   結構、class 名與格子尺寸與 profile.html 的同一個元件一致
+   ══════════════════════════════════════════════════════════════════════ */
+.strip-scroll { overflow-x: auto; overflow-y: hidden; }
+.strip { width: max-content; }
+.strip-row {
+  display: grid;
+  grid-template-columns: 10px 38px auto 30px;
+  grid-template-areas: "marker year cells total";
+  align-items: center;
+  column-gap: 8px;
+  border-left: 2px solid transparent; /* 選取時換成琥珀，不造成位移 */
+  border-top: 0; border-right: 0; border-bottom: 0;
+  padding: 1px 0 1px 4px;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+}
+.strip-row:hover .strip-year { color: var(--text-0); }
+.strip-marker { grid-area: marker; font-size: 11px; line-height: 1; color: transparent; }
+.strip-year { grid-area: year; font-size: 12px; line-height: 1.5; color: var(--text-2); }
+.strip-total { grid-area: total; font-size: 12px; line-height: 1.5; color: var(--text-2); text-align: right; }
+.strip-row[aria-selected='true'] { border-left-color: var(--accent); }
+.strip-row[aria-selected='true'] .strip-marker { color: var(--accent); }
+.strip-row[aria-selected='true'] .strip-year,
+.strip-row[aria-selected='true'] .strip-total { color: var(--text-0); font-weight: 600; }
+.strip-cells {
+  grid-area: cells;
+  display: grid;
+  grid-template-columns: repeat(53, var(--cell));
+  gap: var(--cell-gap);
+}
+.strip-cells i {
+  width: var(--cell); height: var(--cell);
+  border-radius: 1px;
+  background: var(--heat-0);
+}
+.strip-cells i.v1 { background: var(--heat-4); }
+.strip-cells i.v2 { background: var(--heat-6); }
+.strip-cells i.v3 { background: var(--heat-6); }
+.strip-axis {
+  display: grid;
+  grid-template-columns: 10px 38px auto 30px;
+  grid-template-areas: "marker year cells total";
+  column-gap: 8px;
+  padding-left: 6px;
+  margin-top: 4px;
+  width: max-content;
+}
+.strip-axis .months {
+  grid-area: cells;
+  display: grid;
+  grid-template-columns: repeat(53, var(--cell));
+  gap: var(--cell-gap);
+}
+.strip-axis .months span { font-size: 11px; line-height: 1.5; color: var(--text-2); white-space: nowrap; }
+@media (max-width: 640px) { :root { --cell: 5px; } }
+
+/* ══════════════════════════════════════════════════════════════════════
+   橫向捲動容器（§9.4：預先捲到最右，兩側漸層遮罩）
+   ══════════════════════════════════════════════════════════════════════ */
+.scroll-shell { position: relative; }
+.scroller {
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+}
+.mask {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 28px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 160ms ease-out;
+}
+.mask-l { left: 0;  background: linear-gradient(to right, var(--bg), rgba(0,0,0,0)); }
+.mask-r { right: 0; background: linear-gradient(to left,  var(--bg), rgba(0,0,0,0)); }
+.mask.on { opacity: 1; }
+.scroll-hint {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-3);
+  margin: 6px 0 0;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   band 3 桌機兩欄：圖在左，讀數在右
+   ══════════════════════════════════════════════════════════════════════ */
+.split { display: grid; gap: 32px; }
+@media (min-width: 900px) {
+  .split { grid-template-columns: minmax(0, 460px) minmax(0, 1fr); align-items: start; }
+}
+.readout { margin: 0; }
+.readout dt {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+  margin-top: 14px;
+}
+.readout dt:first-child { margin-top: 0; }
+.readout dd {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.75;
+  color: var(--text-0);
+}
+.readout dd .num { font-weight: 600; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   TicketCard（§4.3）— 全站主要物件
+   ══════════════════════════════════════════════════════════════════════ */
+.tc {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  overflow: hidden;
+}
+.tc.has-poster { grid-template-columns: 52px minmax(0, 1fr) 58px; }
+.tc-date {
+  background: var(--sunken);
+  border-right: 1px solid var(--line);
+  padding: 8px 2px;
+  text-align: center;
+}
+.tc-d {
+  display: block;
+  font-size: 20px;
+  line-height: 1.1;
+  font-weight: 600;
+  color: var(--text-0);
+  font-variant-numeric: tabular-nums;
+}
+.tc-m, .tc-w {
+  display: block;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.tc-main { padding: 8px 12px; min-width: 0; }
+.tc-title {
+  font-size: 16px;
+  line-height: 1.45;
+  font-weight: 600;
+  color: var(--text-0);
+  overflow-wrap: anywhere;
+}
+.tc-meta {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+.tc-meta .free {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-chip);
+  padding: 0 4px;
+  color: var(--text-2);
+}
+.tc-memo {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.tc-poster {
+  margin: 8px 8px 8px 0;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--radius-poster);
+  overflow: hidden;
+  background: var(--sunken);
+}
+.tc-poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tc-list { display: flex; flex-direction: column; gap: 8px; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   影城對應建議列
+   ══════════════════════════════════════════════════════════════════════ */
+.suggest {
+  margin-top: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  padding: 12px 14px;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.suggest-body { flex: 1 1 300px; min-width: 0; }
+.suggest-t { font-size: 13px; line-height: 1.5; color: var(--text-2); }
+.suggest-v {
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--text-0);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.suggest-m { font-size: 13px; line-height: 1.5; color: var(--text-1); }
+.suggest-actions { display: flex; gap: 8px; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   UDrawer direction="bottom"（§9.2）
+   ══════════════════════════════════════════════════════════════════════ */
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--scrim);
+  z-index: var(--z-scrim);
+  border: 0;
+  padding: 0;
+}
+/* hidden 屬性只是 UA 樣式的 display:none，任何作者端 display 宣告都會蓋掉它 */
+[hidden] { display: none !important; }
+.drawer {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  height: 90dvh;
+  z-index: var(--z-drawer);
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+  /* §3：陰影唯一例外是 overlay */
+  box-shadow: 0 -10px 24px rgba(23, 21, 18, 0.18);
+  display: flex;
+  flex-direction: column;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.drawer-grip {
+  width: 34px; height: 3px;
+  background: var(--line);
+  border-radius: 2px;
+  margin: 8px auto 0;
+}
+.drawer-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 16px 12px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.drawer-title { font-size: 20px; line-height: 1.4; font-weight: 600; }
+.drawer-sub { font-size: 13px; line-height: 1.5; color: var(--text-2); }
+.drawer-close { margin-left: auto; }
+.drawer-body {
+  overflow-y: auto;
+  padding: 16px;
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+}
+.drawer-empty { color: var(--text-2); font-size: 16px; line-height: 1.75; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   主題切換（固定在角落）
+   ══════════════════════════════════════════════════════════════════════ */
+.theme-toggle {
+  position: fixed;
+  right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  z-index: var(--z-toggle);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   AttributionFooter（§9 法遵）
+   ══════════════════════════════════════════════════════════════════════ */
+.attrib {
+  border-top: 1px solid var(--line);
+  padding: 24px 0 40px;
+  font-size: 12px;
+  line-height: 1.75;
+  color: var(--text-2);
+  max-width: 60ch;
+}
+.attrib p { margin: 0 0 6px; }
+.attrib .tmdb { font-size: 11px; line-height: 1.6; color: var(--text-3); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   審閱用區塊
+   ══════════════════════════════════════════════════════════════════════ */
+.review-break {
+  margin-top: 8px;
+  border-top: 2px solid var(--line);
+  padding: 24px 0 0;
+}
+.review-tag {
+  display: inline-block;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-chip);
+  padding: 1px 8px;
+}
+.review-note { font-size: 13px; line-height: 1.5; color: var(--text-2); margin: 8px 0 0; max-width: 52ch; }
+
+/* §9.3 全新帳號 */
+.empty-state {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  padding: 32px 20px 24px;
+  margin: 24px 0 0;
+}
+.empty-h { font-size: 28px; line-height: 1.35; font-weight: 600; }
+.empty-p { margin: 8px 0 20px; font-size: 16px; line-height: 1.75; color: var(--text-1); max-width: 34ch; }
+.ghost {
+  margin-top: 28px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-card);
+  padding: 14px;
+}
+.ghost-label { font-size: 12px; line-height: 1.5; color: var(--text-2); }
+.ghost-body { opacity: 0.3; pointer-events: none; margin-top: 10px; }
+
+.stress { display: flex; flex-direction: column; gap: 20px; margin-top: 20px; }
+.stress-item { }
+.stress-why { font-size: 12px; line-height: 1.5; color: var(--text-2); margin: 6px 0 0; }
+</style>
+</head>
+
+<body>
+
+<!-- UDashboardNavbar -->
+<header class="nav">
+  <div class="wrap nav-in">
+    <!-- 品牌字：正式站以 inline SVG 路徑輸出（DS §2.6）；此 mockup 以文字替代 -->
+    <span class="brand">影記</span>
+    <nav class="nav-links" aria-label="主導覽">
+      <!-- UNavigationMenu -->
+      <a href="#" aria-current="page">統計</a>
+      <a href="#">紀錄</a>
+      <a href="#">匯入</a>
+      <a href="#">設定</a>
+    </nav>
+    <div class="nav-right">
+      <!-- UButton color="primary" -->
+      <button class="btn btn-primary" type="button">記一場</button>
+      <!-- UAvatar -->
+      <span class="avatar" aria-label="clipwww">cl</span>
+    </div>
+  </div>
+</header>
+
+<!-- 常駐脈絡列：長捲頁裡不讓「現在看的是哪一年」離開視線 -->
+<div class="context">
+  <div class="wrap context-in">
+    <span class="context-year num" id="ctxYear">2026</span>
+    <span id="ctxSummary">年</span>
+    <span id="ctxScope"></span>
+  </div>
+</div>
+
+<main class="wrap" id="dashboard">
+
+  <div class="page-head">
+    <h1 class="page-title">統計</h1>
+    <p class="page-sub">clipwww　2014 年 3 月起共 <span class="num">169</span> 場</p>
+  </div>
+
+  <!-- ═══ band 1：年表 YearStrip ═══════════════════════════════════════ -->
+  <section class="band" aria-labelledby="b1-title">
+    <div class="band-head">
+      <h2 class="band-title" id="b1-title">十二年</h2>
+      <span class="band-scope">全部紀錄</span>
+    </div>
+    <p class="finding wide" id="b1-finding"></p>
+    <!-- YearStrip 自製元件；它同時是年份選擇器，取代年份下拉（USelectMenu）
+         理由見 SCREENS §2.1：你在選之前就看得到那年有多少東西 -->
+    <div class="strip-scroll">
+      <div class="strip" id="yearStrip" role="listbox" aria-label="選擇年份"></div>
+      <div class="strip-axis" aria-hidden="true">
+        <div class="months">
+          <span style="grid-column: 1 / span 8">1月</span>
+          <span style="grid-column: 9 / span 9">3月</span>
+          <span style="grid-column: 18 / span 8">5月</span>
+          <span style="grid-column: 26 / span 9">7月</span>
+          <span style="grid-column: 35 / span 9">9月</span>
+          <span style="grid-column: 44 / span 10">11月</span>
+        </div>
+      </div>
+    </div>
+    <div class="legend" id="ysLegend"></div>
+    <p class="footnote" id="b1-foot"></p>
+  </section>
+
+  <!-- ═══ band 2：年度出席圖（calendar + heatmap）════════════════════ -->
+  <section class="band" aria-labelledby="b2-title">
+    <div class="band-head">
+      <h2 class="band-title" id="b2-title">年度出席圖</h2>
+      <span class="band-scope" id="b2-scope">2026 年</span>
+    </div>
+    <p class="finding wide" id="b2-finding"></p>
+
+    <div id="b2-chartWrap">
+      <div class="scroll-shell">
+        <div class="scroller" id="calScroller">
+          <!-- ECharts calendar + heatmap。只設 left/top，絕不設 right/width（§5.3-3） -->
+          <div class="chart" id="calChart" style="width: 800px; height: 152px;"
+               role="img" aria-label="年度出席圖：選定年份每一天有沒有進戲院"></div>
+        </div>
+        <div class="mask mask-l" id="calMaskL"></div>
+        <div class="mask mask-r" id="calMaskR"></div>
+      </div>
+      <p class="scroll-hint" id="calHint" hidden>橫向捲動看整年，已先捲到最近一週。</p>
+      <div class="legend" id="calLegend"></div>
+    </div>
+
+    <!-- 稀疏年份降級：不畫一張 362 格全空的圖（SCREENS §3） -->
+    <div id="b2-sparse" hidden>
+      <p class="footnote" id="b2-sparseNote" style="margin:0 0 12px"></p>
+      <div class="tc-list" id="b2-sparseList"></div>
+    </div>
+
+    <p class="footnote" id="b2-foot"></p>
+
+    <details class="data">
+      <summary>看數字</summary>
+      <div class="table-scroll"><table id="b2-table"></table></div>
+    </details>
+  </section>
+
+  <!-- ═══ band 3：時段熱點圖（直式，沿用舊專案方向）══════════════════ -->
+  <section class="band" aria-labelledby="b3-title">
+    <div class="band-head">
+      <h2 class="band-title" id="b3-title">時段熱點圖</h2>
+      <span class="band-scope">全部 169 場</span>
+    </div>
+    <p class="finding wide" id="b3-finding"></p>
+
+    <div class="split">
+      <div>
+        <!-- ECharts cartesian2d + heatmap：7 欄星期 × 時段列。
+             兩軸都是 type:'category' 且 boundaryGap:true，否則 dev build 直接 throw（§5.3-7）
+             112 格全部明確餵 value:0，否則空格不會被畫出來（§5.3-6） -->
+        <div class="chart" id="hourChart" style="height: 560px;"
+             role="img" aria-label="時段熱點圖：星期與時段的場次密度"></div>
+        <div class="legend" id="hourLegend"></div>
+      </div>
+      <div>
+        <dl class="readout" id="b3-readout"></dl>
+        <details class="data">
+          <summary>看數字</summary>
+          <div class="table-scroll"><table id="b3-table"></table></div>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ band 4：月度趨勢 ═══════════════════════════════════════════ -->
+  <section class="band" aria-labelledby="b4-title">
+    <div class="band-head">
+      <h2 class="band-title" id="b4-title">月度趨勢</h2>
+      <span class="band-scope" id="b4-scope">2026 年</span>
+    </div>
+    <p class="finding wide" id="b4-finding"></p>
+    <div class="chart" id="monthChart" style="height: 300px;"
+         role="img" aria-label="月度趨勢：選定年份每月場次，與歷年每月平均對照"></div>
+    <div class="legend" id="monthLegend"></div>
+    <details class="data">
+      <summary>看數字</summary>
+      <div class="table-scroll"><table id="b4-table"></table></div>
+    </details>
+  </section>
+
+  <!-- ═══ band 5：影城分布（橫式長條，不用圓餅圖 §5.2）═══════════════ -->
+  <section class="band" aria-labelledby="b5-title">
+    <div class="band-head">
+      <h2 class="band-title" id="b5-title">影城分布</h2>
+      <span class="band-scope">全部 169 場</span>
+    </div>
+    <p class="finding wide" id="b5-finding"></p>
+    <div class="chart" id="venueChart" role="img" aria-label="影城分布橫條圖"></div>
+
+    <!-- 記錄裡的 theater 是口語簡稱，venues.json 是官方全名，0% 直接命中，
+         fuzzy 猜測會猜錯（林口威秀 → 樹林秀泰影城），所以由使用者確認，不自動綁定 -->
+    <div class="suggest">
+      <div class="suggest-body">
+        <div class="suggest-t">「林口威秀」還沒對上官方影城名單</div>
+        <div class="suggest-v">林口MITSUI OUTLET PARK威秀影城</div>
+        <div class="suggest-m num">新北市　9 廳　威秀影城股份有限公司新北林口分公司</div>
+      </div>
+      <div class="suggest-actions">
+        <!-- UButton -->
+        <button class="btn btn-primary" type="button">就是這家</button>
+        <button class="btn" type="button">不是</button>
+      </div>
+    </div>
+
+    <details class="data">
+      <summary>看數字</summary>
+      <div class="table-scroll"><table id="b5-table"></table></div>
+    </details>
+  </section>
+
+  <!-- ═══ band 6：版本與國別 ═════════════════════════════════════════ -->
+  <section class="band" aria-labelledby="b6-title">
+    <div class="band-head">
+      <h2 class="band-title" id="b6-title">版本與國別</h2>
+      <span class="band-scope">全部 169 場</span>
+    </div>
+    <p class="finding wide" id="b6-finding"></p>
+    <div class="chart" id="versionChart" role="img" aria-label="放映版本分布橫條圖"></div>
+    <p class="finding wide" id="b6-finding2" style="margin-top:28px"></p>
+    <div class="chart" id="countryChart" role="img" aria-label="出品國別分布橫條圖"></div>
+    <details class="data">
+      <summary>看數字</summary>
+      <div class="table-scroll"><table id="b6-table"></table></div>
+    </details>
+  </section>
+
+  <!-- ═══ band 7：多刷排行 ═══════════════════════════════════════════ -->
+  <section class="band" aria-labelledby="b7-title">
+    <div class="band-head">
+      <h2 class="band-title" id="b7-title">多刷排行</h2>
+      <span class="band-scope">全部 169 場</span>
+    </div>
+    <p class="finding wide" id="b7-finding"></p>
+    <div class="chart" id="rewatchChart" role="img" aria-label="重複觀看次數排行橫條圖"></div>
+    <p class="footnote">點任何一條看那部片的每一場。</p>
+    <details class="data">
+      <summary>看數字</summary>
+      <div class="table-scroll"><table id="b7-table"></table></div>
+    </details>
+  </section>
+
+  <!-- AttributionFooter（§9：顯名標示是授權生效要件，不是禮貌）-->
+  <footer class="attrib">
+    <p>電影分級與片名資料來自文化部影視及流行音樂產業局「電影片分級及相關資訊」、「全國電影院資料」，依政府資料開放授權條款第 1 版使用。</p>
+    <p class="tmdb">This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
+    <p><a href="#">服務條款</a>　<a href="#">隱私權</a>　<a href="#">著作權</a>　<a href="#">DMCA</a></p>
+  </footer>
+
+  <!-- ══════════════════════════════════════════════════════════════════
+       以下為審閱用，不是產品版面的一部分
+       ══════════════════════════════════════════════════════════════════ -->
+
+  <section class="review-break" aria-labelledby="rev1">
+    <span class="review-tag">審閱用</span>
+    <h2 class="band-title" id="rev1" style="margin-top:8px">全新帳號（0 筆）會看到的同一頁</h2>
+    <p class="review-note">SCREENS §9.3。四張圖同時空是這頁最尷尬的狀態，所以不畫空圖。</p>
+
+    <!-- 自製空狀態；UEmpty 只解決清單型空狀態，這個版面要自製 -->
+    <div class="empty-state">
+      <h3 class="empty-h">還沒有東西可以看。</h3>
+      <p class="empty-p">記下第一場，這裡就會開始長出來。</p>
+      <!-- UButton size="lg" color="primary" -->
+      <button class="btn btn-primary btn-lg" type="button">記一場</button>
+
+      <div class="ghost">
+        <span class="ghost-label">示意：這裡會長出什麼（不是你的紀錄，不能互動）</span>
+        <div class="ghost-body" id="ghostBody" aria-hidden="true"><div class="strip-scroll"><div class="strip" id="ghost"></div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="review-break" aria-labelledby="rev2" style="margin-top:40px">
+    <span class="review-tag">審閱用</span>
+    <h2 class="band-title" id="rev2" style="margin-top:8px">難處理的資料</h2>
+    <p class="review-note">
+      片名與影城全部取自 films.json / venues.json 的真實資料；金額與場次取自 David 的 169 筆紀錄。
+      這一區把票根卡放在最不利的輸入下，確認版面不會塌。
+    </p>
+    <div class="stress" id="stress"></div>
+  </section>
+
+</main>
+
+<!-- UButton（固定角落）：深淺色切換 -->
+<button class="btn theme-toggle" type="button" id="themeToggle" aria-pressed="false">深色</button>
+
+<!-- UDrawer direction="bottom"（§9.2：點格子 → 底部片單）-->
+<div class="scrim" id="scrim" hidden></div>
+<div class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle" hidden>
+  <div class="drawer-grip"></div>
+  <div class="drawer-head">
+    <div>
+      <div class="drawer-title" id="drawerTitle"></div>
+      <div class="drawer-sub" id="drawerSub"></div>
+    </div>
+    <button class="btn drawer-close" type="button" id="drawerClose">關掉</button>
+  </div>
+  <div class="drawer-body" id="drawerBody"></div>
+</div>
+
+<!-- ECharts 釘在 5.5.1。正式專案是 ECharts 6.1.0 + vue-echarts 8.2.0（DS §5）。
+     v6-only API：深淺色切換在 v6 可以用 instance.setTheme()（vue-echarts 8 的 :theme prop 已接上），
+     不必 dispose 重建；v5 沒有這個方法。但 visualMap.pieces 與明確寫死的 itemStyle.color
+     不受 theme 影響（DS §5.3-9），所以無論哪個版本都得重算 option——這份 mockup 走的就是重算那條路，
+     換到 v6 時 setTheme() 只是省掉軸線與文字色的部分，重算不能拿掉。 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/6.1.0/echarts.min.js"></script>
+<script>
+/* ══════════════════════════════════════════════════════════════════════
+   資料：David 的 169 筆真實紀錄，已換算為 Asia/Taipei（UTC+8）
+   來源 fixture.json（generatedAt 2026-09-05）。所有數列都由這份資料現算。
+   欄位 d 日期 / hm 時分 / h 時 / wd 星期(0=日) / ti 片名 / ve 影城
+        vr 版本 / co 國別 / tk 張數 / cs 金額 / pr 單價 / me 備註
+   ══════════════════════════════════════════════════════════════════════ */
+const RECORDS = [
+  {"d":"2014-03-01","hm":"14:00","h":14,"wd":6,"ti":"KANO","ve":"信義威秀","vr":"2D","co":"台灣","tk":1,"cs":320,"pr":300,"me":"白 馬 東 還有誰我忘了"},
+  {"d":"2014-06-01","hm":"09:30","h":9,"wd":0,"ti":"明日邊界","ve":"信義威秀","vr":"4DX 3D","co":"美國","tk":1,"cs":540,"pr":540,"me":"4DX初體驗"},
+  {"d":"2014-11-29","hm":"14:30","h":14,"wd":6,"ti":"星際效應","ve":"日新威秀","vr":"IMAX","co":"美國","tk":1,"cs":307,"pr":307,"me":"白 馬 東 Ken | 花旗聯名卡"},
+  {"d":"2015-12-05","hm":"13:10","h":13,"wd":6,"ti":"怪物的孩子","ve":"林口國賓","vr":"2D","co":"日本","tk":2,"cs":0,"pr":0,"me":"國賓兌換票"},
+  {"d":"2015-12-18","hm":"18:00","h":18,"wd":5,"ti":"星際大戰七部曲：原力覺醒","ve":"林口國賓","vr":"2D (ATMOS)","co":"美國","tk":3,"cs":0,"pr":0,"me":"國賓兌換票"},
+  {"d":"2016-02-27","hm":"19:20","h":19,"wd":6,"ti":"惡棍英雄：死侍","ve":"林口國賓","vr":"2D (ATMOS)","co":"美國","tk":2,"cs":0,"pr":0,"me":"國賓兌換票"},
+  {"d":"2016-04-30","hm":"00:00","h":0,"wd":6,"ti":"美國隊長3：英雄內戰","ve":"欣欣秀泰","vr":"2D","co":"美國","tk":1,"cs":240,"pr":240,"me":"Ken | 正確票價跟正確觀影時間已經忘了"},
+  {"d":"2016-05-13","hm":"19:20","h":19,"wd":5,"ti":"少女與戰車劇場版","ve":"信義威秀","vr":"4DX","co":"日本","tk":1,"cs":520,"pr":500,"me":"白"},
+  {"d":"2016-05-17","hm":"19:20","h":19,"wd":2,"ti":"少女與戰車劇場版","ve":"信義威秀","vr":"4DX","co":"日本","tk":1,"cs":520,"pr":500,"me":""},
+  {"d":"2016-06-05","hm":"10:00","h":10,"wd":0,"ti":"少女與戰車劇場版","ve":"信義威秀","vr":"4DX","co":"日本","tk":2,"cs":940,"pr":470,"me":""},
+  {"d":"2016-06-26","hm":"10:20","h":10,"wd":0,"ti":"ID4星際重生","ve":"林口國賓","vr":"2D (ATMOS)","co":"美國","tk":2,"cs":0,"pr":0,"me":"國賓兌換票"},
+  {"d":"2016-07-09","hm":"16:40","h":16,"wd":6,"ti":"少女與戰車劇場版","ve":"新竹威秀","vr":"4DX","co":"日本","tk":1,"cs":500,"pr":500,"me":""},
+  {"d":"2016-07-31","hm":"12:30","h":12,"wd":0,"ti":"少女與戰車劇場版","ve":"林口威秀","vr":"4DX","co":"日本","tk":1,"cs":520,"pr":500,"me":"白"},
+  {"d":"2016-08-18","hm":"22:30","h":22,"wd":4,"ti":"自殺突擊隊","ve":"林口威秀","vr":"4DX 3D","co":"美國","tk":2,"cs":0,"pr":0,"me":"4DX體驗場兌換票"},
+  {"d":"2016-08-19","hm":"20:00","h":20,"wd":5,"ti":"正宗哥吉拉","ve":"喜滿客京華影城","vr":"2D","co":"日本","tk":1,"cs":310,"pr":290,"me":"白 | 京華城喜滿客C視聽教室 "},
+  {"d":"2016-09-05","hm":"22:00","h":22,"wd":1,"ti":"屍速列車","ve":"林口威秀","vr":"2D","co":"韓國","tk":1,"cs":240,"pr":240,"me":""},
+  {"d":"2016-09-15","hm":"12:25","h":12,"wd":4,"ti":"少女與戰車劇場版","ve":"林口威秀","vr":"4DX 極爆","co":"日本","tk":2,"cs":880,"pr":440,"me":""},
+  {"d":"2016-09-28","hm":"22:35","h":22,"wd":3,"ti":"薩利機長 哈德遜奇蹟","ve":"林口威秀","vr":"MAPPA","co":"美國","tk":1,"cs":320,"pr":320,"me":""},
+  {"d":"2016-10-14","hm":"20:35","h":20,"wd":5,"ti":"你的名字","ve":"信義威秀","vr":"2D","co":"日本","tk":1,"cs":320,"pr":300,"me":"白 馬 東"},
+  {"d":"2016-10-16","hm":"18:20","h":18,"wd":0,"ti":"你的名字","ve":"林口威秀","vr":"2D","co":"日本","tk":2,"cs":640,"pr":300,"me":""},
+  {"d":"2016-10-23","hm":"10:10","h":10,"wd":0,"ti":"你的名字","ve":"喜滿客京華影城","vr":"2D","co":"日本","tk":1,"cs":230,"pr":230,"me":"教皇"},
+  {"d":"2016-11-11","hm":"10:50","h":10,"wd":5,"ti":"你的名字","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":270,"pr":270,"me":""},
+  {"d":"2016-11-20","hm":"11:00","h":11,"wd":0,"ti":"怪獸與牠們的產地","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":540,"pr":270,"me":""},
+  {"d":"2016-12-18","hm":"22:00","h":22,"wd":0,"ti":"星際大戰外傳：俠盜一號","ve":"林口威秀","vr":"2D","co":"美國","tk":3,"cs":810,"pr":270,"me":"爸"},
+  {"d":"2016-12-24","hm":"15:30","h":15,"wd":6,"ti":"星際大戰外傳：俠盜一號","ve":"大直美麗華","vr":"IMAX 3D","co":"美國","tk":1,"cs":480,"pr":480,"me":"東 湛中"},
+  {"d":"2017-01-14","hm":"17:30","h":17,"wd":6,"ti":"你的名字","ve":"大直美麗華","vr":"IMAX","co":"日本","tk":1,"cs":420,"pr":420,"me":""},
+  {"d":"2017-02-24","hm":"16:30","h":16,"wd":5,"ti":"刀劍神域劇場版：序列爭戰","ve":"信義威秀","vr":"2D","co":"日本","tk":1,"cs":0,"pr":0,"me":"白 | 媒體公關票"},
+  {"d":"2017-02-28","hm":"20:20","h":20,"wd":2,"ti":"羅根","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":440,"pr":200,"me":""},
+  {"d":"2017-03-10","hm":"12:30","h":12,"wd":5,"ti":"電影版聲之形","ve":"西門 in89","vr":"2D","co":"日本","tk":1,"cs":0,"pr":0,"me":"巴哈特映票"},
+  {"d":"2017-03-18","hm":"18:10","h":18,"wd":6,"ti":"劇場版艦隊收藏","ve":"信義威秀","vr":"2D","co":"日本","tk":2,"cs":540,"pr":270,"me":""},
+  {"d":"2017-03-26","hm":"10:45","h":10,"wd":0,"ti":"電影版聲之形","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":200,"pr":200,"me":""},
+  {"d":"2017-04-30","hm":"22:20","h":22,"wd":0,"ti":"星際異攻隊2","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":400,"pr":200,"me":""},
+  {"d":"2017-06-10","hm":"23:00","h":23,"wd":6,"ti":"神力女超人","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":400,"pr":200,"me":""},
+  {"d":"2017-07-08","hm":"19:20","h":19,"wd":6,"ti":"蜘蛛人：返校日","ve":"西門 in89","vr":"2D","co":"美國","tk":2,"cs":0,"pr":0,"me":"蝦米公關票"},
+  {"d":"2017-07-31","hm":"10:10","h":10,"wd":1,"ti":"謝謝你 在世界的角落找到我","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":200,"pr":200,"me":""},
+  {"d":"2017-08-06","hm":"14:40","h":14,"wd":0,"ti":"敦克爾克大行動","ve":"林口威秀","vr":"2D","co":"美國","tk":1,"cs":200,"pr":200,"me":""},
+  {"d":"2017-08-27","hm":"12:00","h":12,"wd":0,"ti":"少女與戰車劇場版","ve":"信義威秀","vr":"4DX","co":"日本","tk":1,"cs":520,"pr":500,"me":"Alan"},
+  {"d":"2017-10-01","hm":"00:00","h":0,"wd":0,"ti":"雷神索爾3：諸神黃昏","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":400,"pr":200,"me":"正確觀影時間已經忘了"},
+  {"d":"2017-10-21","hm":"00:00","h":0,"wd":6,"ti":"氣象戰","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":400,"pr":200,"me":""},
+  {"d":"2017-11-01","hm":"00:00","h":0,"wd":3,"ti":"正義聯盟","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":400,"pr":200,"me":""},
+  {"d":"2017-12-10","hm":"21:30","h":21,"wd":0,"ti":"遊戲人生 ZERO","ve":"林口威秀","vr":"4DX","co":"日本","tk":2,"cs":430,"pr":430,"me":"有一張是用累積點數兌換了"},
+  {"d":"2017-12-13","hm":"22:40","h":22,"wd":3,"ti":"星際大戰八部曲：最後的絕地武士","ve":"林口威秀","vr":"2D","co":"美國","tk":3,"cs":630,"pr":210,"me":""},
+  {"d":"2017-12-30","hm":"00:00","h":0,"wd":6,"ti":"少女與戰車 最終章 第1話","ve":"林口威秀","vr":"2D","co":"日本","tk":2,"cs":400,"pr":200,"me":""},
+  {"d":"2018-01-20","hm":"20:20","h":20,"wd":6,"ti":"Fate stay night Heaven's feel","ve":"林口威秀","vr":"2D","co":"日本","tk":2,"cs":400,"pr":200,"me":""},
+  {"d":"2018-04-27","hm":"22:30","h":22,"wd":5,"ti":"復仇者聯盟：無限之戰","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":440,"pr":200,"me":""},
+  {"d":"2018-05-18","hm":"22:50","h":22,"wd":5,"ti":"死侍2","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":400,"pr":200,"me":""},
+  {"d":"2018-05-25","hm":"23:25","h":23,"wd":5,"ti":"星際大戰外傳：韓索羅","ve":"林口威秀","vr":"2D","co":"美國","tk":3,"cs":600,"pr":200,"me":"爸"},
+  {"d":"2018-06-08","hm":"22:40","h":22,"wd":5,"ti":"侏儸紀世界：殞落國度","ve":"林口威秀","vr":"2D","co":"美國","tk":3,"cs":600,"pr":200,"me":"爸"},
+  {"d":"2018-07-06","hm":"23:10","h":23,"wd":5,"ti":"蟻人與黃蜂女","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":400,"pr":200,"me":"隔壁疑似吃過屎才來看電影，嘴超臭(物理)"},
+  {"d":"2018-08-19","hm":"23:05","h":23,"wd":0,"ti":"未來的未來","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":200,"pr":200,"me":""},
+  {"d":"2018-09-23","hm":"11:40","h":11,"wd":0,"ti":"少女與戰車劇場版","ve":"信義威秀","vr":"4DX","co":"日本","tk":1,"cs":490,"pr":470,"me":"Flex"},
+  {"d":"2018-10-06","hm":"14:30","h":14,"wd":6,"ti":"電影版吹響吧！上低音號～莉茲與青鳥～","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":200,"pr":200,"me":""},
+  {"d":"2018-10-12","hm":"21:50","h":21,"wd":5,"ti":"猛毒","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":400,"pr":200,"me":""},
+  {"d":"2018-10-13","hm":"18:00","h":18,"wd":6,"ti":"電影版吹響吧！上低音號～莉茲與青鳥～","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":200,"pr":200,"me":""},
+  {"d":"2018-11-17","hm":"22:55","h":22,"wd":6,"ti":"怪獸與葛林戴華德的罪行","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":400,"pr":200,"me":""},
+  {"d":"2018-12-22","hm":"21:25","h":21,"wd":6,"ti":"蜘蛛人：新宇宙","ve":"林口威秀","vr":"2D","co":"美國","tk":1,"cs":0,"pr":0,"me":"累積點兌換"},
+  {"d":"2019-01-20","hm":"13:30","h":13,"wd":0,"ti":"企鵝公路","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":200,"pr":200,"me":""},
+  {"d":"2019-03-16","hm":"14:55","h":14,"wd":6,"ti":"Fate stay night Heaven's feel 2","ve":"林口威秀","vr":"2D","co":"日本","tk":2,"cs":400,"pr":200,"me":""},
+  {"d":"2019-04-24","hm":"21:50","h":21,"wd":3,"ti":"復仇者聯盟：終局之戰","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":440,"pr":200,"me":""},
+  {"d":"2019-05-10","hm":"15:55","h":15,"wd":5,"ti":"名偵探皮卡丘","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":400,"pr":200,"me":""},
+  {"d":"2019-05-29","hm":"22:00","h":22,"wd":3,"ti":"哥吉拉 II：怪獸之王","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":440,"pr":200,"me":""},
+  {"d":"2019-06-29","hm":"17:00","h":17,"wd":6,"ti":"復仇者聯盟：終局之戰","ve":"日新威秀","vr":"IMAX 3D","co":"美國","tk":1,"cs":380,"pr":360,"me":"馬"},
+  {"d":"2019-07-04","hm":"22:20","h":22,"wd":4,"ti":"蜘蛛人：離家日","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":400,"pr":200,"me":""},
+  {"d":"2019-08-22","hm":"14:35","h":14,"wd":4,"ti":"普羅米亞","ve":"信義威秀","vr":"2D","co":"日本","tk":1,"cs":240,"pr":240,"me":""},
+  {"d":"2019-09-12","hm":"21:50","h":21,"wd":4,"ti":"天氣之子","ve":"林口威秀","vr":"2D","co":"日本","tk":2,"cs":400,"pr":200,"me":""},
+  {"d":"2019-09-15","hm":"09:45","h":9,"wd":0,"ti":"普羅米亞","ve":"板橋威秀","vr":"2D","co":"日本","tk":2,"cs":580,"pr":270,"me":""},
+  {"d":"2019-09-20","hm":"21:30","h":21,"wd":5,"ti":"返校","ve":"林口威秀","vr":"2D","co":"台灣","tk":2,"cs":400,"pr":200,"me":""},
+  {"d":"2019-09-26","hm":"10:00","h":10,"wd":4,"ti":"天氣之子","ve":"大直美麗華","vr":"IMAX","co":"日本","tk":1,"cs":420,"pr":420,"me":""},
+  {"d":"2019-09-30","hm":"12:30","h":12,"wd":1,"ti":"天氣之子","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":200,"pr":200,"me":""},
+  {"d":"2019-10-10","hm":"20:50","h":20,"wd":4,"ti":"小丑","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":400,"pr":200,"me":""},
+  {"d":"2019-10-19","hm":"13:10","h":13,"wd":6,"ti":"電影版 吹響吧 ! 上低音號 ~ 想傳達的旋律 ~","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":200,"pr":200,"me":""},
+  {"d":"2019-10-19","hm":"17:10","h":17,"wd":6,"ti":"電影版 吹響吧 ! 上低音號 ~ 歡迎加入北宇治高中管樂社 ~","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":200,"pr":200,"me":""},
+  {"d":"2019-10-23","hm":"21:40","h":21,"wd":3,"ti":"電影版 吹響吧 ! 上低音號 ~ 誓言的終章 ~","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":200,"pr":200,"me":""},
+  {"d":"2019-11-02","hm":"10:10","h":10,"wd":6,"ti":"紫羅蘭永恆花園外傳–永遠與自動手記人偶–","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":200,"pr":200,"me":""},
+  {"d":"2019-11-02","hm":"12:20","h":12,"wd":6,"ti":"電影版 吹響吧 ! 上低音號 ~ 誓言的終章 ~","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":200,"pr":200,"me":""},
+  {"d":"2019-11-13","hm":"20:30","h":20,"wd":3,"ti":"決戰中途島","ve":"林口威秀","vr":"2D","co":"美國","tk":1,"cs":200,"pr":200,"me":""},
+  {"d":"2019-11-16","hm":"16:50","h":16,"wd":6,"ti":"為美好的世界獻上祝福！紅傳說","ve":"林口威秀","vr":"2D","co":"日本","tk":2,"cs":400,"pr":200,"me":""},
+  {"d":"2019-11-21","hm":"20:20","h":20,"wd":4,"ti":"HELLO WORLD","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":200,"pr":200,"me":""},
+  {"d":"2019-12-08","hm":"20:50","h":20,"wd":0,"ti":"賽道狂人","ve":"林口威秀","vr":"2D","co":"美國","tk":1,"cs":210,"pr":210,"me":""},
+  {"d":"2019-12-11","hm":"20:20","h":20,"wd":3,"ti":"普羅米亞","ve":"林口威秀","vr":"4DX","co":"日本","tk":1,"cs":0,"pr":0,"me":"累積點兌換"},
+  {"d":"2019-12-20","hm":"22:50","h":22,"wd":5,"ti":"星際大戰九部曲：天行者的崛起","ve":"林口威秀","vr":"2D","co":"美國","tk":3,"cs":600,"pr":200,"me":"爸"},
+  {"d":"2020-01-03","hm":"21:25","h":21,"wd":5,"ti":"少女與戰車總篇集","ve":"林口威秀","vr":"4DX","co":"日本","tk":1,"cs":430,"pr":430,"me":""},
+  {"d":"2020-01-22","hm":"10:00","h":10,"wd":3,"ti":"夏日大作戰","ve":"林口威秀","vr":"4DX","co":"日本","tk":1,"cs":430,"pr":430,"me":""},
+  {"d":"2020-02-22","hm":"22:10","h":22,"wd":6,"ti":"音速小子","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":400,"pr":200,"me":""},
+  {"d":"2020-04-04","hm":"14:10","h":14,"wd":6,"ti":"我的英雄學院劇場版：英雄新世紀","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":0,"pr":0,"me":"去年購買20張以上電影票，威秀回饋免費票"},
+  {"d":"2020-04-11","hm":"19:00","h":19,"wd":6,"ti":"來自深淵 深沉靈魂的黎明","ve":"林口威秀","vr":"2D","co":"日本","tk":2,"cs":400,"pr":200,"me":""},
+  {"d":"2020-05-02","hm":"14:20","h":14,"wd":6,"ti":"數碼寶貝 Last Evolution 絆","ve":"林口威秀","vr":"2D","co":"日本","tk":2,"cs":400,"pr":200,"me":""},
+  {"d":"2020-05-08","hm":"17:15","h":17,"wd":5,"ti":"白箱","ve":"松仁威秀","vr":"2D","co":"日本","tk":1,"cs":300,"pr":300,"me":"白"},
+  {"d":"2020-05-21","hm":"19:55","h":19,"wd":4,"ti":"天氣之子","ve":"板橋威秀","vr":"IMAX","co":"日本","tk":1,"cs":330,"pr":330,"me":""},
+  {"d":"2020-08-21","hm":"22:25","h":22,"wd":5,"ti":"Fate stay night Heaven's feel 3","ve":"林口威秀","vr":"2D","co":"日本","tk":2,"cs":400,"pr":200,"me":""},
+  {"d":"2020-08-30","hm":"21:00","h":21,"wd":0,"ti":"天能","ve":"林口威秀","vr":"2D","co":"美國","tk":1,"cs":200,"pr":200,"me":""},
+  {"d":"2020-09-04","hm":"14:50","h":14,"wd":5,"ti":"天能","ve":"大直美麗華","vr":"IMAX","co":"美國","tk":1,"cs":20,"pr":420,"me":"藝Fun券 400"},
+  {"d":"2020-10-01","hm":"15:05","h":15,"wd":4,"ti":"紫羅蘭永恆花園電影版","ve":"林口威秀","vr":"MAPPA","co":"日本","tk":1,"cs":200,"pr":200,"me":""},
+  {"d":"2020-10-08","hm":"21:30","h":21,"wd":4,"ti":"少女與戰車最終章 1+2","ve":"林口威秀","vr":"4DX","co":"日本","tk":2,"cs":860,"pr":430,"me":""},
+  {"d":"2020-10-17","hm":"16:30","h":16,"wd":6,"ti":"少女與戰車最終章 1+2","ve":"林口威秀","vr":"4DX","co":"日本","tk":1,"cs":430,"pr":430,"me":""},
+  {"d":"2020-10-23","hm":"10:00","h":10,"wd":5,"ti":"玉子愛情故事","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":200,"pr":200,"me":""},
+  {"d":"2020-10-28","hm":"20:00","h":20,"wd":3,"ti":"玉子愛情故事","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":200,"pr":200,"me":"一人包場，真正的一個人看電影XD"},
+  {"d":"2020-10-30","hm":"22:30","h":22,"wd":5,"ti":"鬼滅之刃劇場版 無限列車篇","ve":"林口威秀","vr":"2D","co":"日本","tk":2,"cs":440,"pr":200,"me":""},
+  {"d":"2020-11-06","hm":"15:00","h":15,"wd":5,"ti":"鬼滅之刃劇場版 無限列車篇","ve":"大直美麗華","vr":"IMAX","co":"日本","tk":1,"cs":220,"pr":420,"me":"藝Fun券 200"},
+  {"d":"2020-12-18","hm":"22:30","h":22,"wd":5,"ti":"魔物獵人","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":400,"pr":200,"me":""},
+  {"d":"2021-01-24","hm":"18:45","h":18,"wd":0,"ti":"喬瑟與虎與魚群","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":0,"pr":0,"me":"去年購買20張以上電影票，威秀回饋免費票"},
+  {"d":"2021-02-09","hm":"12:15","h":12,"wd":2,"ti":"T-34:玩命坦克","ve":"松仁威秀","vr":"TITAN","co":"俄羅斯","tk":1,"cs":320,"pr":320,"me":"教皇 | TITAN廳初體驗"},
+  {"d":"2021-03-28","hm":"21:10","h":21,"wd":0,"ti":"哥吉拉大戰金剛","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":440,"pr":200,"me":""},
+  {"d":"2021-08-15","hm":"10:20","h":10,"wd":0,"ti":"自殺突擊隊:集結","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":404,"pr":200,"me":""},
+  {"d":"2021-08-21","hm":"09:40","h":9,"wd":6,"ti":"脫稿玩家","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":404,"pr":200,"me":""},
+  {"d":"2021-09-26","hm":"09:35","h":9,"wd":0,"ti":"尚氣與十環傳奇","ve":"林口威秀","vr":"2D","co":"美國","tk":1,"cs":0,"pr":0,"me":"兌點票"},
+  {"d":"2021-10-16","hm":"14:25","h":14,"wd":6,"ti":"龍與雀斑公主","ve":"林口威秀","vr":"MAPPA","co":"日本","tk":1,"cs":220,"pr":220,"me":""},
+  {"d":"2021-11-13","hm":"16:30","h":16,"wd":6,"ti":"刀劍神域 Progressive 無星夜的詠嘆調","ve":"京站威秀","vr":"2D","co":"日本","tk":1,"cs":290,"pr":270,"me":"白"},
+  {"d":"2021-11-19","hm":"20:30","h":20,"wd":5,"ti":"少女與戰車最終章 第3話","ve":"林口威秀","vr":"4DX","co":"日本","tk":1,"cs":430,"pr":430,"me":""},
+  {"d":"2021-11-27","hm":"10:00","h":10,"wd":6,"ti":"少女與戰車最終章 第3話","ve":"林口威秀","vr":"4DX","co":"日本","tk":2,"cs":860,"pr":430,"me":""},
+  {"d":"2021-12-17","hm":"21:50","h":21,"wd":5,"ti":"蜘蛛人：無家日","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":440,"pr":200,"me":""},
+  {"d":"2022-03-19","hm":"10:20","h":10,"wd":6,"ti":"劇場版 咒術迴戰0","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":200,"pr":200,"me":""},
+  {"d":"2022-04-03","hm":"10:55","h":10,"wd":0,"ti":"音速小子2","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":0,"pr":0,"me":"藝FUN券"},
+  {"d":"2022-05-28","hm":"10:00","h":10,"wd":6,"ti":"捍衛戰士:獨行俠","ve":"林口威秀","vr":"2D","co":"美國","tk":1,"cs":210,"pr":210,"me":""},
+  {"d":"2022-06-24","hm":"14:10","h":14,"wd":5,"ti":"捍衛戰士:獨行俠","ve":"大直美麗華","vr":"IMAX","co":"美國","tk":1,"cs":357,"pr":357,"me":"FunNow 電影75折優惠"},
+  {"d":"2022-07-10","hm":"15:25","h":15,"wd":0,"ti":"侏羅紀世界:統霸天下","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":460,"pr":210,"me":"爸"},
+  {"d":"2022-09-16","hm":"19:05","h":19,"wd":5,"ti":"新．超人力霸王","ve":"京站威秀","vr":"2D","co":"日本","tk":1,"cs":300,"pr":280,"me":"東、湛中"},
+  {"d":"2022-11-12","hm":"10:30","h":10,"wd":6,"ti":"刀劍神域劇場版–Progressive- 陰沉薄暮的詼諧曲","ve":"松仁威秀","vr":"2D","co":"日本","tk":1,"cs":330,"pr":310,"me":"白"},
+  {"d":"2022-12-12","hm":"16:50","h":16,"wd":1,"ti":"捍衛戰士:獨行俠","ve":"林口威秀","vr":"4DX","co":"美國","tk":1,"cs":440,"pr":440,"me":""},
+  {"d":"2022-12-26","hm":"18:45","h":18,"wd":1,"ti":"輝夜姬想讓人告白-永不結束的初吻","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":210,"pr":210,"me":""},
+  {"d":"2023-02-15","hm":"13:00","h":13,"wd":3,"ti":"蟻人與黃蜂女：量子狂熱","ve":"林口威秀","vr":"2D","co":"美國","tk":1,"cs":210,"pr":210,"me":""},
+  {"d":"2023-02-18","hm":"14:50","h":14,"wd":6,"ti":"「鬼滅之刃」上弦集結，前進刀匠村","ve":"大直美麗華","vr":"2D","co":"日本","tk":1,"cs":250,"pr":230,"me":"FunNow 電影優惠"},
+  {"d":"2023-02-26","hm":"13:50","h":13,"wd":0,"ti":"鈴芽之旅","ve":"林口威秀","vr":"2D","co":"日本","tk":2,"cs":460,"pr":210,"me":"搶先場"},
+  {"d":"2023-03-12","hm":"12:30","h":12,"wd":0,"ti":"鈴芽之旅","ve":"桃園青埔新光影城","vr":"Dolby Cinema","co":"日本","tk":1,"cs":335,"pr":315,"me":"FunNow 電影78折優惠 (-85)"},
+  {"d":"2023-03-31","hm":"15:15","h":15,"wd":5,"ti":"魔女宅急便","ve":"大直美麗華","vr":"2D","co":"日本","tk":1,"cs":250,"pr":230,"me":"FunNow"},
+  {"d":"2023-04-05","hm":"10:45","h":10,"wd":3,"ti":"超級瑪利歐兄弟電影版","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":460,"pr":210,"me":""},
+  {"d":"2023-04-09","hm":"11:55","h":11,"wd":0,"ti":"鏡之孤城","ve":"林口威秀","vr":"MAPPA","co":"日本","tk":1,"cs":230,"pr":230,"me":""},
+  {"d":"2023-06-24","hm":"10:25","h":10,"wd":6,"ti":"星際異攻隊3","ve":"林口威秀","vr":"2D","co":"美國","tk":1,"cs":0,"pr":0,"me":"iShow 兌點票"},
+  {"d":"2023-07-02","hm":"17:40","h":17,"wd":0,"ti":"蜘蛛人：穿越新宇宙","ve":"林口威秀","vr":"2D","co":"美國","tk":1,"cs":210,"pr":210,"me":""},
+  {"d":"2023-07-14","hm":"20:25","h":20,"wd":5,"ti":"GRIDMAN UNIVERSE","ve":"信義威秀","vr":"2D","co":"日本","tk":1,"cs":280,"pr":280,"me":"東"},
+  {"d":"2023-10-27","hm":"19:40","h":19,"wd":5,"ti":"數碼寶貝02 THE BEGINNING","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":210,"pr":210,"me":""},
+  {"d":"2023-11-04","hm":"19:00","h":19,"wd":6,"ti":"少女與戰車最終章 第4話","ve":"イオンシネマ シアタス心斎橋","vr":"2D","co":"日本","tk":1,"cs":350,"pr":350,"me":"解鎖人生成就「在日本看電影」| \n票價為 JPY 1,600，台幣金額為算個大概 | \n在外面物販又多花了 JPY 8,000 多XD"},
+  {"d":"2023-11-18","hm":"10:40","h":10,"wd":6,"ti":"蒼鷺與少年","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":210,"pr":210,"me":""},
+  {"d":"2023-12-15","hm":"19:00","h":19,"wd":5,"ti":"歡迎來到駒田蒸餾所","ve":"信義威秀","vr":"2D","co":"日本","tk":1,"cs":280,"pr":280,"me":""},
+  {"d":"2024-01-19","hm":"19:25","h":19,"wd":5,"ti":"少女與戰車劇場版","ve":"林口威秀","vr":"4DX 極爆","co":"日本","tk":1,"cs":440,"pr":440,"me":"第 11 次上映"},
+  {"d":"2024-01-27","hm":"22:30","h":22,"wd":6,"ti":"SPY x FAMILY CODE: White","ve":"林口威秀","vr":"2D","co":"日本","tk":2,"cs":420,"pr":210,"me":""},
+  {"d":"2024-02-03","hm":"14:45","h":14,"wd":6,"ti":"魔法公主","ve":"京站威秀","vr":"2D","co":"日本","tk":1,"cs":238,"pr":238,"me":"東 | FunNow 電影 Visa 7 折免手續費"},
+  {"d":"2024-02-10","hm":"13:40","h":13,"wd":6,"ti":"少女與戰車最終章 第4話","ve":"林口威秀","vr":"2D","co":"日本","tk":2,"cs":460,"pr":230,"me":""},
+  {"d":"2024-03-02","hm":"13:10","h":13,"wd":6,"ti":"沙丘：第二部","ve":"京站威秀","vr":"2D","co":"美國","tk":1,"cs":268,"pr":268,"me":"東 | FunNow 電影 Visa 7 折免手續費"},
+  {"d":"2024-03-09","hm":"13:00","h":13,"wd":6,"ti":"少女與戰車最終章 1+2","ve":"林口威秀","vr":"4DX","co":"日本","tk":1,"cs":600,"pr":600,"me":"4DX連映馬拉松場(上)"},
+  {"d":"2024-03-09","hm":"15:15","h":15,"wd":6,"ti":"少女與戰車最終章 3+4","ve":"林口威秀","vr":"4DX","co":"日本","tk":1,"cs":600,"pr":600,"me":"4DX連映馬拉松場(下)"},
+  {"d":"2024-03-16","hm":"17:10","h":17,"wd":6,"ti":"少女與戰車最終章 3+4","ve":"林口威秀","vr":"4DX","co":"日本","tk":2,"cs":900,"pr":450,"me":""},
+  {"d":"2024-04-05","hm":"12:30","h":12,"wd":5,"ti":"哥吉拉與金剛：新帝國","ve":"京站威秀","vr":"2D","co":"美國","tk":1,"cs":290,"pr":290,"me":"東"},
+  {"d":"2024-07-27","hm":"13:20","h":13,"wd":6,"ti":"死侍與金鋼狼","ve":"京站威秀","vr":"2D","co":"美國","tk":1,"cs":290,"pr":290,"me":"東、宗"},
+  {"d":"2024-07-27","hm":"17:40","h":17,"wd":6,"ti":"劇場總集篇 孤獨搖滾！RE：","ve":"京站威秀","vr":"2D","co":"日本","tk":1,"cs":290,"pr":290,"me":"孤獨電影"},
+  {"d":"2024-08-02","hm":"20:50","h":20,"wd":5,"ti":"驀然回首","ve":"林口國賓","vr":"2D","co":"日本","tk":1,"cs":260,"pr":260,"me":""},
+  {"d":"2024-08-04","hm":"21:30","h":21,"wd":0,"ti":"劇場版賽馬娘Pretty Derby：新時代之門","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":230,"pr":230,"me":""},
+  {"d":"2024-08-09","hm":"20:00","h":20,"wd":5,"ti":"劇場版賽馬娘Pretty Derby：新時代之門","ve":"林口威秀","vr":"4DX","co":"日本","tk":1,"cs":450,"pr":450,"me":"林口威秀第100場🎉"},
+  {"d":"2024-09-22","hm":"15:30","h":15,"wd":0,"ti":"變形金剛：源起","ve":"京站威秀","vr":"2D","co":"美國","tk":1,"cs":290,"pr":290,"me":""},
+  {"d":"2024-10-13","hm":"12:05","h":12,"wd":0,"ti":"劇場總集篇孤獨搖滾！RE：RE：","ve":"板橋威秀","vr":"2D","co":"日本","tk":1,"cs":290,"pr":290,"me":"孤獨電影RE："},
+  {"d":"2024-10-19","hm":"21:35","h":21,"wd":6,"ti":"荒野機器人","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":460,"pr":230,"me":""},
+  {"d":"2024-12-27","hm":"21:55","h":21,"wd":5,"ti":"音速小子3","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":460,"pr":230,"me":""},
+  {"d":"2025-01-14","hm":"20:10","h":20,"wd":2,"ti":"劇場版「進擊的巨人」完結篇THE LAST ATTACK","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":230,"pr":230,"me":""},
+  {"d":"2025-02-22","hm":"15:30","h":15,"wd":6,"ti":"THUNDERBOLT FANTASY 東離劍遊紀 最終章","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":240,"pr":240,"me":""},
+  {"d":"2025-03-01","hm":"13:30","h":13,"wd":6,"ti":"機動戰士GUNDAM GQUUUUUUX BEGINNING","ve":"林口威秀","vr":"2D","co":"日本","tk":2,"cs":480,"pr":240,"me":""},
+  {"d":"2025-06-13","hm":"20:00","h":20,"wd":5,"ti":"劇場版 我與機器子","ve":"信義威秀","vr":"2D","co":"日本","tk":1,"cs":300,"pr":300,"me":""},
+  {"d":"2025-07-04","hm":"22:10","h":22,"wd":5,"ti":"侏羅紀世界：重生","ve":"林口威秀","vr":"2D","co":"美國","tk":3,"cs":780,"pr":240,"me":"爸"},
+  {"d":"2025-08-08","hm":"21:40","h":21,"wd":5,"ti":"劇場版「鬼滅之刃」無限城篇 第一章 猗窩座再襲","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":260,"pr":240,"me":""},
+  {"d":"2025-09-14","hm":"12:10","h":12,"wd":0,"ti":"電影版小林家的龍女僕：害怕寂寞的龍","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":0,"pr":0,"me":"兌點票"},
+  {"d":"2025-09-28","hm":"21:30","h":21,"wd":0,"ti":"劇場版『鏈鋸人 蕾潔篇』","ve":"林口威秀","vr":"2D","co":"日本","tk":2,"cs":520,"pr":240,"me":""},
+  {"d":"2025-12-25","hm":"10:00","h":10,"wd":4,"ti":"佐賀偶像是傳奇 夢幻銀河樂園","ve":"京站威秀","vr":"2D","co":"日本","tk":1,"cs":320,"pr":300,"me":""},
+  {"d":"2026-01-07","hm":"14:40","h":14,"wd":3,"ti":"冠軍之路","ve":"林口威秀","vr":"2D","co":"台灣","tk":1,"cs":240,"pr":240,"me":""},
+  {"d":"2026-01-17","hm":"10:00","h":10,"wd":6,"ti":"少女與戰車劇場版","ve":"大巨蛋秀泰","vr":"4DX 極爆","co":"日本","tk":1,"cs":570,"pr":550,"me":"第 12 次上映"},
+  {"d":"2026-03-30","hm":"15:30","h":15,"wd":1,"ti":"劇場版「暗殺教室」：我們的時光","ve":"林口威秀","vr":"2D","co":"日本","tk":1,"cs":240,"pr":240,"me":""},
+  {"d":"2026-04-17","hm":"21:20","h":21,"wd":5,"ti":"超級瑪利歐銀河電影版","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":520,"pr":240,"me":""},
+  {"d":"2026-04-28","hm":"22:00","h":22,"wd":2,"ti":"極限返航","ve":"林口威秀","vr":"2D","co":"美國","tk":1,"cs":260,"pr":260,"me":""},
+  {"d":"2026-05-23","hm":"10:15","h":10,"wd":6,"ti":"曼達洛人與古古","ve":"京站威秀","vr":"2D","co":"美國","tk":1,"cs":300,"pr":300,"me":"東"},
+  {"d":"2026-06-20","hm":"22:10","h":22,"wd":6,"ti":"玩具總動員5","ve":"林口威秀","vr":"2D","co":"美國","tk":2,"cs":480,"pr":240,"me":""},
+  {"d":"2026-07-26","hm":"16:00","h":16,"wd":0,"ti":"劇場版 吉伊卡哇 人魚島的秘密","ve":"林口威秀","vr":"2D","co":"日本","tk":2,"cs":520,"pr":260,"me":""}
+];
+
+/* 已對上官方核准片名的 51 個片名（recordsWithFilm）→ 原文片名與 TMDB id。
+   .data/films.json 只涵蓋民國 110–113 年首映作品，所以 169 場裡只有 73 場對得上。 */
+const FILMS = {
+  "少女與戰車劇場版": {"zh":"少女與戰車 劇場版","o":"ガールズ&パンツァー 劇場版","c":"日本","rt":120,"tm":357405},
+  "劇場版「進擊的巨人」完結篇THE LAST ATTACK": {"zh":"劇場版「進擊的巨人」完結篇THE LAST ATTACK","o":"劇場版「進撃の巨人」完結編 THE LAST ATTACK","c":"日本","rt":144,"tm":1333100},
+  "音速小子3": {"zh":"音速小子 3","o":"Sonic the Hedgehog 3","c":"美國","rt":110,"tm":939243},
+  "荒野機器人": {"zh":"荒野機器人","o":"The Wild Robot","c":"美國","rt":102,"tm":1184918},
+  "劇場總集篇孤獨搖滾！RE：RE：": {"zh":"劇場總集篇 孤獨搖滾！Re:Re:","o":"劇場総集編ぼっち・ざ・ろっく！Re:Re:","c":"日本","rt":75,"tm":1201387},
+  "變形金剛：源起": {"zh":"變形金剛：源起","o":"Transformers One","c":"美國","rt":104,"tm":698687},
+  "劇場版賽馬娘Pretty Derby：新時代之門": {"zh":"劇場版 賽馬娘Pretty Derby：新時代之門","o":"ウマ娘 プリティーダービー 新時代の扉","c":"日本","rt":107,"tm":1223178},
+  "驀然回首": {"zh":"驀然回首","o":"ルックバック","c":"日本","rt":57,"tm":1244492},
+  "劇場總集篇 孤獨搖滾！RE：": {"zh":"劇場總集篇 孤獨搖滾！Re:","o":"劇場総集編ぼっち・ざ・ろっく！Re:","c":"日本","rt":90,"tm":1129610},
+  "死侍與金鋼狼": {"zh":"死侍與金鋼狼","o":"Deadpool & Wolverine","c":"美國","rt":128,"tm":533535},
+  "哥吉拉與金剛：新帝國": {"zh":"哥吉拉與金剛 : 新帝國","o":"Godzilla x Kong: The New Empire","c":"美國","rt":115,"tm":823464},
+  "沙丘：第二部": {"zh":"沙丘：第二部","o":"Dune: Part Two","c":"美國","rt":166,"tm":693134},
+  "少女與戰車最終章 第4話": {"zh":"《少女與戰車 最終章》 第４話","o":"ガールズ＆パンツァー 最終章 第4話","c":"日本","rt":54,"tm":1051192},
+  "魔法公主": {"zh":"魔法公主","o":"もののけ姫","c":"日本","rt":133,"tm":128},
+  "SPY x FAMILY CODE: White": {"zh":"SPY x FAMILY CODE: White","o":"SPY x FAMILY CODE: White","c":"日本","rt":110,"tm":null},
+  "歡迎來到駒田蒸餾所": {"zh":"歡迎來到駒田蒸餾所","o":"駒田蒸留所へようこそ","c":"日本","rt":91,"tm":1119211},
+  "蒼鷺與少年": {"zh":"蒼鷺與少年","o":"君たちはどう生きるか","c":"日本","rt":124,"tm":508883},
+  "數碼寶貝02 THE BEGINNING": {"zh":"數碼寶貝02 THE BEGINNING","o":"デジモンアドベンチャー02 THE BEGINNING","c":"日本","rt":80,"tm":872976},
+  "GRIDMAN UNIVERSE": {"zh":"GRIDMAN UNIVERSE","o":"グリッドマン ユニバース","c":"日本","rt":118,"tm":915403},
+  "蜘蛛人：穿越新宇宙": {"zh":"蜘蛛人：穿越新宇宙","o":"Spider-Man: Across the Spider-Verse","c":"美國","rt":140,"tm":569094},
+  "星際異攻隊3": {"zh":"星際異攻隊3","o":"Guardians of the Galaxy Vol. 3","c":"美國","rt":150,"tm":447365},
+  "鏡之孤城": {"zh":"鏡之孤城","o":"かがみの孤城","c":"日本","rt":116,"tm":942881},
+  "超級瑪利歐兄弟電影版": {"zh":"超級瑪利歐兄弟電影版","o":"The Super Mario Bros. Movie","c":"美國","rt":92,"tm":502356},
+  "鈴芽之旅": {"zh":"鈴芽之旅","o":"すずめの戸締まり","c":"日本","rt":121,"tm":916224},
+  "「鬼滅之刃」上弦集結，前進刀匠村": {"zh":"「鬼滅之刃」上弦集結，前進刀匠村","o":"「鬼滅の刃」上弦集結、そして刀鍛冶の里へ","c":"日本","rt":110,"tm":1067282},
+  "蟻人與黃蜂女：量子狂熱": {"zh":"蟻人與黃蜂女 : 量子狂熱","o":"Ant-Man and the Wasp: Quantumania","c":"美國","rt":124,"tm":640146},
+  "輝夜姬想讓人告白-永不結束的初吻": {"zh":"輝夜姬想讓人告白－永不結束的初吻","o":"かぐや様は告らせたい-ファーストキッスは終わらない-","c":"日本","rt":96,"tm":997317},
+  "捍衛戰士:獨行俠": {"zh":"捍衛戰士: 獨行俠","o":"Top Gun: Maverick","c":"美國","rt":130,"tm":361743},
+  "刀劍神域劇場版–Progressive- 陰沉薄暮的詼諧曲": {"zh":"刀劍神域劇場版 –Progressive- 陰沉薄暮的詼諧曲","o":"劇場版 ソードアート・オンライン -プログレッシブ- 冥き夕闇のスケルツォ","c":"日本","rt":101,"tm":893712},
+  "新．超人力霸王": {"zh":"新·超人力霸王","o":"シン・ウルトラマン","c":"日本","rt":112,"tm":634429},
+  "侏羅紀世界:統霸天下": {"zh":"侏羅紀世界: 統霸天下","o":"Jurassic World Dominion","c":"美國","rt":147,"tm":507086},
+  "音速小子2": {"zh":"音速小子 2","o":"Sonic the Hedgehog 2","c":"美國","rt":122,"tm":675353},
+  "劇場版 咒術迴戰0": {"zh":"劇場版 咒術迴戰 0","o":"劇場版 呪術廻戦 0","c":"日本","rt":105,"tm":810693},
+  "蜘蛛人：無家日": {"zh":"蜘蛛人：無家日","o":"Spider-Man: No Way Home","c":"美國","rt":148,"tm":634649},
+  "少女與戰車最終章 第3話": {"zh":"《少女與戰車 最終章》 第3話","o":"ガールズ＆パンツァー 最終章 第3話","c":"日本","rt":48,"tm":746880},
+  "龍與雀斑公主": {"zh":"龍與雀斑公主","o":"竜とそばかすの姫","c":"美國","rt":121,"tm":776305},
+  "尚氣與十環傳奇": {"zh":"尚氣與十環傳奇","o":"Shang-Chi and the Legend of the Ten Rings","c":"美國","rt":132,"tm":566525},
+  "脫稿玩家": {"zh":"脫稿玩家","o":"Free Guy","c":"美國","rt":115,"tm":550988},
+  "自殺突擊隊:集結": {"zh":"自殺突擊隊：集結","o":"The Suicide Squad","c":"美國","rt":132,"tm":436969},
+  "哥吉拉大戰金剛": {"zh":"哥吉拉大戰金剛","o":"Godzilla vs. Kong","c":"美國","rt":113,"tm":399566},
+  "T-34:玩命坦克": {"zh":"T-34：玩命坦克","o":"Т-34","c":"俄羅斯","rt":139,"tm":505954},
+  "普羅米亞": {"zh":"普羅米亞","o":"プロメア","c":"日本","rt":111,"tm":553600},
+  "小丑": {"zh":"小丑","o":"Joker","c":"美國","rt":122,"tm":475557},
+  "蜘蛛人：離家日": {"zh":"蜘蛛人：離家日","o":"Spider-Man: Far From Home","c":"美國","rt":129,"tm":429617},
+  "蜘蛛人：新宇宙": {"zh":"蜘蛛人：新宇宙","o":"Spider-Man: Into the Spider-Verse","c":"美國","rt":117,"tm":324857},
+  "電影版吹響吧！上低音號～莉茲與青鳥～": {"zh":"電影版 吹響吧！上低音號～莉茲與青鳥～","o":"リズと青い鳥","c":"日本","rt":91,"tm":482150},
+  "蜘蛛人：返校日": {"zh":"蜘蛛人：返校日","o":"Spider-Man: Homecoming","c":"美國","rt":133,"tm":315635},
+  "刀劍神域劇場版：序列爭戰": {"zh":"刀劍神域劇場版-序列爭戰","o":"劇場版 ソードアート・オンライン -オーディナル・スケール-","c":"日本","rt":120,"tm":413594},
+  "你的名字": {"zh":"你的名字。","o":"Your Name","c":"日本","rt":106,"tm":553301},
+  "星際效應": {"zh":"星際效應","o":"Interstellar","c":"美國","rt":169,"tm":157336},
+  "KANO": {"zh":"KANO","o":"KANO","c":"中華民國","rt":185,"tm":256930}
+};
+
+/* 審閱用：films.json / venues.json 的極端真實字串 */
+const CATALOGUE = {
+  hongZhu: { titleZh: '紅豬', titleOriginal: '紅の豚', country: '日本', runtime: 93, tmdbId: 11621, posterPath: null },
+  idolish7: {
+    titleZh: '劇場版IDOLiSH7-偶像星願- LIVE 4bit BEYOND THE PERiOD<DAY2>with After talk',
+    titleOriginal: 'IDOLiSH7 the Movie,LIVE 4bit BEYOND THE PERiOD＜DAY 2＞With After Talk version.',
+    country: '日本', runtime: 99, tmdbId: null, posterPath: null
+  },
+  linkou: { name: '林口MITSUI OUTLET PARK威秀影城', city: '新北市', halls: 9 }
+};
+
+/* ══════════════════════════════════════════════════════════════════════
+   §5.3-1 zrender 不會解析 oklch() / var() / color-mix()，餵進去會靜默變黑。
+   所以圖表色一律在 JS 端保存成 hex，不進 CSS 變數系統。
+   ══════════════════════════════════════════════════════════════════════ */
+const PALETTE = {
+  light: {
+    bg: '#FCFBF8', surface: '#F6F4EE', sunken: '#EDEAE3', line: '#DEDACF',
+    text0: '#171512', text1: '#4A453D', text2: '#6E675C', text3: '#8C8477',
+    heat: ['#EDEAE3', '#D6D0C4', '#B3AB9B', '#8C8477', '#615B50', '#3A362F', '#171512'],
+    att: ['#EDEAE3', '#615B50', '#171512']
+  },
+  dark: {
+    bg: '#12110F', surface: '#1C1A17', sunken: '#2A2621', line: '#3D3830',
+    text0: '#F2EFE8', text1: '#C4BDB0', text2: '#A8A196', text3: '#787164',
+    heat: ['#1F1D19', '#2E2B25', '#454037', '#615B50', '#8C8477', '#B3AB9B', '#E4DFD4'],
+    att: ['#1F1D19', '#8C8477', '#E4DFD4']
+  }
+};
+const FONT = "Inter, 'PingFang TC', 'Noto Sans CJK TC', 'Noto Sans TC', 'Microsoft JhengHei', sans-serif";
+
+function isDark() {
+  const c = document.documentElement.classList;
+  if (c.contains('dark')) return true;
+  if (c.contains('light')) return false;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+function T() { return isDark() ? PALETTE.dark : PALETTE.light; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   小工具
+   ══════════════════════════════════════════════════════════════════════ */
+const WD_ZH = ['日', '一', '二', '三', '四', '五', '六'];
+const pad = n => String(n).padStart(2, '0');
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const nf = n => n.toLocaleString('en-US');
+const N = n => '<span class="n">' + nf(n) + '</span>';
+const TODAY = '2026-09-05';
+
+function weekIndex(dstr) {
+  const [y, m, d] = dstr.split('-').map(Number);
+  const jan1 = Date.UTC(y, 0, 1);
+  const doy = Math.round((Date.UTC(y, m - 1, d) - jan1) / 86400000);
+  return Math.floor((doy + new Date(jan1).getUTCDay()) / 7); /* 週日起始，--week-start: 0 */
+}
+function weekdayOf(dstr) {
+  const [y, m, d] = dstr.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+}
+function prettyDate(dstr) {
+  return dstr.replace(/-/g, '/') + ' (週' + WD_ZH[weekdayOf(dstr)] + ')';
+}
+/* §4.3：NT$0 的 16 筆是免費／兌換票，不是 NT$0、也不是空白 */
+function priceLabel(r) {
+  if (r.cs > 0) return 'NT$' + nf(r.cs);
+  return /兌換|兌點|券|點數|累積點/.test(r.me) ? '兌換' : '免費';
+}
+function metaLine(r) {
+  const price = priceLabel(r);
+  const priceHtml = r.cs > 0
+    ? '<span class="num">' + esc(price) + '</span>'
+    : '<span class="free">' + esc(price) + '</span>';
+  return esc(r.ve) + '　' + esc(r.vr) + '　<span class="num">' + esc(r.hm) + '</span>　'
+       + '<span class="num">' + r.tk + '</span>張　' + priceHtml;
+}
+
+/* TicketCard 渲染。
+   海報是選配的鑲嵌：只有在該片有 posterPath 時才有海報欄，沒有就不存在（§4.3）。
+   我們的資料集沒有任何 posterPath（films.json 不含海報路徑），所以這裡全部落在票根樣式；
+   img 的 onerror 會在 image.tmdb.org 404 時把海報欄整個移除，退回票根，不留破圖。 */
+function ticketCard(r, film) {
+  const [y, m, d] = r.d.split('-').map(Number);
+  const f = film || FILMS[r.ti] || null;
+  const poster = f && f.posterPath
+    ? '<div class="tc-poster"><img alt="" loading="lazy" src="https://image.tmdb.org/t/p/w154' + esc(f.posterPath) +
+      '" onerror="this.closest(\'.tc\').classList.remove(\'has-poster\'); this.closest(\'.tc-poster\').remove();"></div>'
+    : '';
+  const orig = f && f.o && f.o !== r.ti ? '<p class="title-original">' + esc(f.o) + '</p>' : '';
+  const memo = r.me ? '<p class="tc-memo">' + esc(r.me) + '</p>' : '';
+  return '<article class="tc' + (poster ? ' has-poster' : '') + '">' +
+    '<div class="tc-date"><span class="tc-m num">' + m + ' 月</span>' +
+      '<span class="tc-d">' + d + '</span><span class="tc-w">' + WD_ZH[weekdayOf(r.d)] + '</span></div>' +
+    '<div class="tc-main"><h4 class="tc-title">' + esc(r.ti) + '</h4>' + orig +
+      '<p class="tc-meta">' + metaLine(r) + '</p>' + memo + '</div>' + poster + '</article>';
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   彙總（全部由 RECORDS 現算）
+   ══════════════════════════════════════════════════════════════════════ */
+const YEARS = [...new Set(RECORDS.map(r => r.d.slice(0, 4)))].map(Number).sort((a, b) => a - b);
+const byYear = {};
+YEARS.forEach(y => (byYear[y] = []));
+RECORDS.forEach(r => byYear[+r.d.slice(0, 4)].push(r));
+
+const yearStat = {};
+YEARS.forEach(y => {
+  const rs = byYear[y];
+  yearStat[y] = {
+    count: rs.length,
+    tickets: rs.reduce((a, r) => a + r.tk, 0),
+    cost: rs.reduce((a, r) => a + r.cs, 0),
+    free: rs.filter(r => r.cs === 0).length
+  };
+});
+const TOTAL = RECORDS.length;
+const TOTAL_COST = RECORDS.reduce((a, r) => a + r.cs, 0);
+const TOTAL_TICKETS = RECORDS.reduce((a, r) => a + r.tk, 0);
+const FREE_COUNT = RECORDS.filter(r => r.cs === 0).length;
+
+/* 日層級：實測 165 個有觀影的日子裡 161 天 1 場、4 天 2 場、0 天 ≥3 場 */
+const daily = {};
+RECORDS.forEach(r => (daily[r.d] = (daily[r.d] || 0) + 1));
+const dailyDist = { 1: 0, 2: 0, 3: 0 };
+Object.values(daily).forEach(v => { dailyDist[Math.min(v, 3)]++; });
+const DAYS_WITH = Object.keys(daily).length;
+
+/* 週層級：YearStrip */
+const weekly = {};
+RECORDS.forEach(r => {
+  const k = r.d.slice(0, 4) + ':' + weekIndex(r.d);
+  weekly[k] = (weekly[k] || 0) + 1;
+});
+const FILLED_WEEKS = Object.keys(weekly).length;
+const TOTAL_WEEKS = YEARS.length * 53;
+const BUSIEST = YEARS.slice().sort((a, b) => yearStat[b].count - yearStat[a].count)[0];
+
+/* 時段：09:00–23:00 逐時 + 午夜場（00:00–02:00 折到前一天的行尾，§9.1） */
+const HOUR_ROWS = [];
+for (let h = 9; h <= 23; h++) HOUR_ROWS.push(pad(h) + ':00');
+HOUR_ROWS.push('午夜場');
+const MID = HOUR_ROWS.length - 1;
+function slotOf(r) {
+  if (r.h <= 2) return { wd: (r.wd + 6) % 7, row: MID };
+  return { wd: r.wd, row: r.h - 9 };
+}
+const matrix = Array.from({ length: 7 }, () => new Array(HOUR_ROWS.length).fill(0));
+const slotRecords = {};
+RECORDS.forEach(r => {
+  const s = slotOf(r);
+  matrix[s.wd][s.row]++;
+  const k = s.wd + '|' + s.row;
+  (slotRecords[k] = slotRecords[k] || []).push(r);
+});
+const HOUR_MAX = Math.max(...matrix.flat());
+const WEEKEND = [5, 6, 0]; /* 週五、週六、週日 */
+let fsEvening = 0, fsAll = 0, eveningAll = 0;
+RECORDS.forEach(r => {
+  const s = slotOf(r);
+  const evening = s.row === MID || s.row >= 9; /* row 9 = 18:00 */
+  if (WEEKEND.includes(s.wd)) { fsAll++; if (evening) fsEvening++; }
+  if (evening) eveningAll++;
+});
+const PCT_FS_EVENING = Math.round(fsEvening / TOTAL * 100);
+const PCT_FS_ALL = Math.round(fsAll / TOTAL * 100);
+const PCT_EVENING = Math.round(eveningAll / TOTAL * 100);
+/* 最深的三格 */
+const hotCells = [];
+for (let w = 0; w < 7; w++) for (let h = 0; h < HOUR_ROWS.length; h++)
+  if (matrix[w][h] > 0) hotCells.push({ wd: w, row: h, v: matrix[w][h] });
+hotCells.sort((a, b) => b.v - a.v);
+
+/* 分布 */
+function freq(key) {
+  const m = {};
+  RECORDS.forEach(r => (m[r[key]] = (m[r[key]] || 0) + 1));
+  return Object.entries(m).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+}
+function collapseTail(list, keep, unit) {
+  if (list.length <= keep + 1) return list.slice();
+  const head = list.slice(0, keep);
+  const tail = list.slice(keep);
+  const sum = tail.reduce((a, x) => a + x.value, 0);
+  head.push({ name: '其他 ' + tail.length + ' ' + unit, value: sum, tail: true });
+  return head;
+}
+const venueFreq = freq('ve');
+const versionFreq = freq('vr');
+const countryFreq = freq('co');
+const titleFreq = freq('ti');
+const rewatch = titleFreq.filter(t => t.value >= 2);
+const VENUE_TOP = venueFreq[0];
+const PCT_VENUE_TOP = Math.round(VENUE_TOP.value / TOTAL * 100);
+const specialVersions = RECORDS.filter(r => r.vr !== '2D').length;
+const count4DX = RECORDS.filter(r => r.vr.indexOf('4DX') === 0).length;
+const countIMAX = RECORDS.filter(r => r.vr.indexOf('IMAX') === 0).length;
+
+/* ══════════════════════════════════════════════════════════════════════
+   狀態
+   ══════════════════════════════════════════════════════════════════════ */
+let selectedYear = YEARS[YEARS.length - 1]; /* 2026 */
+const SPARSE_THRESHOLD = 5; /* 低於此不畫出席圖，改列票根卡（SCREENS §3） */
+
+/* ══════════════════════════════════════════════════════════════════════
+   YearStrip
+   ══════════════════════════════════════════════════════════════════════ */
+function levelOf(n) { return n === 0 ? 0 : n === 1 ? 1 : n === 2 ? 2 : 3; }
+
+function renderYearStrip(host, opts) {
+  const dim = opts && opts.static;
+  host.innerHTML = YEARS.slice().reverse().map(y => {
+    const cells = [];
+    for (let w = 0; w < 53; w++) {
+      const n = weekly[y + ':' + w] || 0;
+      const lv = levelOf(n);
+      cells.push('<i' + (lv ? ' class="v' + lv + '"' : '') + '></i>');
+    }
+    const sel = (!dim && y === selectedYear) ? 'true' : 'false';
+    return '<button type="button" class="strip-row" role="option" aria-selected="' + sel + '"' +
+      ' data-year="' + y + '"' + (dim ? ' tabindex="-1"' : '') +
+      ' aria-label="' + y + ' 年 ' + yearStat[y].count + ' 場">' +
+      '<span class="strip-marker" aria-hidden="true">\u25B8</span>' +
+      '<span class="strip-year num">' + y + '</span>' +
+      '<span class="strip-cells">' + cells.join('') + '</span>' +
+      '<span class="strip-total num">' + yearStat[y].count + '</span></button>';
+  }).join('');
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   ECharts：登記表，深淺色切換時整份 option 重算
+   §5.3-9 ECharts 6 可以 instance.setTheme() 不必 dispose 重建，
+   但 visualMap.pieces 與明確的 itemStyle.color 不受 theme 影響，還是得重算 option。
+   這份 mockup 釘 ECharts 5.5.1（沒有 setTheme），所以一律走「重算 option」這條路，
+   正式站在 v6 下也應該保留同一條重算路徑。
+   ══════════════════════════════════════════════════════════════════════ */
+const charts = [];
+function mount(id, build, opts) {
+  const dom = document.getElementById(id);
+  const inst = echarts.init(dom, null, { renderer: 'canvas' });
+  const entry = { inst, build, dom, responsive: !(opts && opts.fixedWidth) };
+  charts.push(entry);
+  inst.setOption(build());
+  if (opts && opts.onClick) inst.on('click', opts.onClick);
+  return entry;
+}
+function repaintAll() { charts.forEach(c => c.inst.setOption(c.build(), true)); }
+
+const baseTooltip = () => ({
+  backgroundColor: T().surface,
+  borderColor: T().line,
+  borderWidth: 1,
+  padding: [6, 10],
+  textStyle: { color: T().text, fontSize: 13, lineHeight: 20, fontFamily: FONT },
+  extraCssText: 'border-radius:4px;box-shadow:none;'
+});
+
+/* ── band 2：年度出席圖 ─────────────────────────────────────────────── */
+function calendarOption() {
+  const t = T();
+  const year = selectedYear;
+  const data = [];
+  const end = new Date(Date.UTC(year, 11, 31));
+  for (let d = new Date(Date.UTC(year, 0, 1)); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    const key = d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate());
+    if (key > TODAY) continue; /* 未到的日子留空，不餵 0（§5.3-8） */
+    data.push([key, daily[key] || 0]);
+  }
+  return {
+    animation: false,
+    tooltip: Object.assign(baseTooltip(), {
+      formatter: p => {
+        const n = p.data[1];
+        return prettyDate(p.data[0]) + '<br>' + (n === 0 ? '沒去' : n + ' 場');
+      }
+    }),
+    /* §5.4：只有三階，因為資料只支援三階。不預留永遠不會被畫出來的色階 */
+    visualMap: {
+      type: 'piecewise',
+      show: false,
+      pieces: [
+        { value: 0, color: t.att[0], label: '沒去' },
+        { min: 1, max: 1, color: t.att[1], label: '1 場' },
+        { min: 2, color: t.att[2], label: '2 場以上' }
+      ]
+    },
+    calendar: {
+      /* ⚠️ 只設 left / top。同時設 right 或 width 會覆蓋 cellSize 的寬度分量，
+         格子會靜默變形成 6.9×14 的長條（§5.3-3） */
+      left: 34,
+      top: 26,
+      cellSize: [14, 14],
+      range: String(year),
+      splitLine: { show: false },
+      /* 日曆格子間距沒有專屬選項，由 itemStyle.borderWidth 控制，
+         borderColor 設成卡片底色才會讀成縫隙（§5.3-2） */
+      itemStyle: { color: t.att[0], borderWidth: 3, borderColor: t.bg },
+      yearLabel: { show: false },
+      /* firstDay 顯式寫出來，不靠預設（§5.4）。
+         nameMap 用明確陣列：v5 只吃 'en'/'cn'，v6 才吃 'ZH' 這種 locale 字串 */
+      dayLabel: {
+        firstDay: 0,
+        nameMap: WD_ZH,
+        color: t.text2, fontSize: 11, fontFamily: FONT
+      },
+      monthLabel: {
+        nameMap: ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'],
+        color: t.text2, fontSize: 11, fontFamily: FONT
+      }
+    },
+    series: [{
+      type: 'heatmap',
+      coordinateSystem: 'calendar',
+      data,
+      itemStyle: { borderWidth: 3, borderColor: t.bg }
+    }]
+  };
+}
+
+/* ── band 3：時段熱點圖 ─────────────────────────────────────────────── */
+function hourPieces() {
+  const h = T().heat;
+  return [
+    { value: 0, color: h[0], label: '0' },
+    { min: 1, max: 1, color: h[1], label: '1' },
+    { min: 2, max: 2, color: h[2], label: '2' },
+    { min: 3, max: 3, color: h[3], label: '3' },
+    { min: 4, max: 5, color: h[4], label: '4–5' },
+    { min: 6, max: 7, color: h[5], label: '6–7' },
+    { min: 8, color: h[6], label: '8 以上' }
+  ];
+}
+function hourOption() {
+  const t = T();
+  const data = [];
+  /* 7×16 全格明確餵值，包含 0。cartesian2d heatmap 完全不畫空格（§5.3-6） */
+  for (let w = 0; w < 7; w++)
+    for (let h = 0; h < HOUR_ROWS.length; h++)
+      data.push([w, h, matrix[w][h]]);
+  return {
+    animation: false,
+    grid: { left: 52, right: 8, top: 30, bottom: 6, containLabel: false },
+    tooltip: Object.assign(baseTooltip(), {
+      formatter: p => {
+        const [w, h, v] = p.data;
+        return slotLabel(w, h) + '<br>' + (v === 0 ? '從來沒有' : v + ' 場');
+      }
+    }),
+    /* 兩軸都必須 type:'category' 且 boundaryGap:true，違反會直接 throw（§5.3-7） */
+    xAxis: {
+      type: 'category',
+      boundaryGap: true,
+      position: 'top',
+      data: WD_ZH,
+      axisLine: { show: false },
+      axisTick: { show: false },
+      splitLine: { show: false },
+      /* 週日起始讓週末被拆到頭尾（日在頭、五六在尾），所以用字重讓週五六日成組（§5.4）。
+         axisLabel.fontWeight 不吃 callback，得走 rich text。 */
+      axisLabel: {
+        formatter: v => (['五', '六', '日'].indexOf(v) >= 0 ? '{w|' + v + '}' : '{d|' + v + '}'),
+        rich: {
+          w: { color: t.text0, fontWeight: 600, fontSize: 13, lineHeight: 18, fontFamily: FONT },
+          d: { color: t.text2, fontWeight: 400, fontSize: 13, lineHeight: 18, fontFamily: FONT }
+        }
+      }
+    },
+    yAxis: {
+      type: 'category',
+      boundaryGap: true,
+      inverse: true,
+      data: HOUR_ROWS,
+      axisLine: { show: false },
+      axisTick: { show: false },
+      splitLine: { show: false },
+      axisLabel: { color: t.text2, fontFamily: FONT, fontSize: 12, lineHeight: 18 }
+    },
+    visualMap: { type: 'piecewise', show: false, pieces: hourPieces() },
+    series: [{
+      type: 'heatmap',
+      data,
+      itemStyle: { borderWidth: 2, borderColor: t.bg },
+      emphasis: { itemStyle: { borderColor: t.text0, borderWidth: 2 } }
+    }]
+  };
+}
+function slotLabel(w, h) {
+  if (h === MID) return '週' + WD_ZH[w] + '　午夜場（00:00~02:00）';
+  const hr = h + 9;
+  return '週' + WD_ZH[w] + '　' + pad(hr) + ':00~' + pad(hr + 1) + ':00';
+}
+
+/* ── band 4：月度趨勢 ───────────────────────────────────────────────── */
+function monthOption() {
+  const t = T();
+  const cur = new Array(12).fill(0);
+  byYear[selectedYear].forEach(r => cur[+r.d.slice(5, 7) - 1]++);
+  const nowY = +TODAY.slice(0, 4), nowM = +TODAY.slice(5, 7);
+  /* 還沒到的月份留空，不畫成 0（§5.3-8） */
+  const curData = cur.map((v, i) => (selectedYear === nowY && i + 1 > nowM ? null : v));
+  const avg = new Array(12).fill(0);
+  RECORDS.forEach(r => avg[+r.d.slice(5, 7) - 1]++);
+  const avgData = avg.map(v => +(v / YEARS.length).toFixed(2));
+  return {
+    animation: false,
+    grid: { left: 34, right: 12, top: 16, bottom: 28, containLabel: false },
+    tooltip: Object.assign(baseTooltip(), { trigger: 'axis' }),
+    xAxis: {
+      type: 'category',
+      boundaryGap: false,
+      data: ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'],
+      axisLine: { lineStyle: { color: t.line } },
+      axisTick: { show: false },
+      axisLabel: { color: t.text2, fontFamily: FONT, fontSize: 12, lineHeight: 18 }
+    },
+    yAxis: {
+      type: 'value',
+      minInterval: 1,
+      axisLine: { show: false },
+      axisTick: { show: false },
+      splitLine: { lineStyle: { color: t.sunken } },
+      axisLabel: { color: t.text2, fontFamily: FONT, fontSize: 12, lineHeight: 18 }
+    },
+    series: [
+      {
+        name: '歷年每月平均',
+        type: 'line',
+        data: avgData,
+        smooth: false,
+        symbol: 'none',
+        lineStyle: { color: t.heat[2], width: 1, type: 'dashed' },
+        itemStyle: { color: t.heat[2] },
+        z: 1
+      },
+      {
+        name: selectedYear + ' 年',
+        type: 'line',
+        data: curData,
+        smooth: false,
+        symbol: 'circle',
+        symbolSize: 6,
+        connectNulls: false,
+        lineStyle: { color: t.text0, width: 1.5 },
+        itemStyle: { color: t.text0 },
+        z: 2
+      }
+    ]
+  };
+}
+
+/* ── 橫式長條（§5.2：不用圓餅圖）────────────────────────────────────
+   label 置於 insideTopLeft、往上讓開長條，所以再長的中文片名／影城名
+   都在滿容器寬的那一行完整顯示，不會被短長條截掉。
+   ─────────────────────────────────────────────────────────────────── */
+const ROW_H = 42;
+function barOption(items, unit, total, opts) {
+  const t = T();
+  const pct = !(opts && opts.noPct);
+  const max = Math.max(...items.map(d => d.value));
+  return {
+    animation: false,
+    grid: { left: 0, right: 0, top: 10, bottom: 0, containLabel: false },
+    tooltip: Object.assign(baseTooltip(), {
+      formatter: p => esc(p.name) + '<br>' + p.value + ' ' + unit +
+        (pct ? '（' + Math.round(p.value / total * 100) + '%）' : '')
+    }),
+    xAxis: { type: 'value', show: true, axisLabel: { show: false }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false }, max },
+    yAxis: {
+      type: 'category', inverse: true, show: true,
+      data: items.map(d => d.name),
+      axisLabel: { show: false }, axisLine: { show: false }, axisTick: { show: false }
+    },
+    series: [{
+      type: 'bar',
+      barWidth: 12,
+      showBackground: true,
+      backgroundStyle: { color: t.heat[0], borderRadius: 1 },
+      itemStyle: { color: t.heat[5], borderRadius: 1 },
+      label: {
+        show: true,
+        position: 'insideTopLeft',
+        offset: [0, -19],
+        color: t.text0,
+        fontFamily: FONT,
+        fontSize: 13,
+        lineHeight: 18,
+        formatter: p => p.name + '　' + p.value + ' ' + unit +
+          (pct ? '（' + Math.round(p.value / total * 100) + '%）' : '')
+      },
+      data: items.map(d => ({ value: d.value, name: d.name, tail: !!d.tail }))
+    }]
+  };
+}
+function sizeBar(id, rows) {
+  document.getElementById(id).style.height = (rows * ROW_H + 10) + 'px';
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   UDrawer
+   ══════════════════════════════════════════════════════════════════════ */
+const drawer = document.getElementById('drawer');
+const scrim = document.getElementById('scrim');
+let lastFocus = null;
+function openDrawer(title, sub, records) {
+  lastFocus = document.activeElement;
+  document.getElementById('drawerTitle').textContent = title;
+  document.getElementById('drawerSub').textContent = sub;
+  const body = document.getElementById('drawerBody');
+  body.innerHTML = records.length
+    ? '<div class="tc-list">' + records.slice().sort((a, b) => (a.d + a.hm < b.d + b.hm ? -1 : 1)).map(r => ticketCard(r)).join('') + '</div>'
+    : '<p class="drawer-empty">這個時段你一場都沒看過。</p>';
+  drawer.hidden = false;
+  scrim.hidden = false;
+  document.getElementById('drawerClose').focus();
+}
+function closeDrawer() {
+  drawer.hidden = true;
+  scrim.hidden = true;
+  if (lastFocus) lastFocus.focus();
+}
+document.getElementById('drawerClose').addEventListener('click', closeDrawer);
+scrim.addEventListener('click', closeDrawer);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !drawer.hidden) closeDrawer(); });
+
+/* ══════════════════════════════════════════════════════════════════════
+   文案與圖例
+   ══════════════════════════════════════════════════════════════════════ */
+function swatch(color, label) {
+  return '<span class="legend-item"><span class="sw" style="background:' + color + '"></span>' + esc(label) + '</span>';
+}
+function renderLegends() {
+  const t = T();
+  /* YearStrip：資料上限是每週 2 場，所以圖例只列到 2；程式仍保留 3 場以上的一階 */
+  document.getElementById('ysLegend').innerHTML =
+    '<span>每格一週，右欄是該年總場次　</span>' +
+    swatch(t.heat[0], '沒去') + swatch(t.heat[2], '1 場') + swatch(t.heat[4], '2 場');
+  document.getElementById('calLegend').innerHTML =
+    swatch(t.att[0], '沒去') + swatch(t.att[1], '1 場') + swatch(t.att[2], '2 場以上');
+  document.getElementById('hourLegend').innerHTML =
+    '<span>場次　</span>' + hourPieces().map(p => swatch(p.color, p.label)).join('');
+  document.getElementById('monthLegend').innerHTML =
+    swatch(t.text0, selectedYear + ' 年') + swatch(t.heat[2], '2014–2026 每月平均');
+}
+
+function renderCopy() {
+  const s = yearStat[selectedYear];
+
+  document.getElementById('b1-finding').innerHTML =
+    '十二年 ' + N(TOTAL) + ' 場，' + BUSIEST + ' 年最多，' + N(yearStat[BUSIEST].count) + ' 場。';
+  document.getElementById('b1-foot').textContent =
+    '每格是一週不是一天：日層級的填滿率只有約 6%，一張 7×53 的年格子有 96% 是空的，' +
+    '收成週之後填滿率跳到 ' + Math.round(FILLED_WEEKS / TOTAL_WEEKS * 100) + '%（' +
+    FILLED_WEEKS + ' / ' + TOTAL_WEEKS + ' 週），2016–2020 的密集期與 2021–2022 的空窗才讀得出來。';
+
+  document.getElementById('b2-finding').innerHTML =
+    selectedYear + ' 年看了 ' + N(s.count) + ' 場、' + N(s.tickets) + ' 張票，' +
+    (s.cost > 0 ? '花了 NT$' + N(s.cost) : '全部是兌換票，沒有花錢') + '。' +
+    (s.free > 0 && s.cost > 0 ? '其中 ' + N(s.free) + ' 場是免費或兌換票。' : '');
+
+  document.getElementById('b2-foot').textContent =
+    '有觀影的 ' + DAYS_WITH + ' 天當中，' + dailyDist[1] + ' 天只看 1 場、' + dailyDist[2] +
+    ' 天看了 2 場，沒有任何一天 3 場以上——所以這張圖只有三階，不是五階。' +
+    '全期 ' + TOTAL + ' 場共 NT$' + nf(TOTAL_COST) + '，其中 ' + FREE_COUNT + ' 場是免費或兌換票，不計入金額。';
+
+  document.getElementById('b2-scope').textContent = selectedYear + ' 年';
+  document.getElementById('b4-scope').textContent = selectedYear + ' 年';
+
+  document.getElementById('b3-finding').innerHTML =
+    '你 ' + N(PCT_FS_EVENING) + '% 的場次在週五到週日的晚上（18:00 之後，含午夜場）。' +
+    '把整個週五到週日算進來是 ' + N(PCT_FS_ALL) + '%。';
+
+  const top3 = hotCells.slice(0, 3);
+  document.getElementById('b3-readout').innerHTML =
+    '<dt>最深的三格</dt><dd>' + top3.map(c => esc(slotLabel(c.wd, c.row).replace('　', ' ')) + ' <span class="num">' + c.v + '</span> 場').join('<br>') + '</dd>' +
+    '<dt>週五到週日</dt><dd><span class="num">' + fsAll + '</span> 場，佔 <span class="num">' + PCT_FS_ALL + '</span>%</dd>' +
+    '<dt>週一到週四</dt><dd><span class="num">' + (TOTAL - fsAll) + '</span> 場，佔 <span class="num">' + (100 - PCT_FS_ALL) + '</span>%</dd>' +
+    '<dt>晚上（18:00 之後）</dt><dd><span class="num">' + eveningAll + '</span> 場，佔 <span class="num">' + PCT_EVENING + '</span>%</dd>' +
+    '<dt>午夜場</dt><dd><span class="num">' + matrix.reduce((a, w) => a + w[MID], 0) + '</span> 場（00:00–02:00 折到當晚，不算隔天）</dd>' +
+    '<dt>軸的起點</dt><dd>09:00。你最早的一場是 09:45，畫滿 24 列會有前九列永遠全空。</dd>';
+
+  const cur = new Array(12).fill(0);
+  byYear[selectedYear].forEach(r => cur[+r.d.slice(5, 7) - 1]++);
+  const peakM = cur.indexOf(Math.max(...cur));
+  const yearAvg = TOTAL / YEARS.length;
+  const cmp = s.count > yearAvg ? '比歷年平均的 ' + yearAvg.toFixed(1) + ' 場多'
+                                : '比歷年平均的 ' + yearAvg.toFixed(1) + ' 場少';
+  document.getElementById('b4-finding').innerHTML =
+    selectedYear + ' 年最忙的是 ' + N(peakM + 1) + ' 月，' + N(cur[peakM]) + ' 場。' +
+    '整年 ' + N(s.count) + ' 場，' + cmp + '。虛線是 ' + YEARS[0] + '–' + YEARS[YEARS.length - 1] + ' 的每月平均。';
+
+  document.getElementById('b5-finding').innerHTML =
+    '你的主場是<strong>' + esc(VENUE_TOP.name) + '</strong>，' + N(PCT_VENUE_TOP) +
+    '% 的場次在這裡（' + N(VENUE_TOP.value) + ' / ' + N(TOTAL) + '）。第二名的<strong>' +
+    esc(venueFreq[1].name) + '</strong>只有 ' + N(venueFreq[1].value) + ' 場。';
+
+  document.getElementById('b6-finding').innerHTML =
+    '2D 佔了 ' + N(versionFreq[0].value) + ' 場。剩下的 ' + N(specialVersions) +
+    ' 場裡，4DX 系列 ' + N(count4DX) + ' 場、IMAX 系列 ' + N(countIMAX) + ' 場。';
+  const jpUs = countryFreq[0].value + countryFreq[1].value;
+  document.getElementById('b6-finding2').innerHTML =
+    '日本片 ' + N(countryFreq[0].value) + ' 場、美國片 ' + N(countryFreq[1].value) +
+    ' 場，兩者吃掉 ' + N(Math.round(jpUs / TOTAL * 100)) + '%。台灣片只有 ' + N(countryFreq[2].value) + ' 場。';
+
+  const gup = RECORDS.filter(r => r.ti.indexOf('少女與戰車') >= 0).length;
+  document.getElementById('b7-finding').innerHTML =
+    '<strong>' + esc(rewatch[0].name) + '</strong>你看了 ' + N(rewatch[0].value) + ' 次，是第二名的兩倍。' +
+    N(titleFreq.length) + ' 個片名裡有 ' + N(rewatch.length) + ' 個看過不只一次；' +
+    '整個「少女與戰車」系列加起來 ' + N(gup) + ' 場。';
+
+  document.getElementById('ctxYear').textContent = selectedYear;
+  document.getElementById('ctxSummary').textContent =
+    '年 ' + s.count + ' 場　' + s.tickets + ' 張票　' + (s.cost > 0 ? 'NT$' + nf(s.cost) : '沒有花錢');
+  document.getElementById('ctxScope').textContent =
+    'band 3 之後是全部 ' + TOTAL + ' 場的統計';
+}
+
+function renderTables() {
+  const cell = (h, rows) => '<thead><tr>' + h.map(x => '<th>' + esc(x) + '</th>').join('') + '</tr></thead><tbody>' +
+    rows.map(r => '<tr>' + r.map((x, i) => (i === 0 ? '<td>' + esc(x) + '</td>' : '<td class="n num">' + esc(x) + '</td>')).join('') + '</tr>').join('') + '</tbody>';
+
+  document.getElementById('b2-table').innerHTML = cell(
+    ['年份', '場次', '張票', '金額 NT$'],
+    YEARS.slice().reverse().map(y => [String(y), yearStat[y].count, yearStat[y].tickets, nf(yearStat[y].cost)])
+  );
+
+  const hrows = HOUR_ROWS.map((label, h) => {
+    const row = [label];
+    for (let w = 0; w < 7; w++) row.push(matrix[w][h]);
+    return row;
+  });
+  document.getElementById('b3-table').innerHTML = cell(['時段'].concat(WD_ZH.map(w => '週' + w)), hrows);
+
+  const cur = new Array(12).fill(0);
+  byYear[selectedYear].forEach(r => cur[+r.d.slice(5, 7) - 1]++);
+  document.getElementById('b4-table').innerHTML = cell(
+    ['月份', selectedYear + ' 年場次'],
+    cur.map((v, i) => [(i + 1) + ' 月', v])
+  );
+
+  document.getElementById('b5-table').innerHTML = cell(
+    ['影城', '場次'], venueFreq.map(v => [v.name, v.value])
+  );
+  document.getElementById('b6-table').innerHTML = cell(
+    ['版本／國別', '場次'],
+    versionFreq.map(v => [v.name, v.value]).concat(countryFreq.map(v => [v.name, v.value]))
+  );
+  document.getElementById('b7-table').innerHTML = cell(
+    ['片名', '看過幾次'], rewatch.map(v => [v.name, v.value])
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   band 2 的稀疏年份降級
+   ══════════════════════════════════════════════════════════════════════ */
+function daysInYear(y) { return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0 ? 366 : 365; }
+function renderBand2() {
+  const sparse = yearStat[selectedYear].count < SPARSE_THRESHOLD;
+  document.getElementById('b2-chartWrap').hidden = sparse;
+  document.getElementById('b2-sparse').hidden = !sparse;
+  if (sparse) {
+    document.getElementById('b2-sparseNote').textContent =
+      selectedYear + ' 年你只看了 ' + yearStat[selectedYear].count + ' 場。一張 ' +
+      daysInYear(selectedYear) + ' 格幾乎全空的圖不會告訴你任何事，所以直接列出那幾場。';
+    document.getElementById('b2-sparseList').innerHTML =
+      byYear[selectedYear].slice().sort((a, b) => (a.d < b.d ? -1 : 1)).map(r => ticketCard(r)).join('');
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   捲動遮罩（§9.4）
+   ══════════════════════════════════════════════════════════════════════ */
+const calScroller = document.getElementById('calScroller');
+function updateMasks() {
+  const overflow = calScroller.scrollWidth - calScroller.clientWidth;
+  document.getElementById('calHint').hidden = overflow <= 2;
+  document.getElementById('calMaskL').classList.toggle('on', calScroller.scrollLeft > 4);
+  document.getElementById('calMaskR').classList.toggle('on', calScroller.scrollLeft < overflow - 4);
+}
+calScroller.addEventListener('scroll', updateMasks, { passive: true });
+
+/* ══════════════════════════════════════════════════════════════════════
+   啟動
+   ══════════════════════════════════════════════════════════════════════ */
+const ysHost = document.getElementById('yearStrip');
+renderYearStrip(ysHost);
+renderYearStrip(document.getElementById('ghost'), { static: true });
+renderCopy();
+renderTables();
+renderBand2();
+
+mount('calChart', calendarOption, {
+  fixedWidth: true,
+  onClick: p => {
+    if (!p.data) return;
+    const day = p.data[0];
+    const recs = RECORDS.filter(r => r.d === day);
+    openDrawer(prettyDate(day), recs.length ? recs.length + ' 場' : '沒去', recs);
+  }
+});
+mount('hourChart', hourOption, {
+  onClick: p => {
+    const [w, h] = p.data;
+    const recs = slotRecords[w + '|' + h] || [];
+    openDrawer(slotLabel(w, h).replace('　', ' '), recs.length + ' 場', recs);
+  }
+});
+mount('monthChart', monthOption);
+
+const venueItems = collapseTail(venueFreq, 5, '家');
+sizeBar('venueChart', venueItems.length);
+mount('venueChart', () => barOption(venueItems, '場', TOTAL), {
+  onClick: p => {
+    const recs = RECORDS.filter(r => r.ve === p.name); /* 「其他 N 家」對不到任何一筆，不開抽屜 */
+    if (!recs.length) return;
+    openDrawer(p.name, recs.length + ' 場', recs);
+  }
+});
+
+const versionItems = collapseTail(versionFreq, 6, '種');
+sizeBar('versionChart', versionItems.length);
+mount('versionChart', () => barOption(versionItems, '場', TOTAL));
+
+sizeBar('countryChart', countryFreq.length);
+mount('countryChart', () => barOption(countryFreq, '場', TOTAL));
+
+const rewatchItems = rewatch.slice(0, 8);
+sizeBar('rewatchChart', rewatchItems.length);
+mount('rewatchChart', () => barOption(rewatchItems, '次', TOTAL, { noPct: true }), {
+  onClick: p => {
+    const recs = RECORDS.filter(r => r.ti === p.name);
+    openDrawer(p.name, recs.length + ' 場', recs);
+  }
+});
+
+renderLegends();
+requestAnimationFrame(() => {
+  calScroller.scrollLeft = calScroller.scrollWidth; /* 預先捲到最右（最近一週）*/
+  updateMasks();
+});
+
+/* 年份選擇：點、↑↓、Enter */
+ysHost.addEventListener('click', e => {
+  const row = e.target.closest('.strip-row');
+  if (!row) return;
+  selectYear(+row.dataset.year);
+});
+ysHost.addEventListener('keydown', e => {
+  if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+  e.preventDefault();
+  const i = YEARS.indexOf(selectedYear);
+  const next = e.key === 'ArrowDown' ? Math.max(0, i - 1) : Math.min(YEARS.length - 1, i + 1);
+  selectYear(YEARS[next]);
+});
+function selectYear(y) {
+  if (y === selectedYear) return;
+  selectedYear = y;
+  [...ysHost.querySelectorAll('.strip-row')].forEach(r =>
+    r.setAttribute('aria-selected', +r.dataset.year === y ? 'true' : 'false'));
+  renderCopy();
+  renderTables();
+  renderBand2();
+  renderLegends();
+  charts.forEach(c => c.inst.setOption(c.build(), true));
+  requestAnimationFrame(() => { calScroller.scrollLeft = calScroller.scrollWidth; updateMasks(); });
+}
+
+/* 深淺色切換：翻 <html> 的 class，然後把每張圖的 option 整份重算 */
+const toggle = document.getElementById('themeToggle');
+function syncToggle() {
+  const d = isDark();
+  toggle.textContent = d ? '淺色' : '深色';
+  toggle.setAttribute('aria-pressed', String(d));
+}
+toggle.addEventListener('click', () => {
+  const next = isDark() ? 'light' : 'dark';
+  document.documentElement.classList.remove('dark', 'light');
+  document.documentElement.classList.add(next);
+  try { localStorage.setItem('filmnote-theme', next); } catch (e) {}
+  syncToggle();
+  renderLegends();
+  repaintAll();
+  updateMasks();
+});
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if (document.documentElement.classList.contains('dark') ||
+      document.documentElement.classList.contains('light')) return;
+  syncToggle(); renderLegends(); repaintAll();
+});
+syncToggle();
+
+/* 響應式：固定寬度的年曆不重算，其餘跟著容器 */
+let rz;
+window.addEventListener('resize', () => {
+  clearTimeout(rz);
+  rz = setTimeout(() => {
+    charts.forEach(c => { if (c.responsive) c.inst.resize(); });
+    updateMasks();
+  }, 150);
+});
+
+/* ══════════════════════════════════════════════════════════════════════
+   審閱用：難處理的資料
+   ══════════════════════════════════════════════════════════════════════ */
+(function stressTest() {
+  const host = document.getElementById('stress');
+  const linkou = CATALOGUE.linkou.name;
+
+  /* 1) 真實紀錄裡版面最寬的片名（漢字算兩格，拉丁算一格） */
+  const width = s => [...s].reduce((a, c) => a + (c.codePointAt(0) > 0x2E80 ? 2 : 1), 0);
+  const longestReal = RECORDS.slice().sort((a, b) => width(b.ti) - width(a.ti))[0];
+  /* 2) 真實紀錄裡最短的片名 */
+  const shortestReal = RECORDS.slice().sort((a, b) => a.ti.length - b.ti.length)[0];
+  /* 3) 免費／兌換票 */
+  const freeRec = RECORDS.filter(r => r.cs === 0)[0];
+  /* 4) 有備註、且備註是多行的那一筆 */
+  const multiline = RECORDS.filter(r => r.me.indexOf('\n') >= 0)[0];
+  /* 5) 目錄裡最長的片名（66 字，tmdbId 為 null → 沒有海報，就是一張票根） */
+  const idol = {
+    d: '2024-08-17', hm: '19:30', h: 19, wd: weekdayOf('2024-08-17'),
+    ti: CATALOGUE.idolish7.titleZh, ve: linkou, vr: '2D', co: '日本',
+    tk: 1, cs: 0, pr: 0, me: '兌點票'
+  };
+  /* 6) 目錄裡最短的片名之一 */
+  const hong = {
+    d: '2024-01-06', hm: '10:00', h: 10, wd: weekdayOf('2024-01-06'),
+    ti: CATALOGUE.hongZhu.titleZh, ve: linkou, vr: '2D', co: '日本',
+    tk: 2, cs: 520, pr: 260, me: ''
+  };
+
+  const items = [
+    [longestReal, '紀錄裡版面最寬的片名（' + longestReal.ti.length + ' 字），照樣放得下'],
+    [shortestReal, '紀錄裡最短的片名（' + shortestReal.ti.length + ' 字），卡片不會塌'],
+    [freeRec, 'NT$0 顯示為「兌換」，不是 NT$0、不是空白，也不是「NT$ ———」的佔位'],
+    [multiline, '67 字的多行備註，含 emoji 與外幣金額'],
+    [idol, 'films.json 裡最長的核准片名（' + CATALOGUE.idolish7.titleZh.length + ' 字），tmdbId 為 null 所以沒有海報欄，配上 venues.json 裡最長的影城名（' + linkou.length + ' 字）',
+      { o: CATALOGUE.idolish7.titleOriginal, posterPath: null }],
+    [hong, '兩個字的片名 + 24 字的影城名，最不對稱的一組',
+      { o: CATALOGUE.hongZhu.titleOriginal, posterPath: null }]
+  ];
+
+  host.innerHTML = items.map(([rec, why, film]) =>
+    '<div class="stress-item">' + ticketCard(rec, film) +
+    '<p class="stress-why">' + esc(why) + '</p></div>'
+  ).join('');
+})();
+
+/* 空狀態的示意票根：用目錄裡的真實作品，明確標示不是使用者的紀錄 */
+(function ghostCards() {
+  const g = document.getElementById('ghostBody');
+  g.insertAdjacentHTML('beforeend',
+    '<div class="tc-list" style="margin-top:10px">' +
+    ticketCard({
+      d: '2024-01-06', hm: '10:00', wd: 6, h: 10,
+      ti: CATALOGUE.hongZhu.titleZh, ve: CATALOGUE.linkou.name, vr: '2D',
+      co: '日本', tk: 2, cs: 520, pr: 260, me: ''
+    }, { o: CATALOGUE.hongZhu.titleOriginal, posterPath: null }) +
+    '</div>');
+})();
+</script>
+
+</body>
+</html>

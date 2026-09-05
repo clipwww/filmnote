@@ -1,0 +1,1448 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>記一場（/app/new 原型）</title>
+<style>
+/* ============================================================
+   影記 filmnote — /app/new 記錄一次觀影 原型
+   色彩／字級／間距／圓角全部取自 docs/design/DESIGN_SYSTEM.md
+   資料全部取自 .data/films.json、.data/venues.json 與 David 的 169 筆紀錄
+   ============================================================ */
+
+/* ── DS §1.1 中性軸：紙與墨（常數，不隨模式改變）─────────────── */
+:root{
+  --paper-0:#FCFBF8; --paper-1:#F6F4EE; --paper-2:#EDEAE3; --paper-3:#DEDACF;
+  --ink-0:#171512;   --ink-1:#4A453D;   --ink-2:#6E675C;   --ink-3:#8C8477;
+
+  --dark-0:#12110F;  --dark-1:#1C1A17;  --dark-2:#2A2621;  --dark-3:#3D3830;
+  --dim-0:#F2EFE8;   --dim-1:#C4BDB0;   --dim-2:#A8A196;   --dim-3:#787164;
+
+  /* ── DS §1.2 重點色：琥珀（單一）── */
+  --color-amber-50:#FBF6E4;  --color-amber-100:#F6EBC2; --color-amber-200:#EBD68C;
+  --color-amber-300:#DEBE52; --color-amber-400:#C9A62B; --color-amber-500:#AD8A14;
+  --color-amber-600:#8A6800; --color-amber-700:#6E5303; --color-amber-800:#584209;
+  --color-amber-900:#48360C; --color-amber-950:#2A1F05;
+
+  /* ── DS §3 形狀 ── */
+  --radius-chip:2px; --radius-card:4px; --radius-poster:3px; --radius-full:9999px;
+
+  /* ── DS §2.2 字型堆疊 ── */
+  --font-sans:'Inter','PingFang TC','Noto Sans CJK TC','Noto Sans TC',
+              'Microsoft JhengHei','Source Han Sans TC',sans-serif;
+  /* ── DS §2.3 原文片名專用堆疊 ── */
+  --font-original:'Inter','PingFang TC','Hiragino Sans','Noto Sans JP',
+              'Apple SD Gothic Neo','Noto Sans KR','Noto Sans Thai',sans-serif;
+
+  /* ── 語意 token：只有這一組會在 .dark 被重新定義（DS §7）── */
+  --canvas:var(--paper-2);
+  --bg:var(--paper-0);
+  --surface:var(--paper-1);
+  --sunken:var(--paper-2);
+  --line:var(--paper-3);
+  --text:var(--ink-0);
+  --text-2:var(--ink-1);
+  --text-3:var(--ink-2);
+  --text-4:var(--ink-3);
+  --accent:var(--color-amber-600);
+  --accent-fg:#FFFFFF;
+  --accent-soft:var(--color-amber-50);
+  --overlay-shadow:0 10px 15px -3px rgba(23,21,18,.18), 0 4px 6px -4px rgba(23,21,18,.14);
+  --accent-hover:var(--color-amber-700);
+  --hover-fill:var(--paper-3);
+}
+
+/* 明確選亮色時強制回到紙色（切換器會加上 .light） */
+@media (prefers-color-scheme: dark){
+  :root:not(.light){
+    --canvas:var(--dark-2);
+    --bg:var(--dark-0);
+    --surface:var(--dark-1);
+    --sunken:var(--dark-2);
+    --line:var(--dark-3);
+    --text:var(--dim-0);
+    --text-2:var(--dim-1);
+    --text-3:var(--dim-2);
+    --text-4:var(--dim-3);
+    --accent:var(--color-amber-400);
+    --accent-fg:var(--ink-0);
+    --accent-soft:var(--color-amber-950);
+    --overlay-shadow:0 10px 15px -3px rgba(0,0,0,.55), 0 4px 6px -4px rgba(0,0,0,.45);
+    --accent-hover:var(--color-amber-300);
+    --hover-fill:var(--dark-3);
+  }
+}
+:root.dark{
+  --canvas:var(--dark-2);
+  --bg:var(--dark-0);
+  --surface:var(--dark-1);
+  --sunken:var(--dark-2);
+  --line:var(--dark-3);
+  --text:var(--dim-0);
+  --text-2:var(--dim-1);
+  --text-3:var(--dim-2);
+  --text-4:var(--dim-3);
+  --accent:var(--color-amber-400);
+  --accent-fg:var(--ink-0);
+  --accent-soft:var(--color-amber-950);
+  --overlay-shadow:0 10px 15px -3px rgba(0,0,0,.55), 0 4px 6px -4px rgba(0,0,0,.45);
+    --accent-hover:var(--color-amber-300);
+    --hover-fill:var(--dark-3);
+}
+
+*,*::before,*::after{box-sizing:border-box;}
+[hidden]{display:none !important;}
+html{line-break:strict;}
+body{
+  margin:0;
+  background:var(--canvas);
+  color:var(--text);
+  font-family:var(--font-sans);
+  font-size:16px;
+  line-height:1.75;          /* DS §2.4 內文 16/1.75 */
+  font-feature-settings:'cv05','ss01';   /* DS §1.6，只作用在 Inter 供應的拉丁與數字 */
+  overflow-x:hidden;         /* DS §10 body 永不橫向捲動 */
+  -webkit-text-size-adjust:100%;
+}
+.tnum{font-variant-numeric:tabular-nums;}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:var(--radius-chip);}
+button{font:inherit;color:inherit;}
+input,textarea,select{font:inherit;color:inherit;}
+
+/* ── 審稿用的外框（不是產品的一部分）─────────────────────────── */
+.canvas{padding:32px 24px 64px;}
+.masthead{max-width:1232px;margin:0 auto 32px;}
+.masthead h1{font-size:28px;line-height:1.35;margin:0 0 8px;font-weight:600;
+  font-feature-settings:'palt' 1;word-break:auto-phrase;text-wrap:balance;}
+.masthead p{margin:0;max-width:34ch;font-size:16px;line-height:1.75;color:var(--text-2);}
+.stage{max-width:1232px;margin:0 auto;display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start;}
+.frame{flex:0 0 auto;max-width:100%;}
+.frame-cap{font-size:12px;line-height:1.5;color:var(--text-3);margin:0 0 8px;}
+.phone{
+  width:375px;max-width:100%;
+  border:1px solid var(--line);
+  border-radius:var(--radius-card);
+  background:var(--bg);
+  overflow:hidden;
+}
+.screen{
+  width:100%;height:768px;overflow-y:auto;overflow-x:hidden;
+  display:flex;flex-direction:column;background:var(--bg);position:relative;
+  scrollbar-width:thin;
+}
+.notes{flex:1 1 320px;min-width:0;max-width:560px;}
+
+/* 明暗切換（固定在角落）*/
+.theme-toggle{
+  position:fixed;top:12px;right:12px;z-index:50;
+  padding:6px 12px;background:var(--surface);color:var(--text-2);
+  border:1px solid var(--line);border-radius:var(--radius-card);
+  font-size:13px;line-height:1.5;cursor:pointer;
+}
+.theme-toggle:hover{color:var(--text);}
+
+/* ── App 本體 ────────────────────────────────────────────────── */
+.appbar{
+  position:sticky;top:0;z-index:20;
+  display:flex;align-items:center;gap:12px;
+  padding:12px 16px;background:var(--bg);
+  border-bottom:1px solid var(--line);
+  padding-top:calc(12px + env(safe-area-inset-top));
+}
+.appbar h2{margin:0;font-size:16px;line-height:1.45;font-weight:600;flex:1;}
+.icon-btn{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:32px;height:32px;padding:0;background:none;
+  border:1px solid transparent;border-radius:var(--radius-card);
+  color:var(--text-2);cursor:pointer;
+}
+.icon-btn:hover{background:var(--sunken);color:var(--text);}
+.form{flex:1;padding:0 16px 16px;}
+.field{padding:16px 0;border-bottom:1px solid var(--line);}
+.field:first-child{padding-top:16px;}
+.label{display:block;font-size:13px;line-height:1.5;color:var(--text-2);margin-bottom:8px;}
+.req{color:var(--accent);}
+.hint{font-size:12px;line-height:1.5;color:var(--text-3);margin:8px 0 0;}
+
+.control{
+  width:100%;display:block;
+  padding:8px 12px;font-size:16px;line-height:1.5;
+  background:var(--sunken);color:var(--text);
+  border:1px solid var(--line);border-radius:var(--radius-card);
+}
+.control::placeholder{color:var(--text-4);}
+.control:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+
+/* 片名搜尋 */
+.search-wrap{position:relative;}
+.search-wrap .control{padding-right:36px;}
+.search-icon{position:absolute;right:10px;top:50%;transform:translateY(-50%);
+  color:var(--text-3);pointer-events:none;display:flex;}
+.listbox{
+  margin-top:8px;border:1px solid var(--line);border-radius:var(--radius-card);
+  background:var(--surface);overflow:hidden;
+}
+.listbox[hidden]{display:none;}
+.lb-scroll{max-height:288px;overflow-y:auto;overscroll-behavior:contain;}
+.lb-hint{padding:12px;font-size:13px;line-height:1.5;color:var(--text-3);}
+.opt{
+  display:flex;gap:12px;align-items:flex-start;width:100%;text-align:left;
+  padding:8px 12px;background:none;border:0;cursor:pointer;
+  border-bottom:1px solid var(--line);
+}
+.opt:last-child{border-bottom:0;}
+.opt[aria-selected="true"]{background:var(--accent-soft);}
+.opt-body{min-width:0;flex:1;}
+.title-zh{
+  font-size:16px;line-height:1.45;font-weight:500;color:var(--text);
+  font-feature-settings:'palt' 1;word-break:auto-phrase;overflow-wrap:anywhere;
+}
+.control.original{font-family:var(--font-original);}
+.title-original{
+  font-family:var(--font-original);
+  font-size:0.8125rem;line-height:1.5;color:var(--text-3);overflow-wrap:anywhere;
+}
+.meta{font-size:12px;line-height:1.5;color:var(--text-3);}
+.meta .tnum{color:var(--text-3);}
+
+/* 海報縮圖／票根縮圖（DS §0：沒海報不是降級，是另一種正當物件）*/
+.thumb{
+  flex:0 0 auto;width:44px;height:66px;border-radius:var(--radius-poster);
+  display:block;object-fit:cover;background:var(--sunken);
+}
+.thumb-ticket{
+  flex:0 0 auto;width:44px;height:66px;border-radius:var(--radius-poster);
+  border:1px solid var(--line);background:var(--sunken);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+}
+.thumb-ticket .rule{width:22px;height:1px;background:var(--line);}
+.thumb-ticket .yr{font-size:12px;line-height:1.5;color:var(--text-3);}
+
+/* 「找不到」列 — 一等公民 */
+.opt-create{
+  display:flex;gap:8px;align-items:flex-start;width:100%;text-align:left;
+  padding:12px;background:none;border:0;border-top:1px solid var(--line);cursor:pointer;
+  color:var(--accent);
+}
+.listbox .opt-create{border-top:1px solid var(--line);}
+.opt-create[aria-selected="true"]{background:var(--accent-soft);}
+.opt-create .plus{flex:0 0 auto;line-height:1.45;font-size:16px;}
+.opt-create .oc-body{min-width:0;}
+.opt-create .oc-main{font-size:16px;line-height:1.45;overflow-wrap:anywhere;}
+.opt-create .oc-sub{font-size:12px;line-height:1.5;color:var(--text-3);}
+
+/* 已選片 */
+.chosen{
+  display:flex;gap:12px;align-items:flex-start;
+  padding:12px;border:1px solid var(--line);border-radius:var(--radius-card);
+  background:var(--surface);
+}
+.chosen .thumb,.chosen .thumb-ticket{width:52px;height:78px;}
+.linkish{
+  background:none;border:0;padding:0;color:var(--accent);cursor:pointer;
+  font-size:13px;line-height:1.5;text-decoration:underline;text-underline-offset:2px;
+}
+.badge-own{
+  display:inline-block;margin-top:4px;padding:0 6px;
+  border:1px solid var(--line);border-radius:var(--radius-chip);
+  font-size:12px;line-height:1.5;color:var(--text-3);background:var(--sunken);
+}
+
+/* 日期／時間 */
+.two-up{display:flex;gap:8px;}
+.two-up>div{flex:1;min-width:0;}
+.sub-label{font-size:12px;line-height:1.5;color:var(--text-3);margin-bottom:4px;display:block;}
+.today-flag{color:var(--accent);}
+
+/* 影城選單 */
+.selectmenu{position:relative;}
+.select-trigger{
+  width:100%;display:flex;align-items:center;gap:8px;
+  padding:8px 12px;text-align:left;
+  background:var(--sunken);color:var(--text);
+  border:1px solid var(--line);border-radius:var(--radius-card);
+  font-size:16px;line-height:1.5;cursor:pointer;
+}
+.select-trigger .val{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.select-trigger .caret{flex:0 0 auto;color:var(--text-3);display:flex;}
+.menu{
+  position:absolute;z-index:30;left:0;right:0;top:calc(100% + 4px);
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-card);
+  box-shadow:var(--overlay-shadow);           /* DS §3：陰影只給 overlay */
+  overflow:hidden;
+}
+.menu[hidden]{display:none;}
+.menu-filter{padding:8px;border-bottom:1px solid var(--line);background:var(--surface);}
+.menu-scroll{max-height:280px;overflow-y:auto;overscroll-behavior:contain;}
+.group-label{
+  padding:8px 12px 4px;font-size:12px;line-height:1.5;color:var(--text-3);
+  background:var(--surface);position:sticky;top:0;
+}
+.v-opt{
+  display:block;width:100%;text-align:left;padding:6px 12px;
+  background:none;border:0;cursor:pointer;
+}
+.v-opt:hover,.v-opt[aria-selected="true"]{background:var(--accent-soft);}
+.v-name{font-size:16px;line-height:1.45;color:var(--text);overflow-wrap:anywhere;}
+.v-sub{font-size:12px;line-height:1.5;color:var(--text-3);overflow-wrap:anywhere;}
+.v-empty{padding:12px;font-size:13px;line-height:1.5;color:var(--text-3);}
+
+/* 收合區 */
+.collapse-btn{
+  display:flex;align-items:center;gap:8px;width:100%;padding:12px 0;
+  background:none;border:0;cursor:pointer;text-align:left;
+  font-size:16px;line-height:1.5;color:var(--text-2);
+}
+.collapse-btn .tri{display:flex;transition:transform 150ms ease-out;}
+.collapse-btn[aria-expanded="true"] .tri{transform:rotate(90deg);}
+.collapse-body{padding-bottom:8px;}
+.collapse-body[hidden]{display:none;}
+.row{margin-bottom:16px;}
+.row:last-child{margin-bottom:0;}
+.prefix-wrap{display:flex;align-items:stretch;
+  border:1px solid var(--line);border-radius:var(--radius-card);background:var(--sunken);overflow:hidden;}
+.prefix{display:flex;align-items:center;padding:0 8px 0 12px;color:var(--text-3);
+  font-size:16px;line-height:1.5;}
+.prefix-wrap .control{border:0;border-radius:0;background:transparent;padding-left:0;}
+.prefix-wrap:focus-within{outline:2px solid var(--accent);outline-offset:2px;}
+.stepper{display:flex;align-items:stretch;gap:0;
+  border:1px solid var(--line);border-radius:var(--radius-card);background:var(--sunken);overflow:hidden;width:132px;}
+.stepper button{
+  width:36px;background:none;border:0;cursor:pointer;color:var(--text-2);font-size:16px;line-height:1.5;}
+.stepper button:hover{background:var(--hover-fill);color:var(--text);}
+.stepper input{
+  flex:1;min-width:0;text-align:center;background:transparent;border:0;
+  padding:8px 0;font-size:16px;line-height:1.5;font-variant-numeric:tabular-nums;}
+.stepper input::-webkit-outer-spin-button,.stepper input::-webkit-inner-spin-button{
+  -webkit-appearance:none;margin:0;}
+.stepper input[type=number]{-moz-appearance:textfield;}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;}
+.chip{
+  padding:2px 8px;background:var(--sunken);color:var(--text-2);
+  border:1px solid var(--line);border-radius:var(--radius-chip);
+  font-size:13px;line-height:1.5;cursor:pointer;
+}
+.chip:hover{color:var(--text);}
+.chip[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--text);}
+textarea.control{min-height:72px;resize:vertical;line-height:1.75;}
+
+/* 票根卡預覽（DS §4.3 主要物件）*/
+.field-last{border-bottom:0;}
+.preview-label{font-size:13px;line-height:1.5;color:var(--text-2);margin:0 0 8px;}
+.tcard{
+  display:flex;align-items:stretch;
+  border:1px solid var(--line);border-radius:var(--radius-card);background:var(--surface);
+  overflow:hidden;
+}
+.tcard-date{
+  flex:0 0 auto;width:48px;padding:8px 4px;text-align:center;
+  border-right:1px solid var(--line);background:var(--sunken);
+}
+.tcard-date .m,.tcard-date .d{display:block;font-variant-numeric:tabular-nums;color:var(--text);}
+.tcard-date .m{font-size:13px;line-height:1.5;color:var(--text-3);}
+.tcard-date .d{font-size:20px;line-height:1.4;}
+.tcard-date .w{display:block;font-size:12px;line-height:1.5;color:var(--text-3);}
+.tcard-body{flex:1;min-width:0;padding:8px 12px;}
+.tcard .thumb,.tcard .thumb-ticket{width:44px;height:66px;margin:8px 8px 8px 0;}
+
+/* 送出列 */
+.submit-bar{
+  position:sticky;bottom:0;z-index:20;
+  padding:12px 16px calc(12px + env(safe-area-inset-bottom));
+  background:var(--bg);border-top:1px solid var(--line);
+}
+.btn-primary{
+  width:100%;padding:12px 16px;
+  background:var(--accent);color:var(--accent-fg);
+  border:1px solid var(--accent);border-radius:var(--radius-card);
+  font-size:16px;line-height:1.5;font-weight:500;cursor:pointer;
+}
+.btn-primary:hover{background:var(--accent-hover);border-color:var(--accent-hover);}
+.btn-primary[disabled]{cursor:default;opacity:.6;}
+.form-error{
+  margin:0 0 8px;font-size:13px;line-height:1.5;color:var(--text);
+  border-left:2px solid var(--accent);padding-left:8px;
+}
+.form-error[hidden]{display:none;}
+
+/* Toast */
+.toast{
+  position:absolute;left:16px;right:16px;bottom:100%;margin-bottom:8px;z-index:40;
+  padding:12px;background:var(--surface);color:var(--text);
+  border:1px solid var(--line);border-radius:var(--radius-card);
+  box-shadow:var(--overlay-shadow);
+  font-size:16px;line-height:1.5;
+}
+.toast[hidden]{display:none;}
+
+/* 手動新增作品面板 */
+.intro{margin:16px 0 0;font-size:16px;line-height:1.75;color:var(--text-2);max-width:34ch;}
+.carried{border-left:2px solid var(--accent);padding-left:8px;font-size:12px;line-height:1.5;color:var(--text-3);margin:4px 0 0;}
+.dropzone{
+  width:100%;padding:24px 12px;text-align:center;cursor:pointer;
+  background:var(--sunken);border:1px dashed var(--line);border-radius:var(--radius-card);
+  color:var(--text-2);font-size:13px;line-height:1.5;
+}
+.dropzone:hover{border-color:var(--accent);}
+.dz-main{font-size:16px;line-height:1.5;color:var(--text);}
+.progress{height:2px;background:var(--line);border-radius:var(--radius-chip);overflow:hidden;margin-top:8px;}
+.progress i{display:block;height:100%;background:var(--accent);}
+.note-box{
+  margin-top:16px;padding:12px;background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--radius-card);
+  font-size:13px;line-height:1.75;color:var(--text-2);
+}
+.suffix-row{display:flex;align-items:center;gap:8px;}
+.suffix-row .control{flex:1;min-width:0;}
+.suffix-row .unit{font-size:13px;line-height:1.5;color:var(--text-3);flex:0 0 auto;}
+
+/* ── 註解欄（審稿用）───────────────────────────────────────── */
+.note{
+  background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-card);
+  padding:16px;margin-bottom:16px;
+}
+.note h3{margin:0 0 8px;font-size:20px;line-height:1.4;font-weight:600;
+  font-feature-settings:'palt' 1;word-break:auto-phrase;}
+.note p{margin:0 0 12px;font-size:13px;line-height:1.75;color:var(--text-2);overflow-wrap:anywhere;}
+.note p:last-child{margin-bottom:0;}
+.note strong{color:var(--text);font-weight:600;}
+.note ul{margin:0 0 12px;padding-left:1.4em;font-size:13px;line-height:1.75;color:var(--text-2);}
+.note code{
+  font-family:var(--font-sans);background:var(--sunken);color:var(--text);
+  padding:0 4px;border-radius:var(--radius-chip);font-size:13px;}
+.demo-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;}
+.demo-btn{
+  padding:4px 8px;background:var(--sunken);color:var(--text-2);
+  border:1px solid var(--line);border-radius:var(--radius-card);
+  font-size:13px;line-height:1.5;cursor:pointer;}
+.demo-btn:hover{color:var(--text);border-color:var(--accent);}
+.scroll-x{overflow-x:auto;}
+table.facts{border-collapse:collapse;font-size:13px;line-height:1.5;min-width:320px;}
+table.facts th,table.facts td{
+  text-align:left;padding:4px 12px 4px 0;border-bottom:1px solid var(--line);
+  color:var(--text-2);font-weight:400;vertical-align:top;}
+table.facts td:last-child{color:var(--text);font-variant-numeric:tabular-nums;}
+
+@media (max-width:900px){
+  .stage{gap:24px;}
+}
+@media (max-width:440px){
+  .canvas{padding:0 0 48px;}
+  .masthead{padding:24px 16px 0;margin-bottom:16px;}
+  .stage{gap:16px;}
+  .frame{width:100%;}
+  .frame-cap{padding:0 16px;}
+  .phone{width:100%;border-left:0;border-right:0;border-radius:0;}
+  .screen{height:auto;overflow:visible;}
+  .notes{padding:0 16px;}
+  .theme-toggle{top:8px;right:8px;}
+}
+@media (prefers-reduced-motion: reduce){
+  *{transition-duration:0ms !important;animation-duration:0ms !important;}
+}
+</style>
+</head>
+<body>
+
+<!-- UButton（明暗切換；產品裡是 @nuxtjs/color-mode） -->
+<button class="theme-toggle" id="themeToggle" type="button" aria-pressed="false">切換暗色</button>
+
+<div class="canvas">
+
+  <header class="masthead">
+    <h1>記一場（<span class="tnum">/app/new</span>）</h1>
+    <p>30 秒流程的可操作原型。片庫是 <span class="tnum">.data/films.json</span> 的 320 部真實作品，影城是 <span class="tnum">.data/venues.json</span> 全部 111 筆，統計數字來自 David 的 169 筆真實紀錄。海報熱連結 image.tmdb.org，抓不到就是票根縮圖。</p>
+  </header>
+
+  <div class="stage">
+
+    <!-- ══════════════ 面板一：/app/new ══════════════ -->
+    <section class="frame" aria-label="記一場">
+      <p class="frame-cap"><span class="tnum">/app/new</span>　375 × 768</p>
+      <div class="phone">
+        <div class="screen" id="screen1">
+
+          <!-- UDashboardNavbar / 自製 AppBar -->
+          <div class="appbar">
+            <button class="icon-btn" type="button" aria-label="關閉，回到紀錄列表">
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none"
+                   stroke="currentColor" stroke-width="1.5"><path d="M3 3l10 10M13 3L3 13"/></svg>
+            </button>
+            <h2>記一場</h2>
+          </div>
+
+          <!-- UForm -->
+          <form class="form" id="recordForm" novalidate>
+
+            <!-- ── 看了什麼 ───────────────────────────────── -->
+            <!-- UFormField label="看了什麼" + UCommandPalette -->
+            <div class="field">
+              <label class="label" for="filmSearch">看了什麼</label>
+
+              <div class="search-wrap" id="filmBlock">
+                <input class="control" id="filmSearch" type="text" autocomplete="off"
+                       role="combobox" aria-expanded="false" aria-controls="filmListbox"
+                       aria-autocomplete="list" placeholder="輸入片名，中文或原文都可以">
+                <span class="search-icon" aria-hidden="true">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
+                       stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
+                </span>
+
+                <!--
+                  UCommandPalette 的 groups。
+                  ⚠️ 「找不到？自己新增這部片」必須是最後一個 group 裡的合成單項，
+                     並在該 group 上設 { ignoreFilter: true }，讓它不被輸入字串過濾掉。
+                     絕對不能放在 #footer 插槽：#footer 只要有帶插槽就恆定渲染，看起來對，
+                     但它的內容不在 Listbox 的鍵盤導覽序列裡，按 ↓ 走不到它。
+                     一等公民的定義就是「↓ 到底那一項就是它」，所以只能用 ignoreFilter group。
+                     見 SCREENS.md §8.1。
+                -->
+                <div class="listbox" id="filmListbox" role="listbox" aria-label="片名搜尋結果" hidden>
+                  <div class="lb-scroll" id="lbScroll" role="presentation"></div>
+                  <button class="opt-create" id="createOpt" type="button" role="option" aria-selected="false">
+                    <span class="plus" aria-hidden="true">＋</span>
+                    <span class="oc-body">
+                      <span class="oc-main" id="createMain">找不到？自己新增這部片</span>
+                      <span class="oc-sub" id="createSub">30 秒填完就能繼續記錄，不必等審核</span>
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              <div id="chosenWrap" hidden>
+                <div class="chosen" id="chosenCard"></div>
+                <p class="hint"><button class="linkish" type="button" id="clearFilm">換一部片</button></p>
+              </div>
+            </div>
+
+            <!-- ── 什麼時候 ───────────────────────────────── -->
+            <!-- UFormField + UInputDate / UInputTime -->
+            <div class="field">
+              <span class="label" id="whenLabel">什麼時候</span>
+              <div class="two-up">
+                <div>
+                  <label class="sub-label" for="dateInput">日期<span id="todayFlag" class="today-flag">（今天）</span></label>
+                  <input class="control tnum" id="dateInput" type="date">
+                </div>
+                <div>
+                  <label class="sub-label" for="timeInput">時間</label>
+                  <input class="control tnum" id="timeInput" type="time" step="300">
+                </div>
+              </div>
+              <p class="hint">時間預填現在、向下取整到 5 分鐘。</p>
+            </div>
+
+            <!-- ── 在哪裡 ─────────────────────────────────── -->
+            <!-- UFormField + USelectMenu（巢狀陣列分組 + { type: 'label' } 群組標題）
+                 ⚠️ 不要開 virtualize：Reka UI unovue/reka-ui#1885 會把群組攤平，縣市分組直接失效。 -->
+            <div class="field">
+              <span class="label" id="venueLabel">在哪裡</span>
+              <div class="selectmenu">
+                <button class="select-trigger" type="button" id="venueTrigger"
+                        aria-haspopup="listbox" aria-expanded="false" aria-labelledby="venueLabel venueValue">
+                  <span class="val" id="venueValue">林口威秀</span>
+                  <span class="caret" aria-hidden="true">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+                         stroke="currentColor" stroke-width="1.5"><path d="M2.5 4.5L6 8l3.5-3.5"/></svg>
+                  </span>
+                </button>
+                <div class="menu" id="venueMenu" hidden>
+                  <div class="menu-filter">
+                    <input class="control" id="venueFilter" type="text" placeholder="找影城或縣市" autocomplete="off">
+                  </div>
+                  <div class="menu-scroll" id="venueList" role="listbox" aria-label="影城"></div>
+                </div>
+              </div>
+              <p class="hint" id="venueHint"></p>
+            </div>
+
+            <!-- ── 收合區 ─────────────────────────────────── -->
+            <!-- UCollapsible -->
+            <div class="field">
+              <button class="collapse-btn" type="button" id="moreBtn" aria-expanded="false" aria-controls="moreBody">
+                <span class="tri" aria-hidden="true">
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
+                       stroke="currentColor" stroke-width="1.5"><path d="M3.5 1.5L7 5l-3.5 3.5"/></svg>
+                </span>
+                <span>票價、票數、影廳、版本</span>
+              </button>
+
+              <div class="collapse-body" id="moreBody" hidden>
+                <!-- UInputNumber，前綴 NT$。票價刻意不預填（DS §8.2：眾數只有 32.5%） -->
+                <div class="row">
+                  <label class="sub-label" for="priceInput">票價（單張）</label>
+                  <div class="prefix-wrap">
+                    <span class="prefix" aria-hidden="true">NT$</span>
+                    <input class="control tnum" id="priceInput" type="number" inputmode="numeric"
+                           min="0" step="10" placeholder="沒填也可以">
+                  </div>
+                  <p class="hint">填 0 會顯示成「免費」，不是空白。真實紀錄裡有 16 筆是兌點票或回饋票。</p>
+                </div>
+
+                <!-- UInputNumber，預設 1（60.4% 命中） -->
+                <div class="row">
+                  <label class="sub-label" for="ticketsInput">票數</label>
+                  <div class="stepper">
+                    <button type="button" id="ticketsMinus" aria-label="票數減一">−</button>
+                    <input id="ticketsInput" type="number" inputmode="numeric" min="1" step="1" value="1" aria-label="票數">
+                    <button type="button" id="ticketsPlus" aria-label="票數加一">＋</button>
+                  </div>
+                </div>
+
+                <!-- USelect，選項由該影城的 hallCount 產生（venues.json 合計 932 廳） -->
+                <div class="row" id="hallRow">
+                  <label class="sub-label" for="hallSelect">影廳</label>
+                  <select class="control tnum" id="hallSelect"></select>
+                  <p class="hint" id="hallHint"></p>
+                </div>
+
+                <!-- UInput（自由文字）+ 建議 chips
+                     ⚠️ 不能做成 enum：實測 David 的 version 有 MAPPA、4DX 極爆、
+                        2D (ATMOS)、TITAN、IMAX 3D、4DX 3D 共 10 種。做成 enum 會逼使用者說謊。 -->
+                <div class="row">
+                  <label class="sub-label" for="versionInput">版本</label>
+                  <input class="control" id="versionInput" type="text" value="2D" autocomplete="off"
+                         list="versionSuggest" placeholder="可以自己打，例如 4DX 極爆">
+                  <datalist id="versionSuggest">
+                    <option value="2D"></option><option value="IMAX"></option>
+                    <option value="4DX"></option><option value="3D"></option>
+                    <option value="Dolby Cinema"></option>
+                  </datalist>
+                  <div class="chips" id="versionChips" role="group" aria-label="版本建議">
+                    <button class="chip" type="button" aria-pressed="true">2D</button>
+                    <button class="chip" type="button" aria-pressed="false">IMAX</button>
+                    <button class="chip" type="button" aria-pressed="false">4DX</button>
+                    <button class="chip" type="button" aria-pressed="false">3D</button>
+                    <button class="chip" type="button" aria-pressed="false">Dolby Cinema</button>
+                  </div>
+                  <p class="hint">建議只是建議，打什麼都收。</p>
+                </div>
+
+                <!-- UTextarea -->
+                <div class="row">
+                  <label class="sub-label" for="memoInput">備註</label>
+                  <textarea class="control" id="memoInput" placeholder="同行者、第幾次上映、場次型態，想寫什麼都行"></textarea>
+                </div>
+              </div>
+            </div>
+            <!-- 自製 TicketCard（DS §4.3）：這一筆存下去會長成的樣子 -->
+            <div class="field field-last">
+              <p class="preview-label">存下去會長這樣</p>
+              <div class="tcard" id="preview"></div>
+              <p class="hint" id="previewHint"></p>
+            </div>
+          </form>
+
+          <!-- UButton block；sticky + safe-area-inset -->
+          <div class="submit-bar">
+            <p class="form-error" id="formError" hidden role="alert"></p>
+            <button class="btn-primary" type="button" id="submitBtn">記下來</button>
+            <!-- UToast -->
+            <div class="toast" id="toast" role="status" hidden>記好了</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════ 面板二：/app/films/new ══════════════ -->
+    <section class="frame" aria-label="新增作品">
+      <p class="frame-cap"><span class="tnum">/app/films/new</span>　「找不到」帶著已輸入的字進來</p>
+      <div class="phone">
+        <div class="screen" id="screen2">
+
+          <div class="appbar">
+            <button class="icon-btn" type="button" id="backBtn" aria-label="返回記一場">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
+                   stroke="currentColor" stroke-width="1.5"><path d="M9.5 3L4.5 8l5 5"/></svg>
+            </button>
+            <h2>新增作品</h2>
+          </div>
+
+          <!-- UForm -->
+          <form class="form" id="filmForm" novalidate>
+            <p class="intro">這部片還不在片庫裡。填一點資料就能開始記錄，只有中文片名是必填的。</p>
+
+            <div class="field">
+              <label class="label" for="newTitleZh">中文片名 <span class="req" aria-hidden="true">*</span></label>
+              <input class="control" id="newTitleZh" type="text" required
+                     value="劇場版 吉伊卡哇 人魚島的秘密">
+              <p class="carried" id="carriedNote">從搜尋帶過來的字，可以直接改。</p>
+            </div>
+
+            <div class="field">
+              <label class="label" for="newTitleOriginal">原文片名</label>
+              <input class="control original" id="newTitleOriginal" type="text"
+                     placeholder="沒有也沒關係">
+            </div>
+
+            <div class="field">
+              <div class="two-up">
+                <div>
+                  <!-- USelectMenu（可搜尋）：films.json 實際出現過 78 種國別，
+                       這份原型放最常見的 24 種，產品裡要能搜尋全部 78 種 -->
+                  <label class="sub-label" for="newCountry">國別</label>
+                  <select class="control" id="newCountry"></select>
+                </div>
+                <div>
+                  <label class="sub-label" for="newYear">上映年</label>
+                  <input class="control tnum" id="newYear" type="number" inputmode="numeric"
+                         min="1900" max="2100" value="2026">
+                </div>
+              </div>
+            </div>
+
+            <div class="field">
+              <label class="sub-label" for="newRuntime">片長</label>
+              <div class="suffix-row">
+                <input class="control tnum" id="newRuntime" type="number" inputmode="numeric"
+                       min="1" step="1" placeholder="不知道就空著">
+                <span class="unit">分鐘</span>
+              </div>
+            </div>
+
+            <!-- 自製 PosterDropzone（DS §4.2 未列此元件，需自製）
+                 ugc-poster 是 private bucket 走 signed URL；已比對到 TMDB 的作品不會出現這一區 -->
+            <div class="field">
+              <span class="label" id="posterLabel">海報（選填）</span>
+              <button class="dropzone" type="button" id="dropzone" aria-describedby="posterLabel">
+                <span class="dz-main" id="dzMain">拖曳或點擊上傳</span>
+                <span id="dzSub">長邊會縮到 500px</span>
+                <span class="progress" id="dzProgress" hidden><i id="dzBar" style="width:38%"></i></span>
+              </button>
+              <p class="hint">原型示範：點一下會依序切換未上傳、上傳中、待審核、被拒四種狀態。</p>
+            </div>
+
+            <div class="note-box">
+              你新增的作品只有你看得到，審核通過後才會進入公共片庫。之後比對到 TMDB 會自動補上海報與詳細資料。
+            </div>
+          </form>
+
+          <div class="submit-bar">
+            <button class="btn-primary" type="button" id="createFilmBtn">建立並繼續記錄</button>
+            <!-- UToast -->
+            <div class="toast" id="toast2" role="status" hidden>已建立，回去記這一場</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════ 審稿註解（不在手機框內）══════════════ -->
+    <div class="notes">
+
+      <div class="note">
+        <h3>為什麼「找不到」是一等公民</h3>
+        <p>實測 David 的 169 筆紀錄，<strong>56.8% 對不上現有片庫</strong>（96 筆）；以不重複片名計是 <strong>61.9%</strong>（134 個片名裡 83 個沒命中）。<strong>搜尋落空是常態，不是例外</strong>，所以那一列從輸入框取得焦點的那一刻就在，有結果時也不消失，而且是清單的最後一項。</p>
+        <p>按 <code>↓</code> 一路走到底，最後停的就是它——這是「一等公民」的操作定義。試著在左邊的搜尋框裡按 <code>↓</code>、<code>↑</code>、<code>Home</code>、<code>End</code>，再按 <code>Enter</code>。</p>
+        <p>產品裡這個欄位是 autofocus（鍵盤立刻起來）；這份原型只在桌機寬度自動聚焦，免得審稿時手機鍵盤一直跳出來。</p>
+        <div class="demo-row">
+          <button class="demo-btn" type="button" data-q="吉伊">輸入「吉伊」（0 筆命中）</button>
+          <button class="demo-btn" type="button" data-q="鬼滅">輸入「鬼滅」</button>
+          <button class="demo-btn" type="button" data-q="劇場版">輸入「劇場版」</button>
+          <button class="demo-btn" type="button" data-q="紅豬">輸入「紅豬」</button>
+          <button class="demo-btn" type="button" data-q="">清空</button>
+        </div>
+      </div>
+
+      <div class="note">
+        <h3>那部真的找不到的片</h3>
+        <p>David 最近一筆紀錄是 <strong>2026/07/26 劇場版 吉伊卡哇 人魚島的秘密</strong>，林口威秀、2D、2 張、NT$520。輸入「吉伊」在 2,669 部片庫裡是 <strong>0 筆命中</strong>——這不是造出來的空狀態，是他真的記過、而片庫真的沒有的一部片。所以右邊那個面板不是錯誤處理，是流程的一部分。</p>
+      </div>
+
+      <div class="note">
+        <h3>影城選單：111 筆真實資料</h3>
+        <p>分組順序是最近用過、縣市、非影城。最上面那一組是 68% 命中率的來源：林口威秀在 169 筆裡佔 115 筆。</p>
+        <div class="scroll-x">
+          <table class="facts">
+            <caption class="sub-label" style="text-align:left;">venues.json 實測</caption>
+            <tbody>
+              <tr><th scope="row">總數</th><td>111 家</td></tr>
+              <tr><th scope="row">台北市 / 新北市 / 台中市</th><td>30 / 13 / 13 家</td></tr>
+              <tr><th scope="row">非影城選項</th><td>4 個</td></tr>
+              <tr><th scope="row">name 欄為空</th><td>3 家</td></tr>
+              <tr><th scope="row">最長名稱</th><td>林口MITSUI OUTLET PARK威秀影城（24 字）</td></tr>
+              <tr><th scope="row">口語簡稱直接命中官方全名</th><td>0%</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="margin-top:12px;"><strong>name 為空的 3 家</strong>（映捌玖數位影城有限公司、龍子電影事業股份有限公司（首都戲院）、國元影業股份有限公司）改用 companyName 顯示，都在台北市那一組，直接捲下去看得到。</p>
+        <p><strong>簡稱不自動綁定官方全名。</strong>「林口威秀」用模糊比對會猜成「樹林秀泰影城」——猜錯比不猜糟，所以簡稱只當使用者自己的別名顯示在「最近用過」，實際綁定的是下面那行官方全名。</p>
+      </div>
+
+      <div class="note">
+        <h3>版本是自由文字，不是 enum</h3>
+        <p>169 筆裡的版本值：2D 126、4DX 20、IMAX 7、<strong>MAPPA</strong> 4、<strong>4DX 極爆</strong> 3、<strong>2D (ATMOS)</strong> 3、IMAX 3D 2、4DX 3D 2、Dolby Cinema 1、<strong>TITAN</strong> 1。做成下拉選單就會逼人把「MAPPA」填成「2D」，資料當場失真。所以建議 chips 只是快捷鍵，欄位本身收任何字串。</p>
+      </div>
+
+      <div class="note">
+        <h3>票價不預填</h3>
+        <p>票價的眾數命中率只有 32.5%，169 筆裡有 31 個相異值（NT$200 到 NT$600，另有 16 筆為 0）。硬塞預設值只會讓人改，比空著慢。日期、時間、影城、版本、票數則全部預填，因為它們的命中率分別是今天、現在、68.0%、74.6%、60.4%。</p>
+        <p>NT$0 是<strong>免費／兌換</strong>，不是空白，也不是「已隱藏」——真實的 16 筆備註寫著「兌點票」「藝FUN券」「國賓兌換票」「去年購買20張以上電影票，威秀回饋免費票」。</p>
+      </div>
+
+      <div class="note">
+        <h3>海報與票根縮圖</h3>
+        <p>片庫 2,669 部裡有 <strong>268 部沒有 TMDB 對應</strong>（10%）。這一頁嵌了 320 部真實作品，其中 66 部沒有海報可拿——它們在清單裡不是灰盒子也不是破圖，是一張帶年份的票根縮圖，跟有海報的那一列一樣完整。海報一律熱連結 <span class="tnum">image.tmdb.org</span>，載入失敗會就地換成同一種票根縮圖。</p>
+        <p>清單那一行的年份是<strong>首次分級年</strong>（民國年 + 1911），所以重新上映的舊片會顯示重映當年——例如紅豬顯示 2023。這是真實資料的樣子，不是 bug，但值得在作品頁上標清楚。</p>
+      </div>
+
+      <div class="note">
+        <h3>長片名怎麼辦</h3>
+        <p>片庫裡最長的中文片名是 66 字的「劇場版IDOLiSH7-偶像星願- LIVE 4bit BEYOND THE PERiOD&lt;DAY2&gt;with After talk」，而且它正好沒有 TMDB 對應。最短的只有一個字（咒、燒、詩、蟲、月、殺）。兩種都在清單裡直接換行，不截字——搜尋結果裡截掉片名等於讓人選不出來。</p>
+        <p>UI 上不顯示《》（DS §2.5）：全形書名號在緊湊清單裡頭尾各吃掉一個字寬。片名靠字重與顏色區分。</p>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   資料：由 .data/films.json（2,669 部取 320 部）、
+        .data/venues.json（111 筆全數）與 TMDB poster_path 產生。
+   FILMS  = [titleZh, titleOriginal, country, year, runtimeMinutes, posterPath, tmdbId]
+   VENUES = [name, companyName, city, hallCount, kind, taxId]
+   ============================================================ */
+const FILMS=[["200%小狼人","200% Wolf","德國",2024,98,"/1Llx1f44Lo7Og0iYyQ8zxMcgSTp.jpg",974663],["2018大洪水","2018","印度",2024,148,"/wNBb6Vpl7lU0tSqPxPEQaFdjKBU.jpg",866440],["404宿靈速速逃","404 สุขีนิรันดร์..Run Run","泰國",2024,104,"/nDRyGQLUK3L9XmnEW7CwIPPGKy7.jpg",1290213],["56種喝采","Wochenendrebellen","德國",2024,109,"/chF1hGeyFvCfU2H3LffREFoFWn7.jpg",888768],["60分鐘亡命直播","drive.","韓國",2024,90,"/1pOofkKE0oRHHdbcm7lNPEshy6m.jpg",1382765],["96分鐘","96分鐘","中華民國",2024,74,"/5HefFZDvzHAR4qWEMExLfyM0qLs.jpg",1271895],["BLACKPINK WORLD TOUR [BORN PINK] IN CINEMAS","BLACKPINK WORLD TOUR [BORN PINK] IN CINEMAS","韓國",2024,92,"",0],["BLOODY ESCAPE：地獄的逃走劇","BLOODY ESCAPE -地獄の逃走劇-","日本",2024,97,"/tRV4tJjvAcjSJOd8iv7DjyP5VkM.jpg",1103432],["BTOB","비투비 타임 : 비투게더 더 무비","韓國",2024,101,"/vEyBNft4rUWspLrTz95gfwypHpb.jpg",1135965],["Baekhyun: Lonsdaleite [dot] in Cinemas","백현: 론스달라이트 닷 인 시네마","韓國",2024,90,"/gKttacDc3To3nGw6L4BUslGpxf0.jpg",1375053],["DDDD惡魔的破壞 前編","DEAD DEAD DEMONS DEDEDEDE DESTRUCTION Part 1","日本",2024,120,"",0],["DDDD惡魔的破壞 後編","Dead Dead Demon's Dededede Destruction PART2","日本",2024,120,"",0],["Darling This Was Hard","Darling This Was Hard","中華民國",2024,8,"/su73xOv117hWbxl0vZkiUqC2860.jpg",1327832],["EPIK HIGH 20 THE MOVIE","EPIK HIGH 20 THE MOVIE","韓國",2024,116,"",0],["FIGHTING！女孩們","Victory","韓國",2024,120,"/i30lWt0XLZtK64xnFmHMNn4c5rB.jpg",1481465],["GIVEN~被贈與的未來 劇場版","映画 ギヴン","日本",2024,60,"/uSzdc9bjDgl7AYb0g2RuaptKOSy.jpg",632632],["GIVEN被贈與的未來劇場版：柊mix","映画 ギヴン 柊mix","日本",2024,70,"/cI8RY0Zfr7ax1jOpUMVoRgD5NuE.jpg",1230477],["HIGHLIGHT “LIGHTS GO ON, AGAIN” IN CINEMA","HIGHLIGHT “LIGHTS GO ON, AGAIN” IN CINEMA","韓國",2024,116,"",0],["IVE The 1st World Tour in Cinema","아이브 더 퍼스트 월드투어 인 시네마","韓國",2024,112,"/46j3tbYi1exRoBvvuPA8sFTqPHz.jpg",1361488],["JUNG KOOK: I AM STILL","JUNG KOOK: I AM STILL","韓國",2024,93,"",0],["JUNG KOOK: I AM STILL_additional clip","JUNG KOOK: I AM STILL_additional clip","韓國",2024,19,"",0],["KANO","KANO","中華民國",2024,185,"/x4q3ILYN6M8PD7Xy0Sufa985Qtd.jpg",256930],["LAST MILE：全面引爆","ラストマイル","日本",2024,129,"/UGw4ohXtocldgPRtUjXnXJAoXN.jpg",1276108],["Laufey's A Night at the Symphony: Hollywood Bowl","Laufey's A Night at the Symphony: Hollywood Bowl","英國",2024,98,"/iWPwAVoxdhA5XrOvQVNvUm0t2IX.jpg",1375774],["Let It Be?恐怖的事物，終究很恐怖?（夢境診斷與恐怖體驗2）","『?????????? ～怖????、???怖?～』（夢判?、???恐怖体??２）","日本",2024,97,"",0],["NCT DREAM MYSTERY LAB: DREAMSCAPE IN CINEMAS","NCT DREAM MYSTERY LAB: DREAM( )SCAPE IN CINEMAS","韓國",2024,137,"",0],["OUT","OUT","日本",2024,129,"/e84xIJ6haPx2X4XUqUgGfPIQ5NE.jpg",1171612],["OZONE 青春冒險","Ozone青春冒險","中華民國",2024,81,"/qJnItSI1jiTqis7WfhYD9vDL8rK.jpg",1318638],["PTP：永遠不滅","SUNRISE TO SUNSET","日本",2024,145,"/luZ3hIBz7S5pAc2xvglzk711OBv.jpg",1409517],["PUI PUI 天竺鼠車車 電影版 MOLMAX","PUI PUI モルカー ザ・ムービー MOLMAX","日本",2024,68,"/ogOkB3dJicTdPimVzrbrAxK9y1i.jpg",1235424],["RM:Right People, Wrong Place","RM:Right People, Wrong Place","韓國",2024,79,"",0],["RM:Right People, Wrong Place - SPECIAL EDITION","RM:Right People, Wrong Place - SPECIAL EDITION","韓國",2024,6,"",0],["SEVENTEEN TOUR 'FOLLOW' AGAIN TO CINEMAS","SEVENTEEN TOUR 'FOLLOW' AGAIN TO CINEMAS","韓國",2024,103,"",0],["SPY x FAMILY CODE: White","SPY x FAMILY CODE: White","日本",2024,110,"",0],["SUGA | Agust D TOUR ‘D-DAY’ THE MOVIE","SUGA | Agust D TOUR ‘D-DAY’ THE MOVIE","韓國",2024,84,"",0],["Silent Love","サイレントラブ","日本",2024,116,"/1FeuMKIMiPQNOelxqVRQyPvEuMk.jpg",1176848],["Strike！娜英","돌핀","韓國",2024,90,"/pHjEYooQSZ8NDWTTb64gLDuuKE0.jpg",1106501],["TAEYONG: TY TRACK IN CINEMAS","TAEYONG: TY TRACK IN CINEMAS","韓國",2024,96,"",0],["XIA CONCERT MOVIE CHAPTER 1：RECREATION","XIA CONCERT MOVIE CHAPTER 1: RECREATION","韓國",2024,92,"",0],["aespa: MY First page","에스파: 마이 퍼스트 페이지","韓國",2024,110,"/feoyq9HeAkC0FGhq1t2BB1Fb0H8.jpg",1229421],["aespa: WORLD TOUR in Cinemas","aespa: WORLD TOUR in Cinemas","韓國",2024,126,"",0],["hololive 4th fes. Our Bright Parade：DAY2","hololive 4th fes. Our Bright Parade Day 2","日本",2024,186,"/lym4tAMIKuCBVeQsSM7eJigDCdF.jpg",1101557],["hololive 4th fes. Our Bright Parade：Day1","hololive 4th fes. Our Bright Parade Day 1","日本",2024,178,"/lym4tAMIKuCBVeQsSM7eJigDCdF.jpg",1101556],["《Thunderbolt Fantasy東離劍遊紀４》第1-2集 （含系列回顧）","Thunderbolt Fantasy: Sword Seekers 4 Episode 1 and 2 with Serial season summary","中華民國",2024,65,"",0],["《劇場版 SUPER WINGS：究極加速》","극장판 슈퍼윙스: 맥시멈 스피드","韓國",2024,85,"/AfIAlXf45DcIVSiI0xWUKlbBo7q.jpg",1148189],["《少女與戰車 最終章》 第４話","ガールズ＆パンツァー 最終章 第4話","日本",2024,54,"/75jMF5tH3bTp4H7VFt4KAcqFKbo.jpg",1051192],["「月歌。」電影版 兔子王國／Autumn","「ツキウタ。」劇場版 RABBITS KINGDOM THE MOVIE","日本",2024,99,"",0],["「月歌。」電影版 兔子王國／Spring","「ツキウタ。」劇場版 RABBITS KINGDOM THE MOVIE","日本",2024,98,"",0],["「月歌。」電影版 兔子王國／Summer","「ツキウタ。」劇場版 RABBITS KINGDOM THE MOVIE","日本",2024,98,"",0],["「月歌。」電影版 兔子王國／Winter","「ツキウタ。」劇場版 RABBITS KINGDOM THE MOVIE","日本",2024,99,"",0],["「鬼滅之刃」 絆之奇蹟，邁向柱訓練","Demon Slayer: Kimetsu no Yaiba -To the Hashira Training-","日本",2024,103,"",0],["一個人的逃亡","The Great Escaper","美國",2024,97,"/btLfgO46LH5Yw2Elc6dmJ9eC7eg.jpg",944194],["一屍到底","カメラを止めるな！","日本",2024,96,"/2panzD3j5jaAt2tg2o3gWm2LB7N.jpg",513434],["一路狂奔","Running Wild","中華民國",2024,106,"/fZ1d5fjswWAN9dj4QQdnq2AqzBi.jpg",1463545],["一部未完成的電影","一部未完成的电影","中國大陸",2024,107,"/2EQhaq58t8NQFBSrBUyhcGeY1lF.jpg",878607],["七月返歸","Back Home","香港",2024,102,"/Z6AoVpnLM3bZ95FcFhSxIdbgZD.jpg",1403095],["三個人的一一：NJ的熱海旅行","NJ's Journey to Atami","中華民國",2024,88,"",0],["三日月和貓","三日月とネコ","日本",2024,112,"/ppsSsV9H1q20sUuqReMsAwkKPTg.jpg",1293338],["上流誘惑","Temptation","波蘭",2024,98,"/y19nwVEObgYwHqLrRXRQM13XCjg.jpg",601996],["下午4點","4 PM","韓國",2024,111,"/eqAE32sT4EyquOVaOtSs3wPlNL8.jpg",817833],["下女的誘惑","아가씨","韓國",2024,145,"/fqLMjW1FC3gsCWafZNd7Mm99bYt.jpg",290098],["不丹沒有槍","The Monk and the Gun","不丹",2024,111,"/iV9P24I3b58f4TrNzbxdhTbJhii.jpg",1109237],["不完美的愛情革命","パーフェクト・レボリューション","日本",2024,117,"/ikccKzJ6AjsZ89orr2B7Ob99CTp.jpg",478376],["不是你不愛你","Love at First Lie","香港",2024,98,"/cuxzsr88bc50sL4x9qhnPqVH8s2.jpg",1111485],["不朽之櫻","Sakura","日本",2024,120,"/hx1yDy35cL6hky7XvXRzwGFz0FS.jpg",1262802],["不死戀人","不死身ラヴァーズ","日本",2024,103,"/3CbhOv5IgXXJByzfhNGbpsa4tCk.jpg",1240834],["不羈騎士","The Bikeriders","美國",2024,116,"/vlOzBkYUiZqFAuC0T2n0CH1Ekjg.jpg",1008409],["乒乓男孩","乒乓男孩","中華民國",2024,108,"/njfTRFlmaSKs0qrPF7t43YlKEPb.jpg",1027588],["九命貓的奇幻旅程","10 Lives","英國",2024,87,"/aQLCzJpVCbw2mYhmAKg8YBEreBz.jpg",567811],["九龍城寨之圍城","九龍城寨之圍城","香港",2024,126,"/dS8C60iEHnuZEFgKFjRx0GCLVRf.jpg",923667],["九龍城寨之圍城-彩蛋","Twilight of the Warriors: Walled In","香港",2024,4,"",0],["二十八天","Side by Side","中華民國",2024,14,"/99L1K5KF47gPo6poJrgyBdq45Kh.jpg",1558791],["五等分的新娘*","五等分の花嫁＊","日本",2024,47,"/2QNKHXjb8E0557XqNLJDEZ7m6wF.jpg",1287324],["亞洲","Asia","英國",2024,63,"/lR7EmRr4NQIJw6hU3pSPCen4Amz.jpg",1360866],["亡命機劫","하이재킹","韓國",2024,100,"/ep8PqSi5RfxZoFcMn2g0fqR7Rox.jpg",1147710],["交換禮物","交換禮物","中華民國",2024,114,"/cbyHSNKJj99LaW6WlgdFYpeKbR6.jpg",1395259],["人造天空","Műanyag égbolt","匈牙利",2024,112,"/eLWM7LXDLeoqpm5cPBq8i9sGnJJ.jpg",587384],["人道主義吸血鬼徵求自願獻身者","Vampire humaniste cherche suicidaire consentant","加拿大",2024,91,"/mq1dLlAwxqcT2JLnzinvyRPfJpb.jpg",988402],["人類之巔3","El auge del humano 3","斯里蘭卡",2024,122,"/oFdYITEafENapZCD1PSCn9JagwP.jpg",951048],["仇雲殺機","Cloud クラウド","日本",2024,124,"/AeaBxAA7GRG2XJx9DqB5Ylp6Ak7.jpg",1244244],["他的最後一個朋友","เพื่อน(ไม่)สนิท","泰國",2024,129,"/eCJ8kXHsc5XPembZLww6hf4UsT.jpg",1093215],["以愛之茗","Black Tea","中華民國",2024,110,"/wcPkmO4T3VioO0SjDFiVttaDp2u.jpg",662402],["伊貝林：在魔幻世界登入人生","Ibelin","挪威",2024,103,"/1FkHH0g2CFPvREqwQy74vJyEnnY.jpg",1167027],["伏慄熊","Imaginary","美國",2024,104,"/3CiAVjLaib71cdqhxPTJmFUs48N.jpg",1125311],["你好，愛，再次","Hello, Love, Again","菲律賓",2024,123,"/3qS0Nwx0A2xr21D8yO0gWCs7WrM.jpg",1292359],["你是我眼中的那道光","പ്രഭയായ് നിനച്ചതെല്ലാം","印度",2024,118,"/6IMrAh33VFn2SJze8h9uxMZbK4g.jpg",927547],["你的名字。","Your Name","日本",2024,106,"",553301],["佩佩的電影派對","Peppa's Cinema Party","美國",2024,67,"/2w4833Afp9QVvTAXbFwU9tVwDYA.jpg",1205196],["來世還作人","來世還作人","香港",2024,80,"/vMn4v9pb6ZlmFhMcdH9F39zFXb2.jpg",1117166],["來生再見未名的我們","わたくしどもは。","日本",2024,101,"/vxoiUIIR5hCQbPyoeSKKRffe2UR.jpg",1094482],["來自地獄的邪靈","Nefarious","美國",2024,98,"/p3v1OLVTx2coFHLqL0b5hKdQRm6.jpg",913673],["保羅‧賽門：無眠樂章","In Restless Dreams: The Music of Paul Simon","美國",2024,209,"/7i6vi55sKGJDjOpXJ2oVdmB4ktP.jpg",1153454],["倖存者列車","One Life","英國",2024,109,"/1PTt678CwQiBEA98xCDUdcoYVhQ.jpg",760774],["假面騎士 THE WINTER MOVIE- 葛查多 & GEATS 最強克米GOTCHA大作戰","Kamen Rider The Winter Movie Gotchard & Geats","日本",2024,95,"",0],["假面騎士555 20th 復活的天堂","仮面ライダー555 20th パラダイス・リゲインド","日本",2024,66,"/1iXLCSl64WJdP4NLnAbjJMPOUm9.jpg",1122715],["偶像大師 劇場版: 前往光輝的另一端 經典10週年","THE iDOLM＠STER MOVIE 輝きの向こう側へ!","日本",2024,122,"/iJj2mNUtdFUcLzASva63YPrOiqj.jpg",297188],["偶慾","人でなしの恋","日本",2024,72,"/xj5n9ShTb4PyVevKmHDhiXpDjs0.jpg",1009087],["偷窺直播","Livestream","韓國",2024,90,"/XJ6D2KnojbaNvjpe54WddH2ydP.jpg",1443832],["催眠","Hypnosen","挪威",2024,99,"/2nGuNgb6NZ2LRsMVKHAUQBlimfF.jpg",1005972],["傷痕-老兵的故事","傷痕-老兵的故事","中華民國",2024,70,"/yHtLDMnBCZiQQSr2uIxgXdzK8q4.jpg",1401562],["優雅的相遇","優雅的相遇","中華民國",2024,127,"/5p8KtopEdDt3fd8mTv1gtep8DiY.jpg",1239035],["全個世界都有電話","全個世界都有電話","香港",2024,91,"/pujk3FiyjIMkpYRz9MAQyPptmNs.jpg",1100901],["全力揮擊","The Long Game","美國",2024,113,"/giMux9ChaxxClkiihmJWKfhpASa.jpg",1079810],["全境炸裂","13 Bom di Jakarta","印尼",2024,120,"/z8mH2uV5Y56FgX0MskbZFno6WMO.jpg",1126128],["兩萬種蜜蜂","20.000 especies de abejas","西班牙",2024,128,"/3OGyv5PkHxMXi2H9yxIh9X5mO.jpg",1053600],["八戒-台語","PIGSY","中華民國",2024,96,"",0],["八戒-多元語","PIGSY","中華民國",2024,96,"",0],["八犬傳","八犬伝","日本",2024,150,"/ws3to7tJVOu3YxPeQgdCtUSuQPw.jpg",1276242],["公園","公園","中華民國",2024,101,"/yWrRplU7FlyJkoFijuU6bYTjfPy.jpg",1259125],["公鹿","公鹿","中華民國",2024,15,"/cfDS2zAghjsAXev6rmGUWT7QSs0.jpg",1188042],["再愛一次","Mai","越南",2024,130,"/i1A0eburQ92tCCblZ8X9Hiss1Wl.jpg",1210973],["再見了！茱莉亞","وداعًا جوليا","蘇丹",2024,120,"/bp2tTuvXQHKNH3hmmrI2W5BAbm0.jpg",1111750],["再見哥雅：卡葉爾與布紐爾的最後巡禮","L'Ombre de Goya","法國",2024,87,"/icAJvxuWluyzAdfRFpHKVlXyg4k.jpg",970398],["再見，福寶","안녕, 할부지","韓國",2024,94,"/juukYdGK2UFin3xXfNdveTX9jId.jpg",1314450],["冰室蓮司：日本統一 台灣篇","氷室蓮司","日本",2024,119,"/Ack95ufQz5kXbp2n6gCiJmKzRYK.jpg",1254532],["凡尼亞（英國國家劇院現場）","Vanya","英國",2024,118,"/29qNo3tRlAwGR8GMDATkfRikHqu.jpg",1607854],["刀劍亂舞 迴 -旋傳 親近的侍從們-","刀剣乱舞 廻 -々伝 近し侍らうものら-","日本",2024,69,"/xjJKYslNUsCNk2dTbakPzp7hkkW.jpg",1294084],["刀劍亂舞 迴 -虛傳 燃燒的本能寺-","Touken Ranbu Kai kyoden part 1","日本",2024,95,"",0],["刀劍亂舞 迴 -虛傳 燃燒的本能寺-","Touken Ranbu Kai kyoden part 2","日本",2024,95,"",0],["刀劍神域劇場版-序列爭戰","劇場版 ソードアート・オンライン -オーディナル・スケール-","日本",2024,120,"/5BUUDGJkpRE3bd6lf1Dz3iXqKrh.jpg",413594],["分期付款愛上你","เธอฟอร์แคช","泰國",2024,135,"/sDGXvV8NJMo3kHd240WPDf8ZfYI.jpg",1052160],["到我們為止","It Ends with Us","美國",2024,130,"/9ZYQerv96ImocgvmqDwrwV0phhL.jpg",1079091],["刺心切骨","刺心切骨","中華民國",2024,106,"/8S62nGjQLHg2awodXRy7fUcfybP.jpg",940247],["前途海量","前途海量","中國大陸",2024,103,"/yCekhiGgDO5i7ZzyxzyWfAc7OEO.jpg",1290839],["劇場版 OVERLORD - 聖王國篇","劇場版「オーバーロード」聖王国編","日本",2024,135,"/pFBrgAZZzW729JIB3Dw2LHdEq3B.jpg",1014505],["劇場版 排球少年!! 垃圾場的決戰","劇場版ハイキュー!! ゴミ捨て場の決戦","日本",2024,85,"/7eOTFvo5gyXJIHVDURKorE6ERgU.jpg",1012201],["劇場版 森林家族 來自芙蕾雅的禮物","劇場版 シルバニアファミリー フレアからのおくりもの","日本",2024,66,"/uDfkJcDygzKUh375uIdxwge5UE1.jpg",1160078],["劇場版 藍色監獄 -EPISODE凪-","劇場版ブルーロック -EPISODE 凪-","日本",2024,89,"/pHMgWPaZvOlBy0ao8v4ZvTtR1gD.jpg",1104844],["劇場版 賽馬娘Pretty Derby：新時代之門","ウマ娘 プリティーダービー 新時代の扉","日本",2024,107,"/5d3qO6HZaupc6D4Ln9mID4g23F0.jpg",1223178],["劇場版 轉生成女性向遊戲只有毀滅 END 的壞人大小姐","劇場版 乙女ゲームの破滅フラグしかない悪役令嬢に転生してしまった…","日本",2024,93,"/hqOK8bM90sjd8RDFjJ2j2EnD6cQ.jpg",997086],["劇場版IDOLiSH7-偶像星願- LIVE 4bit BEYOND THE PERiOD<DAY2>with After talk","IDOLiSH7 the Movie,LIVE 4bit BEYOND THE PERiOD＜DAY 2＞With After Talk version.","日本",2024,99,"",0],["劇場版「進擊的巨人」完結篇THE LAST ATTACK","劇場版「進撃の巨人」完結編 THE LAST ATTACK","日本",2024,144,"/kkbGiEFXaLFWKLuJzMMJ4oEjUXS.jpg",1333100],["劇場總集篇 孤獨搖滾！Re:","劇場総集編ぼっち・ざ・ろっく！Re:","日本",2024,90,"/79Om3aHEtVGuE1fuAFAIiU02CW4.jpg",1129610],["劇場總集篇 孤獨搖滾！Re:Re:","劇場総集編ぼっち・ざ・ろっく！Re:Re:","日本",2024,75,"/2ZTCMwvcEp4rC4dbxnMVMTGYgaS.jpg",1201387],["劊樂小丑","Terrifier","美國",2024,85,"/siiPM0yiWvopB6nFcYJZbc54PEd.jpg",420634],["劊樂小丑2","Terrifier 2","美國",2024,138,"/pzVq2TFOCd9KJobnQ0OX70q4LTp.jpg",663712],["劊樂小丑3","Terrifier 3","美國",2024,125,"/aPRmX1fvVmJOluGgNnHz9pFEQ4T.jpg",1034541],["功夫熊貓 4","Kung Fu Panda 4","美國",2024,94,"/trOu1ng3kDE3vKsjP8XLw3oL8lQ.jpg",1011985],["加菲貓：農場大冒險","The Garfield Movie","美國",2024,101,"/xmYaSKjDZJZUsjXpCDW9Wq6A3Lc.jpg",748783],["北村公寓4:44","4분 44초","韓國",2024,44,"/rAK6xOVvtUIM2104Yb4nv2ahCQw.jpg",1369566],["十字路口的豬","Pig at the Crossing","不丹",2024,122,"/gY5QrFznHiGzDnLmUeaiT3SfLug.jpg",1287986],["千禧曼波","千禧曼波","中華民國",2024,106,"/888UkmrPLxe4cKAj9T0wx2Z8JAU.jpg",11553],["千萬別放手","Never Let Go","美國",2024,102,"/eATa4R9134qq7rEkGbC5NbhGwPc.jpg",814889],["南方時光","南方時光","中華民國",2024,114,"/fLKRtZbFcp0xRCr2rvcyIIThQgP.jpg",1259443],["危機航線","危机航线","中國大陸",2024,120,"/naMwbREoWPLz4ZohyL3J71NaWYA.jpg",949709],["危脆之戰","Porcelain War","美國",2024,87,"/qaj6qrQOHHW7mm914ML32v7UcY.jpg",1214527],["反貪風暴之加密危機","反貪風暴之加密危機","香港",2024,102,"/7b7LRWmf6G6Tb8a9sj3WVmNCfsO.jpg",1228545],["可恨的初戀！","14 อีกครั้ง","泰國",2024,114,"/keONkuhphsHdrs7gHQ4ApRwPpS5.jpg",1072582],["台北十日","台北十日","中華民國",2024,77,"/9g1WHWNSNt2eEf0p3SUFYWLVleT.jpg",1330874],["台北追緝令","Weekend in Taipei","美國",2024,100,"/rGUF1REqWmhhm6t3aDJfffBJhqW.jpg",1167271],["台灣超人","台灣超人","中華民國",2024,102,"/81EHAKhMbE2CQyW8EtEB0l7yjFr.jpg",1377013],["名偵探柯南 100萬美元的五稜星","名探偵コナン 100万ドルの五稜星（みちしるべ）","日本",2024,110,"/mnRuwTSE6pm3m89QyCzcsHKaFn3.jpg",1209217],["吸血鬼：諾斯費拉圖","Nosferatu","美國",2024,132,"/uVDFmhnmbq79wgMz2HYOXQGIxVn.jpg",426063],["命中註定那頭鵝","命中註定那頭鵝","中華民國",2024,99,"/br3AfKrOzZwpe121dcufxGAmfRR.jpg",1203524],["哥吉拉與金剛 : 新帝國","Godzilla x Kong: The New Empire","美國",2024,115,"/lTO7nerUjKZ3QeJgZfMU7d6sD9d.jpg",823464],["地獄怪客：歪曲人的詛咒","Hellboy: The Crooked Man","美國",2024,99,"/4VBz9FuvBT3tcucwqxnvF1h3ojq.jpg",1087822],["孤獨搖滾！團結Band LIVE-恆星-","BOCCHI THE ROCK! Kessoku Band Concert -Fixed Star-","日本",2024,118,"",0],["小丑","Joker","美國",2024,122,"/kjNbXFfYLDUdFpfaMkzHbJ5Zq30.jpg",475557],["少女與戰車 劇場版","ガールズ&パンツァー 劇場版","日本",2024,120,"/idscINNSMvch2RsAEZXyef7qm4q.jpg",357405],["屍咒","씬","韓國",2024,103,"/5fhJitsapKs6EJ2aJeRspBTFJIm.jpg",1169340],["我的英雄學院劇場版：You’re Next","My Hero Academia: You're Next","日本",2024,110,"",0],["我變笨了，請多多指教：媽媽 歡迎回來","ぼけますから、よろしくお願いします。～おかえりお母さん～","日本",2024,100,"/2YQQsYKkRCKc1gsjidhkTwjIQj5.jpg",969784],["星際效應","Interstellar","美國",2024,169,"/v7Iib57HHgSEI9B7XYRF6qrs11T.jpg",157336],["暹羅詛咒","มนต์ดำสั่งตาย","泰國",2024,91,"/fyfkrSf7SCvDcXBNDLbHmNhV1AE.jpg",1113142],["機動戰士鋼彈 SEED FREEDOM","機動戦士ガンダムSEED FREEDOM","日本",2024,125,"/iMjQC0DodWhIkU1KHQ7lUyUfVWT.jpg",1146972],["死侍與金鋼狼","Deadpool & Wolverine","美國",2024,128,"/wjVZAMWgfPfn2ALtLkUJY88ZySm.jpg",533535],["殺","KILL","印度",2024,105,"/gezqFBKU4XDiMtZmSZZ6yAtYLb.jpg",1160018],["沙丘：第二部","Dune: Part Two","美國",2024,166,"/1p25wDEdFRRTtwtPFbtPHISefzG.jpg",693134],["沙奈：詛咒之歌","Sana","日本",2024,103,"",1454449],["特別總集篇 名偵探柯南 vs. 怪盜基德","TVシリーズ特別編集版『名探偵コナン vs. 怪盗キッド』","日本",2024,80,"/blGHprMqqJA3eInJg1RNltaKHmB.jpg",1244064],["特別總集篇 名偵探柯南 vs. 怪盜基德(日語版)","Detective Conan: Compilation Film “Detective Conan vs. Kid the Phantom Thief”","日本",2024,80,"",0],["腦筋急轉彎2(短片)","Inside Out 2","美國",2024,35,"/xPqTQs3qVE2thlHhzx1Sr1KMrt7.jpg",1022789],["荒野機器人","The Wild Robot","美國",2024,102,"/gzq36QVwlXpkHWTQ4ob0Kb1C50i.jpg",1184918],["蜘蛛夫人","Madame Web","美國",2024,116,"/vX6F4dv9AavdVbLE0C6N3mwLqnw.jpg",634492],["蜘蛛驚","Sting","美國",2024,91,"/bEMScojqz0XZJsuIitj2uhvI4eZ.jpg",1087388],["蟲","蟲","中華民國",2024,135,"/fEl353P7Xdvasoa81s8thWjFu4Y.jpg",1131460],["角頭-大橋頭","角頭－大橋頭","中華民國",2024,131,"/gaNsN1ojr3mhFBUexBpA4gJ7ejs.jpg",1303236],["詩","詩","香港",2024,102,"/3KR2jcmVSl5EA6mANzJECiCj79K.jpg",1098275],["變形金剛：源起","Transformers One","美國",2024,104,"/bqflnJui6q8y0cZCdVcnNEc1THd.jpg",698687],["超人力霸王布雷薩 THE MOVIE：大怪獸東京決戰","ULTRAMAN BLAZAR THE MOVIE：TOKYO KAIJU SHOWDOWN","日本",2024,76,"",0],["錢不夠用3：全部夠用","钱不够用 3：全部够用","新加坡",2024,138,"/xUMhrnVEqkCuuo3wNhRiXpwpg5K.jpg",1238576],["電影哆啦A夢：大雄的地球交響樂","映画ドラえもん のび太の地球交響楽","日本",2024,115,"/ta6vFDtfRT2UcaqPP5CItrehrOy.jpg",1148677],["電影版 吹響吧！上低音號～莉茲與青鳥～","リズと青い鳥","日本",2024,91,"/6PYhcifIXGJo6hnTzwm210ex3ir.jpg",482150],["電影蠟筆小新：我們的恐龍日記","CRAYON SHINCHAN THE MOVIE: OUR DINOSAUR DIARY","日本",2024,105,"",0],["音速小子 3","Sonic the Hedgehog 3","美國",2024,110,"/bekdAKIaggJxYBbmDa1MOeJ9MC4.jpg",939243],["風流西班牙: 摩洛哥情事","Ocho apellidos marroquís","西班牙",2024,98,"/hGvE3BGgrkUnsh5iJ7OeEozfSeE.jpg",1074049],["驀然回首","ルックバック","日本",2024,57,"/8JjlnxNPgmS4U4pA7X9aKFwH3AO.jpg",1244492],["鬼媽媽的假期","Our Season","韓國",2024,106,"/vcJrYMicGUXZJhjhmbxJJSdqc4n.jpg",1264358],["鬼舞村：詛咒起源","Badarawuhi di Desa Penari","印尼",2024,123,"/wK3LXefoiIJrdZjA8utdhNqlmME.jpg",1176166],["鬼花園 : 詛咒","늘봄가든","韓國",2024,91,"/5wqrr4GzcCj5WkKhfAcMnBpfgZg.jpg",977156],["8釐米：詛咒影帶","8MM","韓國",2023,87,"/AsCqSMwcyPJrnFrZDI0u9KT9FE.jpg",8224],["Barbie芭比","Barbie","美國",2023,114,"/zzFpWgDEUeTneth42y8jpvpX1Lj.jpg",346698],["GRIDMAN UNIVERSE","グリッドマン ユニバース","日本",2023,118,"/dPALPAJoQ6y9W8TTMvem50vU2ID.jpg",915403],["「鬼滅之刃」上弦集結，前進刀匠村","「鬼滅の刃」上弦集結、そして刀鍛冶の里へ","日本",2023,110,"/5uEuUv9GsnMWAn0WRtQPrRxAi3K.jpg",1067282],["不可能的任務：致命清算 第一章","Mission: Impossible - Dead Reckoning Part One","美國",2023,163,"/xyjINhKPMdCDwLP7Pa1Zozf4Rd9.jpg",575264],["八戒","八戒","中華民國",2023,95,"/g5KFfAGX5qggEgDePVNbjqnwTTA.jpg",1088128],["劇場版IDOLiSH7-偶像星願- LIVE 4bit BEYOND THE PERiOD","劇場版アイドリッシュセブン LIVE 4bit BEYOND THE PERiOD","日本",2023,93,"/6YEgRw3tSMju8ofLek7ZuEZwnHX.jpg",1108298],["印咒：畢舍遮","It Lives Inside","美國",2023,99,"/eMgcw7E7jqeQ2t4tpAMiNfPp8Jq.jpg",1024773],["名偵探柯南 灰原哀物語?黑鐵的神祕列車?","Detective Conan: The Story of Ai Haibara: Black Iron Mystery Train","日本",2023,89,"",0],["名偵探柯南 黑鐵的魚影","名探偵コナン 黒鉄の魚影（サブマリン）","日語",2023,110,"/qrGeDTOW6OdoqJ3IQc8ffq2pNRm.jpg",1047041],["周處除三害","周處除三害","中華民國",2023,134,"/eNvuf4PHepy0nlXfludjGCJGG59.jpg",1046090],["奧本海默","Oppenheimer","美國",2023,180,"/aGfEOxRPwp5lEeYfUU0cBpQ0k9K.jpg",872585],["孩子， 你好嗎 ? 我的名字叫李心潔","Dear Child ,How are You ? The Journey of Sinje","馬來西亞",2023,61,"",0],["數碼寶貝02 THE BEGINNING","デジモンアドベンチャー02 THE BEGINNING","日本",2023,80,"/sOBfkAN7MmIrIzC62xY4l0E8W85.jpg",872976],["新世紀福音戰士新劇場版：終","シン・エヴァンゲリオン劇場版:||","日本",2023,155,"/97a4m8UDcQZ4poL0bjo8rM4gWlv.jpg",283566],["新次元！蠟筆小新電影超能力大決戰～飛吧！手卷壽司～","しん次元！クレヨンしんちゃんTHE MOVIE 超能力大決戦 ～とべとべ手巻き寿司～","日本",2023,94,"/6BfZoGPwbj75I9Xc6jupvWgi7yE.jpg",1059572],["星際異攻隊3","Guardians of the Galaxy Vol. 3","美國",2023,150,"/3JQbthSO6tuVt1VwjvVJqrc1oPo.jpg",447365],["普羅米亞","プロメア","日本",2023,111,"/fHHPvzKXdr7DuTj0P9HY9qUkEac.jpg",553600],["月","月","日本",2023,145,"/1pE0Ffq9kIAsn5iHGSdXBv2e0R9.jpg",1145026],["東京復仇者2：血腥萬聖節─命運","Tokyo Revengers 2: Bloody Halloween - Destiny","日本",2023,90,"",0],["東京復仇者2：血腥萬聖節─決戰","Tokyo Revengers 2: Bloody Halloween - Decisive Battle","日本",2023,96,"",0],["歡迎來到駒田蒸餾所","駒田蒸留所へようこそ","日本",2023,91,"/YtiRpPwNfyhM8TrF9oDKYBmEUD.jpg",1119211],["水行俠 失落王國","Aquaman and the Lost Kingdom","美國",2023,124,"/k5XkPlci4EG0Gu75wMez6i04om1.jpg",572802],["沙贊！眾神之怒","Shazam! Fury of the Gods","美國",2023,130,"/s4nUPbvFuqRr3ctAGHq6DFKE4nX.jpg",594767],["涅槃咒","Hạnh Phúc Máu","越南",2023,109,"/3nrIqUFaPsFmLJQIFJ2BmijdXT4.jpg",1057919],["燒","燒","中華民國",2023,12,"/iDx7VtnsgNRunRYNE90APJjbdP7.jpg",1036797],["玩命關頭 X (特映版)","Fast X","美國",2023,139,"/7BOzdJavykpnCZ5oTYvmtTTbK9O.jpg",385687],["米蘭昆德拉：從玩笑到無謂的盛宴","Milan Kundera: od žertu k bezvýznamnosti","捷克共和國",2023,95,"/dAd1gk6QMKUZRIBvOikzWwm6JXJ.jpg",835362],["紅豬","紅の豚","日本",2023,93,"/8bfUIPcpoISjrddGmjRBWBLbEsQ.jpg",11621],["胡桃鉗與魔笛公主的奇幻冒險(英文版)","Щелкунчик и Волшебная Флейта","俄羅斯",2023,88,"/jLjIEWGTfUl64CbW8dDOUvbGFjg.jpg",589759],["蒼鷺與少年","君たちはどう生きるか","日本",2023,124,"/7q7z6f2m8sHjTDjcZ4e1W81BvVP.jpg",508883],["蜘蛛人：新宇宙","Spider-Man: Into the Spider-Verse","美國",2023,117,"/sxubDbvo0FhMe9TSikRn7npohjb.jpg",324857],["蜘蛛人：穿越新宇宙","Spider-Man: Across the Spider-Verse","美國",2023,140,"/zuXZnzHvXdWyVDVPZcLvPNrKvEq.jpg",569094],["蟻人與黃蜂女 : 量子狂熱","Ant-Man and the Wasp: Quantumania","美國",2023,124,"/g0OWGM7HoIt866Lu7yKohYO31NU.jpg",640146],["超級瑪利歐兄弟電影版","The Super Mario Bros. Movie","美國",2023,92,"/lZVumU6dplne9LpitkVDYxhKSDl.jpg",502356],["鈴芽之旅","すずめの戸締まり","日本",2023,121,"/newKNDhIMnDylqzFedFzWZsXqxw.jpg",916224],["鏡之孤城","かがみの孤城","日本",2023,116,"/wnbboIhiyycRQR34BmTQVQX9lFC.jpg",942881],["關於我和鬼變成家人的那件事","關於我和鬼變成家人的那件事","中華民國",2023,129,"/qyzDLcUDR0LLAjVm3XPhy06OhkV.jpg",983883],["電影哆啦A夢 - 大雄之宇宙英雄記","映画ドラえもん のび太の宇宙英雄記","日本",2023,100,"/l8obFS1WMRfT9Zm13XU2gdgzERP.jpg",350650],["電影哆啦A夢 - 大雄的人魚大海戰","映画ドラえもん のび太の人魚大海戦","日本",2023,99,"/8MY9W4SG6CXe0fLQOCT9VooYgFJ.jpg",86184],["電影哆啦A夢 - 大雄的秘密道具博物館","Nobita in the  Secret Gadgets Museum","日本",2023,104,"",0],["電影哆啦A夢 - 新‧大雄的宇宙開拓史","New Record of Nobita's Spaceblazer","日本",2023,102,"",0],["電影哆啦A夢 - 新‧大雄與鐵人兵團","Nobita and the Steel Troops: The New Age","日本",2023,108,"",0],["電影哆啦A夢：大雄與天空的理想鄉","映画ドラえもん のび太と空の理想郷","日本",2023,108,"/61WuylRBYdOAGPvBzxTqWwYaGgm.jpg",1030587],["電影哆啦A夢：大雄與奇跡之島","映画ドラえもん のび太と奇跡の島 ～アニマル アドベンチャー～","日本",2023,100,"/y1qg13HhIoSLYkhIv805betaoRS.jpg",160642],["電影哆啦A夢：新大雄的大魔境 - 扁扁與5人之探險隊","Nobita in the New Haunt of Evil -Peko and the five Explorers","日本",2023,109,"",0],["驚奇隊長 2","The Marvels","美國",2023,105,"/3b8VyzOHZKBTnbLGR7PriCV1C06.jpg",609681],["魔法公主","もののけ姫","日本",2023,133,"/nBBnjdKb2QEB1A1HKz56rvCudQc.jpg",128],["三千年的渴望","Three Thousand Years of Longing","美國",2022,108,"/ctWkb7gHJS6mucehYCloyTZ5bhR.jpg",556694],["以你的名字呼喚我","Call Me by Your Name","美國",2022,132,"/7EDfu9QbGBBlPz1U0w4q0u8CeWT.jpg",398818],["侏羅紀世界: 統霸天下","Jurassic World Dominion","美國",2022,147,"/mC9SZcD4lNqXYZVKrB3DPvDBv3k.jpg",507086],["刀劍神域劇場版 –Progressive- 陰沉薄暮的詼諧曲","劇場版 ソードアート・オンライン -プログレッシブ- 冥き夕闇のスケルツォ","日本",2022,101,"/xYXZQIsPk8Sh4HYb5t2A3db5yke.jpg",893712],["劇場版 咒術迴戰 0","劇場版 呪術廻戦 0","日本",2022,105,"/cLECtzDB07Q4SMaMXic9jQPGpI8.jpg",810693],["劇場版 歌之☆王子殿下♪ 真愛ST☆RISH TOURS","Utano☆Princesama Maji LOVE ST☆RISH TOURS","曼迪",2022,66,"",0],["名偵探柯南 萬聖節的新娘","名探偵コナン ハロウィンの花嫁","日本",2022,110,"/aeQ7AlE0m5hSuWsizJNufIscIV2.jpg",903939],["咒","Incantation","中華民國",2022,111,"/1l4hxdc7PyYgZ0DeZtC0WPU3GOI.jpg",1014659],["女孩與蜘蛛","Das Mädchen und die Spinne","瑞士",2022,98,"/rRhv65RiyhpFfYu5x5c4PwTtDjG.jpg",517815],["如果有一天我將會離開你","Before Next Spring","大陸",2022,128,"",0],["媽的多重宇宙","Everything Everywhere All at Once","美國",2022,140,"/nXgDWQdULWjMoIAEUQg0reXeWL0.jpg",545611],["怪獸死了怎麼辦","大怪獣のあとしまつ","日本",2022,116,"/oJ6Khdp4txcn6BZejVMY8IzUNhc.jpg",831920],["怪獸與鄧不利多的秘密","Fantastic Beasts: The Secrets of Dumbledore","美國",2022,142,"/sACoPjNGk3b5523Y7OXyhaAeypv.jpg",338953],["捍衛戰士","Top Gun","美國",2022,109,"/zpciuyCBq2LHAMdjxB62ccpQRbJ.jpg",744],["捍衛戰士: 獨行俠","Top Gun: Maverick","美國",2022,130,"/9eiKUlyHx5McEpL4R7A14Jo13Ep.jpg",361743],["新·超人力霸王","シン・ウルトラマン","日本",2022,112,"/xJdIoXkmnVW3F7weM4NcgDsV5ix.jpg",634429],["替屍鬼2：詛咒再臨","Mười: Lời Nguyền Trở Lại","越南",2022,95,"/wTV7KhdNJvGgBLyfzxvD7cqaZ9F.jpg",1016737],["格列佛遊記：重返小人國","Гуллівер повертається","烏克蘭",2022,90,"/yMiDMHTxlc6HDgQqns5UZADv2sX.jpg",763539],["神隱少女","千と千尋の神隠し","日本",2022,125,"/qIVSUzgVfg1citQeZdBDGKTinUb.jpg",129],["航海王劇場版 : 紅髮歌姬","ONE PIECE FILM RED","日本",2022,115,"/7BwSqu2nRRwHmMXhr72phz3Tv6w.jpg",900667],["蜘蛛人：無家日 戲院","SPIDER-MAN NO WAY HOME THE MORE FUN STUFF VERSION","美國",2022,157,"",0],["蝙蝠俠","The Batman","美國",2022,176,"/lwWl8CwHyHj6KkDOfhJOpp6xTn3.jpg",414906],["蠟筆小新：幽靈忍者珍風傳","クレヨンしんちゃん もののけニンジャ珍風伝","日本",2022,99,"/uIOydXZqngqkIs8oLxzkP2eVEPW.jpg",955666],["請為我在羅馬多留一天","Lasciarsi un giorno a Roma","義大利",2022,116,"/43NlzixrGksfNLPr5K6KyXu3RJY.jpg",666622],["輝夜姬想讓人告白－永不結束的初吻","かぐや様は告らせたい-ファーストキッスは終わらない-","日本",2022,96,"/zTIlSKPCW5CNpEQEgHtzceWfiD6.jpg",997317],["迴咒師ー塩子的誕生","呪い返し師ー塩子誕生","日本",2022,121,"",0],["阿凡達 (A版)","Avatar","美國",2022,165,"/aKeJgTDAiBe5hFgFgI3V3ChOLmh.jpg",19995],["阿凡達：水之道","Avatar: The Way of Water","美國",2022,192,"/n5uGQgDtXV0EHp1REIrh0d0OdvS.jpg",76600],["雷神索爾：愛與雷霆","Thor: Love and Thunder","美國",2022,119,"/akxMVW4vX0CtDcxz4T9dGIRB2C1.jpg",616037],["電影哆啦A夢：大雄的宇宙小戰爭 2021(日語版)","映画ドラえもん のび太の宇宙小戦争 2021","日本",2022,109,"/5zOscm57SYitZ02C7UH3ZUiSXzQ.jpg",782054],["音速小子 2","Sonic the Hedgehog 2","美國",2022,122,"/5tVmIPVvfOCqCK7ATKgWjuY4aS2.jpg",675353],["2gether電影版：只因我們天生一對","เพราะเราคู่กัน THE MOVIE","泰國",2021,111,"/e6jWVQOEB1Ej69cznO4FaeSUaii.jpg",810406],["All the King's Men公視門","All The King's Men","中華民過",2021,96,"/jvfxP9a8tfeSsuJFSkoaGS2Vn1v.jpg",1398051],["Fate/Grand Order-神聖圓桌領域卡美洛-Wandering; Agateram","Fate/Grand Order -神聖円卓領域キャメロット- 前編 Wandering; Agateram","日本",2021,90,"/gmHJfQ2n5MckhJNnmiu6vv03tjm.jpg",637202],["ME","ME","中華民國",2021,51,"",0],["STAND BY ME 哆啦A夢2(日語版)","STAND BY ME ドラえもん2","日本",2021,96,"/lzoJyShIU1as5g9A6tUhaqYBtSy.jpg",728754],["T-34：玩命坦克","Т-34","俄羅斯",2021,139,"/ohXp7p4lfBQbrM2VRs11diYROTk.jpg",505954],["《少女與戰車 最終章》 第3話","ガールズ＆パンツァー 最終章 第3話","日本",2021,48,"/sefKkMbRwPwMH08cA0fsuSH9hoC.jpg",746880],["《屁屁偵探：咖哩香料事件》 《屁屁偵探：瓢蟲遺跡之謎》","「Butt Detective the Movie: The Case of the Courageous Curry」 \n「Butt Detective the Movie: Mystery of the Ladybug Ruins」","日本",2021,79,"",0],["倫敦生活（英國國家劇院現場）","FLEABAG","英國",2021,95,"",0],["全新小教父 完整","The Outsiders: The Complete Novel","美國",2021,116,"",0],["刀劍神域劇場版 –Progressive- 無星夜的詠嘆調","劇場版 ソードアート・オンライン-プログレッシブ- 星なき夜のアリア","日本",2021,97,"/1EX9yKt04Anbko4AyregIQd7TTi.jpg",761898],["劇場版 假面騎士ZERO-ONE REAL×TIME+劇場短篇 假面騎士聖刃 不死鳥的劍士與破滅之書","“KAMEN RIDER SABER THE MOVIE FUSHICHO NO KISHI TO HAMETSU NO HON”“KAMEN RIDER ZERO-ONE THE MOVIE REAL×TIME","日本",2021,102,"",0],["劇場版 超人力霸王大河－新世代終結黑暗","ULTRAMAN TAIGA THE MOVIE：NEW GENERATION CLIMAX","日本",2021,72,"",0],["動保蝙蝠俠","動保蝙蝠俠","中華民國",2021,17,"/3vCIDeaYpPr7MDg8YlwEpOW9lKP.jpg",1016212],["名偵探柯南 緋色的彈丸","名探偵コナン 緋色の弾丸","日本",2021,110,"/qc9fAYqbJUdJlCHMhinw3bxvf67.jpg",662638],["名偵探柯南：大怪獸哥梅拉VS假面超人","名探偵コナン 大怪獣ゴメラVS仮面ヤイバー","日本",2021,81,"/uyiRtcWKUpAR8adqvf3j4sd0lT3.jpg",925492],["名偵探柯南：緋色的不在場證明","名探偵コナン 緋色の不在証明","日本",2021,93,"/zQbg5vBcGU6EjKbTMg3fCgMx5yK.jpg",801293],["咒術屍戰","방법: 재차의","韓國",2021,109,"/qcL6bBs4maqjdoGxX7R8hoNPb1I.jpg",724885],["哥吉拉大戰金剛","Godzilla vs. Kong","美國",2021,113,"/batpSNJ12az7ucqfJ6AS9UDk7nA.jpg",399566],["大象與蝴蝶","The Elephant And The Butterfly","法國",2021,86,"",0],["妻子的101次結婚","WIFE FOR HIRE","韓國",2021,77,"",0],["寶可夢：皮卡丘與可可的冒險","劇場版ポケットモンスター ココ","日本",2021,98,"/njEx2p4toe2S6VrOZBarAwIISPx.jpg",662708],["尚氣與十環傳奇","Shang-Chi and the Legend of the Ten Rings","美國",2021,132,"/x4IpU9xSyG1TR9kf0w2vyS6zlmr.jpg",566525],["我的英雄學院劇場版：世界英雄任務","MY HERO ACADEMIA THE MOVIE：World Heroes' Mission","日本",2021,105,"",0],["戚風男孩","My Best Part","法國",2021,112,"",0],["朋友的媽媽是美嬌妻","MY BEST FRIEND'S MOTHER-SCENT OF TEMPTATION","日本",2021,80,"",0],["東京復仇者","東京リベンジャーズ","日本",2021,120,"/gowAhs0FPHAgToviNDUVbcg4ZWP.jpg",698201],["機動戰士鋼彈劇場版","機動戦士ガンダム","日本",2021,140,"/tf6YNkzT3smwjNdysq20608UezL.jpg",39228],["沙丘","Dune","美國",2021,155,"/qtSzr3bY8wP3lUDfTx2Qg5y5Qri.jpg",438631],["湯姆貓與傑利鼠","TOM AND JERRY","美國",2021,101,"",0],["瀑布","瀑布","中華民國",2021,129,"/nTZVRNFrztdBKxO2tP1wvMfWxeN.jpg",852355],["猛毒2：血蜘蛛","Venom: Let There Be Carnage","美國",2021,97,"/5Yd4M7LhthcSyaC2VeR9Sz5z3al.jpg",580489],["玩命關頭9","F9","美國",2021,143,"/zNELWHisXqLaPYoXWOUXdYwBprr.jpg",385128],["瑪雅蜜蜂大冒險：守護小金蛋","Maya the Bee: The Golden Orb","德國",2021,89,"/hdYyJwVx1C0xh3GCJE3GMVVJOHJ.jpg",681260],["當男人戀愛時","當男人戀愛時","中華民國",2021,115,"/uGCv49xmS0AV2GehXkiTSAEg2QH.jpg",797787],["老鷹之手","老鷹之手","中華民國",2021,101,"/4t5LXioR0Xu2EakrtzXghn4cMde.jpg",891566],["老鷹回來了","eagle mind","中華民國",2021,46,"",0],["脫稿玩家","Free Guy","美國",2021,115,"/sbzhdDaO1YEo6aqdVmL2BVmeOjy.jpg",550988],["自殺突擊隊：集結","The Suicide Squad","美國",2021,132,"/slycPSgfMn6PgikBB5JUqUbH6xL.jpg",436969],["蜘蛛人：無家日","Spider-Man: No Way Home","美國",2021,148,"/fm3fiiKCTJip2UAn78XJ8Avo49i.jpg",634649],["蜘蛛人：返校日","Spider-Man: Homecoming","美國",2021,133,"/1Mdeo2Id5Q0uGna46wrnCBWkhMY.jpg",315635],["蜘蛛人：離家日","Spider-Man: Far From Home","美國",2021,129,"/iBkhkeCow6viMRn12FSPjpMHwYs.jpg",429617],["蠟筆小新：謎案！天下春日部學院的怪奇事件","クレヨンしんちゃん 謎メキ！花の天カス学園","日本",2021,104,"/awRgcT7nUVQDqWH8Co6LTCGIQEC.jpg",795564],["角頭－浪流連","角頭–浪流連","中華民國",2021,120,"/sUAAIH5BrR31aBDfzSjWI5Lorqd.jpg",779221],["詛咒","ノロイ","日本",2021,115,"/5Su543kp78LhN7k4HTrGvTZ1UpA.jpg",21506],["議事錄（英國國家劇院現場）","HANSARD","英國",2021,101,"",0],["革命前夕的摩托車日記","The Motorcycle Diaries","阿根廷",2021,126,"/sTYNXRJBwk8JWCIgT3OcP7Aw0fL.jpg",1527634],["韓國校園恐怖怪談：點名沒到的學生","Strange School Tales: The Child","韓國",2021,113,"",0],["鬼才之道前導短片","Dead Talents Society","中華民國",2021,7,"",0],["龍與雀斑公主","竜とそばかすの姫","美國",2021,121,"/jqO9430D52JLgNzo4deAgSZTkRA.jpg",776305],["龍貓","となりのトトロ","日本",2021,86,"/cqmTBiE8ianWpz1jCFImDHve3QW.jpg",8392]];
+const VENUES=[["國賓大戲院","國賓企業股份有限公司","台北市",3,"cinema","15324301"],["台北獅子林新光影城","新光影城股份有限公司台北獅子林分公司","台北市",3,"cinema","54338711"],["樂聲影城","樂聲大戲院股份有限公司","台北市",5,"cinema","03583704"],["in89豪華數位影城","豪華大戲院股份有限公司","台北市",5,"cinema","03539102"],["","映捌玖數位影城有限公司","台北市",4,"cinema","54186685"],["真善美劇院","中影股份有限公司真善美分公司","台北市",2,"cinema","97293474"],["光點台北電影館","三視多媒體網路股份有限公司","台北市",1,"cinema","70655641"],["華山電影藝術館","大好天光文化創意股份有限公司","台北市",2,"cinema","83512647"],["台北京站威秀影城","威秀影城股份有限公司京站分公司","台北市",9,"cinema","28984678"],["龍祥百老匯影城","龍祥育樂多媒體股份有限公司臺北分公司","台北市",11,"cinema","16289859"],["喜樂時代影城今日店","喜樂時代影城股份有限公司西門分公司","台北市",10,"cinema","00007154"],["南港LaLaport威秀影城","威秀影城股份有限公司南港分公司","台北市",17,"cinema","60745583"],["大巨蛋秀泰影城","秀泰全球影城股份有限公司大巨蛋分公司","台北市",12,"cinema","60792059"],["總督大戲院","船興企業股份有限公司","台北市",1,"cinema","05148262"],["","龍子電影事業股份有限公司（首都戲院）","台北市",1,"cinema","21235165"],["新民生戲院","民生戲院股份有限公司","台北市",2,"cinema","53563725"],["台北長春國賓影城","國元影業股份有限公司長春分公司","台北市",2,"cinema","25122923"],["","國元影業股份有限公司","台北市",13,"cinema","25116865"],["欣欣秀泰影城","秀泰全球影城股份有限公司晶華分公司","台北市",14,"cinema","00172689"],["美麗華大直影城","美麗華娛樂股份有限公司","台北市",10,"cinema","16604391"],["哈拉影城","哈拉影城有限公司","台北市",8,"cinema","70436436"],["景美佳佳戲院","弘美育樂股份有限公司","台北市",3,"cinema","04873385"],["新光天母影城","新光影城股份有限公司台北天母分公司","台北市",8,"cinema","90665077"],["台北信義威秀影城","威秀影城股份有限公司信義分公司","台北市",15,"cinema","16431011"],["誠品電影院","誠品股份有限公司","台北市",3,"cinema","23155531"],["喜樂時代影城南港店","喜樂時代影城股份有限公司南港分公司","台北市",25,"cinema","42828452"],["美麗新大直皇家影城","美麗新娛樂股份有限公司","台北市",8,"cinema","27985093"],["MUVIE CINEMAS威秀影城","威秀影城股份有限公司松仁分公司","台北市",8,"cinema","54915305"],["微風影城","微風廣場實業股份有限公司","台北市",2,"cinema","89477962"],["台北西門威秀影城","威秀影城股份有限公司西門分公司","台北市",9,"cinema","00196922"],["板橋大遠百威秀影城","威秀影城股份有限公司板橋分公司","新北市",9,"cinema","53019247"],["天台戲院","天台戲院股份有限公司","新北市",5,"cinema","35078600"],["鴻金寶麻吉影城","萬念福開發事業股份有限公司","新北市",5,"cinema","89578933"],["中和環球威秀影城","威秀影城股份有限公司中和環球分公司","新北市",10,"cinema","90884039"],["林口MITSUI OUTLET PARK威秀影城","威秀影城股份有限公司新北林口分公司","新北市",9,"cinema","24808911"],["林口昕境國賓影城","國賓影城股份有限公司林口分公司","新北市",8,"cinema","24935022"],["新莊晶冠國賓影城","國賓影城股份有限公司新莊分公司","新北市",13,"cinema","24964285"],["樹林秀泰影城","秀泰全球影城股份有限公司樹林分公司","新北市",12,"cinema","00007470"],["土城秀泰影城","秀泰全球影城股份有限公司土城分公司","新北市",11,"cinema","00126004"],["喜樂時代影城永和店","喜樂時代影城股份有限公司永和分公司","新北市",13,"cinema","50890865"],["淡水禮萊國賓影城","國賓影城股份有限公司淡水分公司","新北市",8,"cinema","82910127"],["美麗新宏匯影城","美麗新娛樂股份有限公司新莊分公司","新北市",12,"cinema","83774698"],["新店裕隆城威秀影城","威秀影城股份有限公司新店分公司","新北市",14,"cinema","94041813"],["全球影城","亮威股份有限公司","台中市",7,"cinema","97219643"],["日日新大戲院","日日新國際商業股份有限公司","台中市",10,"cinema","97265890"],["台中大遠百威秀影城","威秀影城股份有限公司惠中分公司","台中市",7,"cinema","53018958"],["台中新光影城","新光影城股份有限公司台中中港分公司","台中市",8,"cinema","54338727"],["親親大戲院","親親育樂股份有限公司","台中市",7,"cinema","22068524"],["台中Tiger City威秀影城","威秀影城股份有限公司台中西屯區分公司","台中市",10,"cinema","12963016"],["台中站前秀泰影城","秀泰全球影城股份有限公司台中站前分公司","台中市",17,"cinema","96158788"],["台中文心秀泰影城","秀泰全球影城股份有限公司台中文心分公司","台中市",16,"cinema","95487241"],["豐原in89豪華影城","映實文化有限公司豐原分公司","台中市",12,"cinema","50929427"],["台中麗寶秀泰影城","秀泰全球影城股份有限公司麗寶分公司","台中市",10,"cinema","60511213"],["台中大魯閣新時代威秀影城","威秀影城股份有限公司台中東區分公司","台中市",9,"cinema","90341009"],["時代戲院二館","時代戲院二館","台中市",4,"cinema","87262830"],["王牌映畫影城","英屬維京群島商韋豐利有限公司","台中市",9,"cinema","27925292"],["全美戲院","全美戲院有限公司","台南市",2,"cinema","68209998"],["台南大遠百威秀影城","威秀影城股份有限公司台南分公司","台南市",9,"cinema","13125395"],["台南新光影城","新光影城股份有限公司台南西門分公司","台南市",8,"cinema","54339079"],["今日戲院","今日大戲院有限公司","台南市",1,"cinema","68071157"],["南台影城","南台育樂事業有限公司","台南市",7,"cinema","68456929"],["麻豆戲院","麻豆戲院","台南市",2,"cinema","87689080"],["台南南紡威秀影城","威秀影城股份有限公司台南東區分公司","台南市",15,"cinema","54393381"],["台南FOCUS威秀影城","威秀影城股份有限公司台南中西區分公司","台南市",9,"cinema","24814569"],["台南仁德秀泰影城","台南仁德秀泰影城股份有限公司","台南市",6,"cinema","85079837"],["高雄大遠百威秀影城","威秀影城股份有限公司高雄分公司","高雄市",16,"cinema","12873991"],["環球影城","星球育樂有限公司","高雄市",13,"cinema","16300355"],["高雄岡山秀泰影城","岡山秀泰影城股份有限公司","高雄市",13,"cinema","90840321"],["高雄義大國賓影城","國賓影城股份有限公司高雄義大分公司","高雄市",10,"cinema","25113086"],["高雄SKM PARK國賓影城","國賓影城股份有限公司高雄草衙道分公司","高雄市",10,"cinema","43724883"],["in89駁二電影院","映實文化有限公司駁二分公司","高雄市",7,"cinema","59164268"],["台鋁影城","都會生活開發股份有限公司台鋁分公司","高雄市",10,"cinema","24789457"],["高雄大立in89豪華影城","豪華大戲院股份有限公司高雄分公司","高雄市",11,"cinema","82816256"],["喜樂時代影城高雄總圖店","喜樂時代創意股份有限公司","高雄市",14,"cinema","54229636"],["高雄夢時代秀泰影城","秀泰全球影城股份有限公司高雄統夢分公司","高雄市",13,"cinema","60411501"],["基隆秀泰影城","秀泰全球影城股份有限公司吉隆分公司","基隆市",8,"cinema","00089681"],["美麗新台茂影城","杰銳娛樂股份有限公司","桃園市",11,"cinema","16741796"],["八德置地國賓影城","國賓影城股份有限公司八德分公司","桃園市",8,"cinema","52382486"],["星橋國際影城","星橋電影有限公司","桃園市",20,"cinema","12690563"],["威尼斯影城","威尼斯影城股份有限公司","桃園市",15,"cinema","12982631"],["桃園站前in89豪華影城","華松開發管理顧問股份有限公司","桃園市",8,"cinema","52616843"],["桃園統領威秀影城","威秀影城股份有限公司桃園統領分公司","桃園市",20,"cinema","51821509"],["桃園新光影城","新光影城股份有限公司-桃園青埔分公司","桃園市",12,"cinema","83715707"],["喜樂時代桃園A19影城","喜樂時代影城股份有限公司-桃園分公司","桃園市",16,"cinema","90531248"],["桃知道威秀影城","富晟國際開發股份有限公司","桃園市",4,"cinema","92491355"],["新竹大遠百威秀影城","威秀影城股份有限公司新竹南門分公司","新竹市",11,"cinema","80279913"],["新竹巨城威秀影城","威秀影城股份有限公司新竹巨城分公司","新竹市",8,"cinema","80531780"],["竹北百老匯影城","龍祥育樂多媒體股份有限公司竹北分公司","新竹縣",14,"cinema","90076711"],["頭份尚順威秀影城","威秀影城股份有限公司苗栗頭份分公司","苗栗縣",8,"cinema","24792875"],["員林大戲院","京讚育樂股份有限公司","彰化縣",4,"cinema","45106149"],["山明電影院","山明電影院","南投縣",5,"cinema","78108870"],["南投戲院","南投戲院","南投縣",3,"cinema","61215101"],["中華影城","中華影城","雲林縣",8,"cinema","87086308"],["北港秀泰影城","秀泰全球影城股份有限公司北港分公司","雲林縣",4,"cinema","60497599"],["嘉年華戲院","嘉年華戲院","嘉義市",10,"cinema","78550228"],["嘉義秀泰影城","秀泰全球影城股份有限公司嘉義分公司","嘉義市",11,"cinema","60488374"],["嘉義影食匯in89豪華影城","豪華大戲院股份有限公司豪華大戲院嘉義分公司","嘉義市",9,"cinema","90837070"],["中影屏東影城","中影股份有限公司屏東光華分公司","屏東縣",8,"cinema","28976895"],["屏東環球國賓影城","國賓影城股份有限公司屏東分公司","屏東縣",6,"cinema","53955905"],["日新大戲院","日新大戲院","宜蘭縣",3,"cinema","41562807"],["新月豪華影城","榮江股份有限公司新月影城分公司","宜蘭縣",10,"cinema","24562830"],["花蓮秀泰影城","華蓮秀泰影城股份有限公司","花蓮縣",9,"cinema","55911024"],["花蓮新天堂樂園威秀影城","台灣創新發展股份有限公司花蓮分公司","花蓮縣",5,"cinema","24813822"],["台東秀泰影城","秀泰全球影城股份有限公司台東娛樂城分公司","台東縣",8,"cinema","96788651"],["澎湖in89豪華影城","豪華大戲院股份有限公司澎湖分公司","澎湖縣",7,"cinema","55664311"],["金門昇恆昌國賓影城","國賓影城股份有限公司金門分公司","金門縣",6,"cinema","24536904"],["金獅影城","台灣創新發展股份有限公司金門分公司","金門縣",6,"cinema","54371176"],["串流平台","","",0,"streaming","virtual:streaming"],["影展","","",0,"festival","virtual:festival"],["家中","","",0,"home","virtual:home"],["其他","","",0,"other","virtual:other"]];
+const COUNTRIES=["日本","美國","中華民國","韓國","法國","英國","香港","泰國","德國","西班牙","義大利","俄羅斯","加拿大","大陸","伊朗","挪威","越南","馬來西亞","印尼","芬蘭","丹麥","印度","中國大陸","瑞典"];
+
+/* ── 明暗模式 ───────────────────────────────────────────────── */
+(function(){
+  var root = document.documentElement;
+  var btn = document.getElementById('themeToggle');
+  function isDark(){
+    if (root.classList.contains('dark')) return true;
+    if (root.classList.contains('light')) return false;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+  function paint(){
+    var d = isDark();
+    btn.textContent = d ? '切換亮色' : '切換暗色';
+    btn.setAttribute('aria-pressed', d ? 'true' : 'false');
+  }
+  btn.addEventListener('click', function(){
+    var d = isDark();
+    root.classList.remove('dark','light');
+    root.classList.add(d ? 'light' : 'dark');
+    paint();
+  });
+  paint();
+})();
+
+/* ── 小工具 ─────────────────────────────────────────────────── */
+function norm(s){
+  return (s || '').normalize('NFKC').toLowerCase().replace(/[\s　]/g, '');
+}
+function el(tag, cls, text){
+  var n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;
+  return n;
+}
+function displayTitle(t){
+  /* DS §2.5：資料層保留《》，顯示層拿掉。片庫 2,669 部裡有 14 部片名帶書名號，
+     全形《》各佔一個字身框，在緊湊清單裡等於白吃掉兩個字寬。*/
+  return (t || '').replace(/[《》〈〉]/g, '').replace(/\s+/g, ' ').trim();
+}
+function metaString(f){
+  /* 開眼式：國別 年份 片長，空格分隔，不用中點（DS §0）*/
+  var parts = [];
+  if (f[2]) parts.push(f[2]);
+  if (f[3]) parts.push(String(f[3]));
+  if (f[4]) parts.push(f[4] + '分');
+  return parts.join(' ');
+}
+function thumbFor(f){
+  /* 有 poster_path 就熱連結 TMDB；沒有、或載入失敗，就是票根縮圖 */
+  if (f[5]) {
+    var img = document.createElement('img');
+    img.className = 'thumb';
+    img.src = 'https://image.tmdb.org/t/p/w92' + f[5];
+    img.alt = '';
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.width = 44; img.height = 66;
+    img.addEventListener('error', function(){
+      var t = ticketThumb(f);
+      if (img.parentNode) img.parentNode.replaceChild(t, img);
+    });
+    return img;
+  }
+  return ticketThumb(f);
+}
+function ticketThumb(f){
+  var box = el('div', 'thumb-ticket');
+  box.setAttribute('aria-hidden', 'true');
+  box.appendChild(el('span', 'rule'));
+  box.appendChild(el('span', 'yr tnum', f[3] ? String(f[3]) : '—'));
+  return box;
+}
+
+/* ============================================================
+   片名搜尋（UCommandPalette）
+   ============================================================ */
+var input = document.getElementById('filmSearch');
+var listbox = document.getElementById('filmListbox');
+var lbScroll = document.getElementById('lbScroll');
+var createOpt = document.getElementById('createOpt');
+createOpt.id = 'opt-create';
+var createMain = document.getElementById('createMain');
+var createSub = document.getElementById('createSub');
+var chosenWrap = document.getElementById('chosenWrap');
+var chosenCard = document.getElementById('chosenCard');
+
+var MAX_RESULTS = 6;
+var results = [];      /* 目前畫在清單裡的片 */
+var active = -1;       /* -1 = 沒有 active；results.length = 「找不到」那一列 */
+var chosenFilm = null;
+
+function search(q){
+  var n = norm(q);
+  if (!n) return [];
+  var starts = [], contains = [];
+  for (var i = 0; i < FILMS.length; i++){
+    var f = FILMS[i];
+    var z = norm(f[0]), o = norm(f[1]);
+    if (z.indexOf(n) === 0 || o.indexOf(n) === 0) starts.push(f);
+    else if (z.indexOf(n) > -1 || o.indexOf(n) > -1) contains.push(f);
+  }
+  return starts.concat(contains).slice(0, MAX_RESULTS);
+}
+
+function renderList(){
+  var q = input.value.trim();
+  results = search(q);
+  lbScroll.innerHTML = '';
+
+  if (!q){
+    lbScroll.appendChild(el('p', 'lb-hint', '輸入片名開始搜尋，中文或原文都可以。'));
+  } else if (!results.length){
+    lbScroll.appendChild(el('p', 'lb-hint', '片庫裡沒有「' + q + '」。'));
+  } else {
+    results.forEach(function(f, i){
+      var b = el('button', 'opt');
+      b.type = 'button';
+      b.setAttribute('role', 'option');
+      b.setAttribute('aria-selected', 'false');
+      b.id = 'opt-' + i;
+      b.appendChild(thumbFor(f));
+      var body = el('div', 'opt-body');
+      body.appendChild(el('div', 'title-zh', displayTitle(f[0])));
+      if (f[1]) body.appendChild(el('div', 'title-original', f[1]));
+      body.appendChild(el('div', 'meta tnum', metaString(f)));
+      b.appendChild(body);
+      b.addEventListener('mousedown', function(e){ e.preventDefault(); });
+      b.addEventListener('click', function(){ chooseFilm(f); });
+      lbScroll.appendChild(b);
+    });
+  }
+
+  /* 「找不到」那一列永遠在，而且永遠是最後一項 */
+  if (q){
+    createMain.textContent = '找不到？自己新增「' + q + '」';
+    createSub.textContent = '帶著這幾個字過去，30 秒填完就能繼續記錄';
+  } else {
+    createMain.textContent = '找不到？自己新增這部片';
+    createSub.textContent = '30 秒填完就能繼續記錄，不必等審核';
+  }
+  setActive(-1);
+}
+
+function optionAt(i){
+  if (i === results.length) return createOpt;
+  return document.getElementById('opt-' + i);
+}
+function setActive(i){
+  var total = results.length + 1;
+  if (i >= total) i = 0;
+  if (i < -1) i = total - 1;
+  active = i;
+  for (var k = 0; k < total; k++){
+    var node = optionAt(k);
+    if (node) node.setAttribute('aria-selected', k === i ? 'true' : 'false');
+  }
+  if (i >= 0){
+    var cur = optionAt(i);
+    if (cur){
+      input.setAttribute('aria-activedescendant', cur.id);
+      if (cur.scrollIntoView) cur.scrollIntoView({ block: 'nearest' });
+    }
+  } else {
+    input.removeAttribute('aria-activedescendant');
+  }
+}
+function openList(){
+  listbox.hidden = false;
+  input.setAttribute('aria-expanded', 'true');
+}
+function closeList(){
+  listbox.hidden = true;
+  input.setAttribute('aria-expanded', 'false');
+  input.removeAttribute('aria-activedescendant');
+  active = -1;
+}
+
+input.addEventListener('focus', function(){ renderList(); openList(); });
+input.addEventListener('input', function(){ renderList(); openList(); });
+input.addEventListener('blur', function(){ setTimeout(closeList, 120); });
+input.addEventListener('keydown', function(e){
+  if (e.key === 'ArrowDown'){
+    e.preventDefault();
+    if (listbox.hidden){ renderList(); openList(); }
+    setActive(active + 1);
+  } else if (e.key === 'ArrowUp'){
+    e.preventDefault();
+    if (listbox.hidden){ renderList(); openList(); }
+    setActive(active - 1);
+  } else if (e.key === 'Home'){
+    if (!listbox.hidden){ e.preventDefault(); setActive(0); }
+  } else if (e.key === 'End'){
+    if (!listbox.hidden){ e.preventDefault(); setActive(results.length); }
+  } else if (e.key === 'Enter'){
+    if (!listbox.hidden && active > -1){
+      e.preventDefault();
+      if (active === results.length) goCreate();
+      else chooseFilm(results[active]);
+    }
+  } else if (e.key === 'Escape'){
+    closeList();
+  }
+});
+createOpt.addEventListener('mousedown', function(e){ e.preventDefault(); });
+createOpt.addEventListener('click', goCreate);
+
+function chooseFilm(f){
+  chosenFilm = f;
+  chosenCard.innerHTML = '';
+  chosenCard.appendChild(thumbFor(f));
+  var body = el('div', 'opt-body');
+  body.appendChild(el('div', 'title-zh', displayTitle(f[0])));
+  if (f[1]) body.appendChild(el('div', 'title-original', f[1]));
+  body.appendChild(el('div', 'meta tnum', metaString(f)));
+  if (f[6] === -1) body.appendChild(el('span', 'badge-own', '你新增的，待審核'));
+  chosenCard.appendChild(body);
+  chosenWrap.hidden = false;
+  input.value = '';
+  input.hidden = true;
+  document.querySelector('.search-icon').hidden = true;
+  closeList();
+  hideError();
+  renderPreview();
+}
+document.getElementById('clearFilm').addEventListener('click', function(){
+  chosenFilm = null;
+  chosenWrap.hidden = true;
+  input.hidden = false;
+  document.querySelector('.search-icon').hidden = false;
+  input.focus();
+  renderPreview();
+});
+
+/* ── 「找不到」→ /app/films/new，把字帶過去 ─────────────────── */
+var newTitleZh = document.getElementById('newTitleZh');
+var carriedNote = document.getElementById('carriedNote');
+function goCreate(){
+  var q = input.value.trim();
+  if (q){
+    newTitleZh.value = q;
+    carriedNote.textContent = '「' + q + '」是剛剛在搜尋框裡打的字，直接帶過來了。';
+  } else {
+    carriedNote.textContent = '搜尋框還沒輸入，這裡從空白開始。';
+    newTitleZh.value = '';
+  }
+  closeList();
+  var screen2 = document.getElementById('screen2');
+  screen2.scrollTop = 0;
+  screen2.parentNode.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  newTitleZh.focus();
+  newTitleZh.select();
+}
+
+/* ── 建立並繼續記錄：回到 /app/new 並選好這部片（US-16）──────── */
+document.getElementById('createFilmBtn').addEventListener('click', function(){
+  var t = newTitleZh.value.trim();
+  if (!t){ newTitleZh.focus(); return; }
+  var f = [
+    t,
+    document.getElementById('newTitleOriginal').value.trim(),
+    document.getElementById('newCountry').value,
+    parseInt(document.getElementById('newYear').value, 10) || 0,
+    parseInt(document.getElementById('newRuntime').value, 10) || 0,
+    '',   /* 自建作品沒有 TMDB 海報，直接就是票根 */
+    -1
+  ];
+  var t2 = document.getElementById('toast2');
+  t2.hidden = false;
+  setTimeout(function(){ t2.hidden = true; }, 1800);
+  chooseFilm(f);
+  document.getElementById('screen1').parentNode.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+});
+document.getElementById('backBtn').addEventListener('click', function(){
+  document.getElementById('screen1').parentNode.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  input.focus();
+});
+
+/* ── 示範按鈕 ───────────────────────────────────────────────── */
+Array.prototype.forEach.call(document.querySelectorAll('.demo-btn'), function(b){
+  b.addEventListener('click', function(){
+    if (chosenFilm){
+      chosenFilm = null;
+      chosenWrap.hidden = true;
+      input.hidden = false;
+      document.querySelector('.search-icon').hidden = false;
+    }
+    input.value = b.getAttribute('data-q');
+    input.focus();
+    renderList();
+    openList();
+  });
+});
+
+/* ============================================================
+   日期與時間：今天 / 現在向下取整到 5 分（DS §8.2）
+   ============================================================ */
+(function(){
+  var now = new Date();
+  var d = document.getElementById('dateInput');
+  var t = document.getElementById('timeInput');
+  var pad = function(n){ return (n < 10 ? '0' : '') + n; };
+  var todayStr = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());
+  d.value = todayStr;
+  t.value = pad(now.getHours()) + ':' + pad(Math.floor(now.getMinutes() / 5) * 5);
+  var flag = document.getElementById('todayFlag');
+  function paintFlag(){ flag.hidden = (d.value !== todayStr); }
+  d.addEventListener('change', paintFlag);
+  paintFlag();
+})();
+
+/* ============================================================
+   影城選單（USelectMenu）
+   顯示名 = name || companyName（3 筆 name 為空，用公司名遞補）
+   ============================================================ */
+var venueTrigger = document.getElementById('venueTrigger');
+var venueValue = document.getElementById('venueValue');
+var venueMenu = document.getElementById('venueMenu');
+var venueFilter = document.getElementById('venueFilter');
+var venueList = document.getElementById('venueList');
+var venueHint = document.getElementById('venueHint');
+var hallSelect = document.getElementById('hallSelect');
+var hallRow = document.getElementById('hallRow');
+var hallHint = document.getElementById('hallHint');
+
+function displayName(v){ return v[0] || v[1]; }
+function byName(n){
+  for (var i = 0; i < VENUES.length; i++) if (VENUES[i][0] === n) return VENUES[i];
+  return null;
+}
+/* 最近用過：David 自己的簡稱 → 官方全名。169 筆裡 115 / 14 / 10 筆 */
+var RECENT = [
+  { alias: '林口威秀', venue: byName('林口MITSUI OUTLET PARK威秀影城'), count: 115 },
+  { alias: '信義威秀', venue: byName('台北信義威秀影城'), count: 14 },
+  { alias: '京站威秀', venue: byName('台北京站威秀影城'), count: 10 }
+];
+var CITY_ORDER = ['台北市','新北市','台中市','高雄市','台南市','桃園市','嘉義市','新竹市',
+  '南投縣','雲林縣','屏東縣','宜蘭縣','花蓮縣','金門縣','基隆市','新竹縣','苗栗縣',
+  '彰化縣','台東縣','澎湖縣'];
+
+var selected = { label: '林口威秀', venue: RECENT[0].venue };
+
+function renderVenues(){
+  var q = norm(venueFilter.value);
+  venueList.innerHTML = '';
+  var shown = 0;
+
+  function optionRow(label, sub, v){
+    var b = el('button', 'v-opt');
+    b.type = 'button';
+    b.setAttribute('role', 'option');
+    b.setAttribute('aria-selected', selected.label === label ? 'true' : 'false');
+    b.appendChild(el('div', 'v-name', label));
+    if (sub) b.appendChild(el('div', 'v-sub', sub));
+    b.addEventListener('click', function(){
+      selected = { label: label, venue: v };
+      venueValue.textContent = label;
+      closeVenues();
+      paintVenue();
+      renderPreview();
+    });
+    shown++;
+    return b;
+  }
+  var bucket = venueList;
+  function group(title){
+    /* USelectMenu 的 { type: 'label' } 群組標題；ARIA 上是 role="group" */
+    var g = el('div');
+    g.setAttribute('role', 'group');
+    g.setAttribute('aria-label', title);
+    g.appendChild(el('div', 'group-label', title));
+    venueList.appendChild(g);
+    bucket = g;
+    return g;
+  }
+  function hit(v, alias){
+    if (!q) return true;
+    return norm(displayName(v)).indexOf(q) > -1
+        || norm(v[2]).indexOf(q) > -1
+        || (alias ? norm(alias).indexOf(q) > -1 : false)
+        || norm(v[1]).indexOf(q) > -1;
+  }
+
+  /* 1. 最近用過 */
+  var recentHits = RECENT.filter(function(r){ return hit(r.venue, r.alias); });
+  if (recentHits.length){
+    group('最近用過 (' + recentHits.length + ' 家)');
+    recentHits.forEach(function(r){
+      bucket.appendChild(optionRow(
+        r.alias,
+        displayName(r.venue) + '（' + r.venue[3] + '廳）你記過 ' + r.count + ' 場',
+        r.venue));
+    });
+  }
+
+  /* 2. 依縣市（venues.json 的真實 111 筆） */
+  CITY_ORDER.forEach(function(city){
+    var list = VENUES.filter(function(v){ return v[2] === city && v[4] === 'cinema' && hit(v); });
+    if (!list.length) return;
+    group(city + ' (' + list.length + ' 家)');
+    list.forEach(function(v){
+      var sub = v[3] ? v[3] + ' 廳' : '';
+      if (!v[0]) sub = (sub ? sub + '　' : '') + '資料無店名，顯示公司名';
+      bucket.appendChild(optionRow(displayName(v), sub, v));
+    });
+  });
+
+  /* 3. 非影城的 4 個選項，永遠在最後 */
+  var others = VENUES.filter(function(v){ return v[4] !== 'cinema' && hit(v); });
+  if (others.length){
+    group('不在影城 (' + others.length + ' 種)');
+    others.forEach(function(v){
+      bucket.appendChild(optionRow(displayName(v), '', v));
+    });
+  }
+
+  if (!shown) venueList.appendChild(el('p', 'v-empty', '沒有符合「' + venueFilter.value.trim() + '」的影城。'));
+}
+
+function paintVenue(){
+  var v = selected.venue;
+  var halls = v ? v[3] : 0;
+  if (selected.label !== displayName(v)){
+    venueHint.textContent = '對應 ' + displayName(v) + '，在 ' + v[2] + '。';
+  } else if (v[2]) {
+    venueHint.textContent = v[2] + (halls ? '　' + halls + ' 個廳' : '');
+  } else {
+    venueHint.textContent = '不是影城，沒有廳別。';
+  }
+  if (halls > 0){
+    hallRow.hidden = false;
+    var cur = hallSelect.value;
+    hallSelect.innerHTML = '';
+    var blank = document.createElement('option');
+    blank.value = ''; blank.textContent = '沒填';
+    hallSelect.appendChild(blank);
+    for (var i = 1; i <= halls; i++){
+      var o = document.createElement('option');
+      o.value = String(i); o.textContent = i + ' 廳';
+      hallSelect.appendChild(o);
+    }
+    if (cur && Number(cur) <= halls) hallSelect.value = cur;
+    hallHint.textContent = displayName(v) + ' 共 ' + halls + ' 個廳（資料來自全國電影院資料）。';
+  } else {
+    hallRow.hidden = true;
+    hallHint.textContent = '';
+  }
+}
+
+function openVenues(){
+  venueMenu.hidden = false;
+  venueTrigger.setAttribute('aria-expanded', 'true');
+  venueFilter.value = '';
+  renderVenues();
+  venueFilter.focus();
+}
+function closeVenues(){
+  venueMenu.hidden = true;
+  venueTrigger.setAttribute('aria-expanded', 'false');
+}
+venueTrigger.addEventListener('click', function(){
+  if (venueMenu.hidden) openVenues(); else closeVenues();
+});
+venueFilter.addEventListener('input', renderVenues);
+venueFilter.addEventListener('keydown', function(e){
+  if (e.key === 'Escape'){ closeVenues(); venueTrigger.focus(); }
+});
+document.addEventListener('click', function(e){
+  if (!venueMenu.hidden && !venueMenu.contains(e.target) && e.target !== venueTrigger
+      && !venueTrigger.contains(e.target)) closeVenues();
+});
+paintVenue();
+
+/* ============================================================
+   收合區、票數、版本 chips
+   ============================================================ */
+var moreBtn = document.getElementById('moreBtn');
+var moreBody = document.getElementById('moreBody');
+moreBtn.addEventListener('click', function(){
+  var open = moreBtn.getAttribute('aria-expanded') === 'true';
+  moreBtn.setAttribute('aria-expanded', open ? 'false' : 'true');
+  moreBody.hidden = open;
+});
+
+var tickets = document.getElementById('ticketsInput');
+document.getElementById('ticketsMinus').addEventListener('click', function(){
+  tickets.value = Math.max(1, (parseInt(tickets.value, 10) || 1) - 1);
+});
+document.getElementById('ticketsPlus').addEventListener('click', function(){
+  tickets.value = (parseInt(tickets.value, 10) || 1) + 1;
+});
+
+var versionInput = document.getElementById('versionInput');
+var chips = document.getElementById('versionChips');
+function paintChips(){
+  Array.prototype.forEach.call(chips.querySelectorAll('.chip'), function(c){
+    c.setAttribute('aria-pressed', c.textContent === versionInput.value.trim() ? 'true' : 'false');
+  });
+}
+chips.addEventListener('click', function(e){
+  var c = e.target.closest('.chip');
+  if (!c) return;
+  versionInput.value = c.textContent;
+  paintChips();
+});
+versionInput.addEventListener('input', paintChips);
+
+/* ============================================================
+   票根卡即時預覽（DS §4.3）
+   meta 行用開眼式括號量詞串，不用中點；票價是最後一項，
+   沒填就整項不存在（絕不畫 NT$ ———），填 0 顯示「免費」。
+   ============================================================ */
+var preview = document.getElementById('preview');
+var previewHint = document.getElementById('previewHint');
+var WEEK = ['日','一','二','三','四','五','六'];
+
+function costLabel(){
+  var raw = document.getElementById('priceInput').value.trim();
+  if (raw === '') return null;                       /* 沒填 → 這一項不存在 */
+  var n = parseInt(raw, 10);
+  if (isNaN(n)) return null;
+  var t = parseInt(document.getElementById('ticketsInput').value, 10) || 1;
+  if (n === 0) return '免費';                        /* 真實資料有 16 筆 */
+  return 'NT$' + (n * t).toLocaleString('en-US');
+}
+
+function renderPreview(){
+  preview.innerHTML = '';
+  var dv = document.getElementById('dateInput').value;
+  var parts = dv ? dv.split('-') : ['', '', ''];
+  var dateObj = dv ? new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])) : new Date();
+
+  var band = el('div', 'tcard-date');
+  band.appendChild(el('span', 'm', dv ? String(Number(parts[1])) : ''));
+  band.appendChild(el('span', 'd', dv ? String(Number(parts[2])) : ''));
+  band.appendChild(el('span', 'w', WEEK[dateObj.getDay()]));
+  preview.appendChild(band);
+
+  var body = el('div', 'tcard-body');
+  if (chosenFilm){
+    body.appendChild(el('div', 'title-zh', displayTitle(chosenFilm[0])));
+    if (chosenFilm[1]) body.appendChild(el('div', 'title-original', chosenFilm[1]));
+  } else {
+    body.appendChild(el('div', 'title-zh', '還沒選片'));
+  }
+
+  var bits = [];
+  bits.push(selected.label);
+  var hall = document.getElementById('hallSelect').value;
+  if (hall && !document.getElementById('hallRow').hidden) bits.push('(' + hall + '廳)');
+  var ver = document.getElementById('versionInput').value.trim();
+  if (ver) bits.push(ver);
+  var tm = document.getElementById('timeInput').value;
+  if (tm) bits.push(tm);
+  var tk = parseInt(document.getElementById('ticketsInput').value, 10) || 1;
+  bits.push(tk + '張');
+  var c = costLabel();
+  if (c) bits.push(c);
+  body.appendChild(el('div', 'meta tnum', bits.join(' ')));
+  preview.appendChild(body);
+
+  /* 海報是選配的鑲嵌；沒有就整欄不存在，卡片自然變寬（DS §4.3）*/
+  if (chosenFilm && chosenFilm[5]) preview.appendChild(thumbFor(chosenFilm));
+
+  previewHint.textContent = (c === null)
+    ? '票價沒填，meta 行就短一截，不會畫佔位。'
+    : (c === '免費' ? 'NT$0 顯示成「免費」，跟「沒填」與「不給看」在視覺上不一樣。' : '');
+}
+Array.prototype.forEach.call(
+  document.querySelectorAll('#dateInput,#timeInput,#priceInput,#ticketsInput,#versionInput,#hallSelect'),
+  function(n){ n.addEventListener('input', renderPreview); n.addEventListener('change', renderPreview); });
+document.getElementById('ticketsMinus').addEventListener('click', renderPreview);
+document.getElementById('ticketsPlus').addEventListener('click', renderPreview);
+chips.addEventListener('click', renderPreview);
+
+/* ============================================================
+   送出（DS §8：按鈕「記下來」、toast「記好了」）
+   ============================================================ */
+var submitBtn = document.getElementById('submitBtn');
+var formError = document.getElementById('formError');
+var toast = document.getElementById('toast');
+function hideError(){ formError.hidden = true; }
+submitBtn.addEventListener('click', function(){
+  if (!chosenFilm){
+    formError.textContent = '先選一部片，或按「找不到？自己新增這部片」。';
+    formError.hidden = false;
+    input.focus();
+    return;
+  }
+  hideError();
+  submitBtn.disabled = true;
+  setTimeout(function(){
+    submitBtn.disabled = false;
+    toast.hidden = false;
+    setTimeout(function(){ toast.hidden = true; }, 2200);
+  }, 450);
+});
+
+/* ── 國別選單：films.json 實際出現過的國別，依出現次數排序 ────── */
+(function(){
+  var sel = document.getElementById('newCountry');
+  COUNTRIES.forEach(function(c){
+    var o = document.createElement('option');
+    o.value = c; o.textContent = c;
+    sel.appendChild(o);
+  });
+  sel.value = '日本';
+})();
+
+/* ── 海報三態示範（上傳中／待審核／被拒）───────────────────── */
+(function(){
+  var dz = document.getElementById('dropzone');
+  var main = document.getElementById('dzMain');
+  var sub = document.getElementById('dzSub');
+  var prog = document.getElementById('dzProgress');
+  var states = [
+    { m: '拖曳或點擊上傳', s: '長邊會縮到 500px', p: false },
+    { m: '上傳中', s: '壓縮並上傳，38%', p: true },
+    { m: '已送出，等待審核', s: '審核通過前，這張海報只有你看得到' , p: false },
+    { m: '這張沒有通過審核', s: '看起來不是這部片的海報。可以換一張再傳一次。', p: false }
+  ];
+  var i = 0;
+  dz.addEventListener('click', function(){
+    i = (i + 1) % states.length;
+    main.textContent = states[i].m;
+    sub.textContent = states[i].s;
+    prog.hidden = !states[i].p;
+  });
+})();
+
+renderPreview();
+
+/* 首次載入把焦點放在片名欄（DS/SCREENS §8：autofocus，鍵盤立刻起來）*/
+if (window.matchMedia('(min-width: 441px)').matches) {
+  input.focus();
+  renderList();
+  openList();
+}
+</script>
+</body>
+</html>

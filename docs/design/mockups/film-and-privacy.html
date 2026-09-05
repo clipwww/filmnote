@@ -1,0 +1,1540 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>作品頁與票價隱私 — 影記 filmnote 設計稿</title>
+<script>
+  /* 首載尊重 prefers-color-scheme；之後由右上角切換鈕記住選擇。放在 <style> 前避免閃爍。 */
+  (function () {
+    var m = null;
+    try { m = localStorage.getItem('filmnote-mode'); } catch (e) {}
+    if (m !== 'dark' && m !== 'light') {
+      m = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+    }
+    document.documentElement.classList.add(m);
+  })();
+</script>
+<style>
+/* hidden 屬性只是 UA 樣式的 display:none，任何作者端 display 宣告都會蓋掉它 */
+[hidden] { display: none !important; }
+/* ─────────────────────────────────────────────────────────────
+   1. 色彩 — DESIGN_SYSTEM §1。所有 token 先在 :root 定義一次，
+      .dark 只覆寫語意別名，不重新發明數值。
+   ───────────────────────────────────────────────────────────── */
+:root {
+  color-scheme: light;
+
+  /* §1.1 中性軸：紙與墨（亮） */
+  --paper-0: #FCFBF8;  --paper-1: #F6F4EE;  --paper-2: #EDEAE3;  --paper-3: #DEDACF;
+  --ink-0:   #171512;  --ink-1:   #4A453D;  --ink-2:   #6E675C;  --ink-3:   #8C8477;
+
+  /* §1.1 中性軸：紙與墨（暗）— 不是亮色反相，是另一組 */
+  --dark-0:  #12110F;  --dark-1:  #1C1A17;  --dark-2:  #2A2621;  --dark-3:  #3D3830;
+  --dim-0:   #F2EFE8;  --dim-1:   #C4BDB0;  --dim-2:   #A8A196;  --dim-3:   #787164;
+
+  /* §1.2 重點色：琥珀（單一，hue 45–47） */
+  --amber-50:  #FBF6E4; --amber-100: #F6EBC2; --amber-200: #EBD68C; --amber-300: #DEBE52;
+  --amber-400: #C9A62B; --amber-500: #AD8A14; --amber-600: #8A6800; --amber-700: #6E5303;
+  --amber-800: #584209; --amber-900: #48360C; --amber-950: #2A1F05;
+
+  /* §1.3 序列色階：墨階（亮） */
+  --heat-0: #EDEAE3; --heat-1: #D6D0C4; --heat-2: #B3AB9B; --heat-3: #8C8477;
+  --heat-4: #615B50; --heat-5: #3A362F; --heat-6: #171512;
+
+  /* §1.4 分級章：類別色。底色與章內文字色都不隨明暗模式改變——
+     對比是章內對章底量的，不是對頁面底量的。 */
+  --seal-pu:  #5CB731;  /* 普遍級   章內 ink-0  7.18:1 */
+  --seal-hu:  #00A2ED;  /* 保護級   章內 ink-0  6.41:1 */
+  --seal-f12: #FFD300;  /* 輔12     章內 ink-0 12.64:1 */
+  --seal-f15: #D66800;  /* 輔15     章內 ink-0  5.07:1 */
+  --seal-lim: #E30009;  /* 限制級   章內 白字    4.92:1 */
+  --seal-ink: #171512;
+  --seal-white: #FFFFFF;
+  /* 語意 error 色：刻意不重用限制級的 #E30009——那是類別色，且它在 paper-1 上只有 4.47:1 */
+  --danger: #A80008;
+
+  /* §3 形狀 */
+  --radius-chip: 2px; --radius-card: 4px; --radius-poster: 3px;
+
+  /* §2.2 字型堆疊 */
+  --font-sans: 'Inter', 'PingFang TC', 'Noto Sans CJK TC', 'Noto Sans TC',
+               'Microsoft JhengHei', 'Source Han Sans TC', sans-serif;
+  /* §2.3 原文片名自己的堆疊 */
+  --font-original: 'Inter', 'PingFang TC', 'Hiragino Sans', 'Noto Sans JP',
+                   'Apple SD Gothic Neo', 'Noto Sans KR', 'Noto Sans Thai', sans-serif;
+
+  /* 語意別名（亮色） */
+  --bg: var(--paper-0);
+  --surface: var(--paper-1);
+  --sunken: var(--paper-2);
+  --line: var(--paper-3);
+  --fg: var(--ink-0);
+  --fg-1: var(--ink-1);
+  --fg-2: var(--ink-2);
+  --fg-3: var(--ink-3);
+  --accent: var(--amber-600);       /* 對 paper-0 5.00:1 */
+  --accent-fg: #FFFFFF;             /* amber-600 底 + 白字 5.17:1 */
+  --accent-soft: var(--amber-50);
+
+  --fs-hero: 28px;
+  /* §2.4 中文行長。DS 寫的是 `34ch（≈560px）`；ch 解析成 Inter 數字寬時只有約 300px，
+     所以綁定的是它自己算出來的 560px ≈ 32 個漢字。 */
+  --measure: 560px;
+}
+
+/* 沒有 JS 時的暗色 fallback（有 JS 時 <html> 一定帶 .light 或 .dark） */
+@media (prefers-color-scheme: dark) {
+  :root:not(.light):not(.dark) {
+    color-scheme: dark;
+    --bg: var(--dark-0);  --surface: var(--dark-1);  --sunken: var(--dark-2);  --line: var(--dark-3);
+    --fg: var(--dim-0);   --fg-1: var(--dim-1);      --fg-2: var(--dim-2);     --fg-3: var(--dim-3);
+    --accent: var(--amber-400);     /* 對 dark-0 8.06:1 */
+    --accent-fg: var(--ink-0);      /* amber-400 底 + ink-0 字 7.79:1 */
+    --accent-soft: var(--amber-950);
+    --heat-0: #1F1D19; --heat-1: #2E2B25; --heat-2: #454037; --heat-3: #615B50;
+    --heat-4: #8C8477; --heat-5: #B3AB9B; --heat-6: #E4DFD4;
+    --danger: #FF6B6E;
+  }
+}
+:root.dark {
+  color-scheme: dark;
+  --bg: var(--dark-0);  --surface: var(--dark-1);  --sunken: var(--dark-2);  --line: var(--dark-3);
+  --fg: var(--dim-0);   --fg-1: var(--dim-1);      --fg-2: var(--dim-2);     --fg-3: var(--dim-3);
+  --accent: var(--amber-400);
+  --accent-fg: var(--ink-0);
+  --accent-soft: var(--amber-950);
+  --heat-0: #1F1D19; --heat-1: #2E2B25; --heat-2: #454037; --heat-3: #615B50;
+  --heat-4: #8C8477; --heat-5: #B3AB9B; --heat-6: #E4DFD4;
+  --danger: #FF6B6E;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   2. 基底 — DESIGN_SYSTEM §2
+   ───────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; line-break: strict; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.75;            /* §2.4 中文內文比拉丁更鬆 */
+  font-feature-settings: 'cv05', 'ss01';
+  overflow-x: hidden;           /* §10 頁面 body 永遠不橫向捲動 */
+}
+img { display: block; max-width: 100%; }
+h1, h2, h3, h4 { margin: 0; font-weight: 700; }
+p { margin: 0; }
+ul, ol, dl, dd { margin: 0; padding: 0; }
+li { list-style: none; }
+code { font-family: var(--font-sans); }   /* §0 不用等寬字型當資料微標籤 */
+/* 安全網：中英夾雜的長字串（片名、路由、檔名）不得撐破欄寬 */
+p, li, dd, dt, td, th, h1, h2, h3, h4, figcaption, caption { overflow-wrap: break-word; }
+b, strong { font-weight: 700; }
+
+:where(a, button, input, select, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-chip);
+}
+
+.num { font-variant-numeric: tabular-nums; }
+
+/* §6 動態：只有存檔那一刻是編排過的，其餘沒有進場動畫 */
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   3. 版面
+   ───────────────────────────────────────────────────────────── */
+.page { max-width: 1200px; margin: 0 auto; padding: 32px 16px 96px; }
+@media (min-width: 768px) { .page { padding: 48px 24px 120px; } }
+
+.mode-toggle {
+  position: fixed;
+  top: calc(12px + env(safe-area-inset-top));
+  right: calc(12px + env(safe-area-inset-right));
+  z-index: 50;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg-1);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  cursor: pointer;
+}
+.mode-toggle:hover { color: var(--fg); }
+
+/* 文件層（給審稿人看的框，不是產品 UI） */
+.doc-head { max-width: var(--measure); margin-bottom: 40px; }
+.doc-kicker { font-size: 13px; line-height: 1.5; color: var(--fg-2); }
+.doc-title { font-size: var(--fs-hero); line-height: 1.35; margin: 4px 0 8px; font-feature-settings: 'palt' 1; }
+.doc-lede { font-size: 16px; line-height: 1.75; color: var(--fg-1); }
+.doc-facts { margin-top: 16px; font-size: 13px; line-height: 1.75; color: var(--fg-2); }
+.doc-facts li { padding-left: 14px; position: relative; }
+.doc-facts li::before {
+  content: ''; position: absolute; left: 0; top: 10px;
+  width: 6px; height: 1px; background: var(--fg-3);
+}
+
+.part { margin-top: 64px; }
+.part-head { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; margin-bottom: 8px; }
+.part-tag {
+  flex: none;
+  min-width: 24px; height: 24px; padding: 0 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; line-height: 1;
+  color: var(--bg); background: var(--fg);
+  border-radius: var(--radius-chip);
+}
+.part-title { font-size: var(--fs-hero); line-height: 1.35; font-feature-settings: 'palt' 1; }
+.part-sub { font-size: 13px; line-height: 1.5; color: var(--fg-2); }
+.part-lede { max-width: var(--measure); color: var(--fg-1); margin-bottom: 24px; }
+
+.rule {
+  margin: 72px 0 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.rule-label {
+  display: block;
+  margin-top: -13px;
+  width: max-content;
+  padding: 0 12px 0 0;
+  background: var(--bg);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg-2);
+}
+
+/* 設計註記：明顯不是產品 UI 的一部分 */
+.note {
+  margin-top: 12px;
+  padding: 8px 12px;
+  border-left: 2px solid var(--fg-3);
+  background: var(--sunken);
+  color: var(--fg-1);
+  font-size: 13px;
+  line-height: 1.75;
+  border-radius: 0 var(--radius-chip) var(--radius-chip) 0;
+}
+.note + .note { margin-top: 8px; }
+.note, .rulecard .body p, .setting-row .d { max-width: var(--measure); }   /* §2.4 中文行長 ≈32 個漢字 */
+.note-tag { color: var(--fg-2); }
+.note-bad { border-left-color: var(--seal-lim); }
+
+/* 螢幕框 */
+.screen {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  overflow: hidden;
+  min-width: 0;
+}
+.screen-chrome {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 12px;
+  background: var(--sunken);
+  border-bottom: 1px solid var(--line);
+  font-size: 12px; line-height: 1.5; color: var(--fg-2);
+}
+.screen-chrome code { color: var(--fg-1); word-break: break-all; }
+.screen-tag {
+  margin-left: auto;
+  padding: 0 6px;
+  color: var(--fg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-chip);
+}
+.screen-body { padding: 16px; }
+@media (min-width: 768px) { .screen-body { padding: 24px; } }
+
+.block + .block { margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--line); }
+.sec-title { font-size: 20px; line-height: 1.4; }
+.block-label { font-size: 13px; line-height: 1.5; color: var(--fg-2); margin-bottom: 8px; }
+.prose { max-width: var(--measure); line-height: 1.75; }
+.prose + .prose { margin-top: 12px; }
+.muted { color: var(--fg-2); }
+
+/* ─────────────────────────────────────────────────────────────
+   4. RatingSeal — DESIGN_SYSTEM §1.4 / §4.2
+   實色方塊 + 級別字；章內文字色逐級不同。
+   ───────────────────────────────────────────────────────────── */
+.seal {
+  flex: none;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 28px; height: 28px;
+  border-radius: var(--radius-chip);
+  font-weight: 700;
+  font-size: 17px;
+  line-height: 1;
+}
+.seal .s-main { font-size: 13px; line-height: 1; }
+.seal .s-sub  { font-size: 10px; line-height: 1; font-variant-numeric: tabular-nums; margin-top: 1px; }
+.seal-pu  { background: var(--seal-pu);  color: var(--seal-ink); }
+.seal-hu  { background: var(--seal-hu);  color: var(--seal-ink); }
+.seal-f12 { background: var(--seal-f12); color: var(--seal-ink); }
+.seal-f15 { background: var(--seal-f15); color: var(--seal-ink); }
+.seal-lim { background: var(--seal-lim); color: var(--seal-white); }
+.seal-lg { width: 44px; height: 44px; font-size: 26px; }
+.seal-lg .s-main { font-size: 20px; }
+.seal-lg .s-sub  { font-size: 14px; margin-top: 2px; }
+
+.seal-legend {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr;
+  margin-top: 16px;
+}
+@media (min-width: 560px) { .seal-legend { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1000px) { .seal-legend { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+.seal-item {
+  display: flex; gap: 12px; align-items: flex-start;
+  padding: 12px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+}
+.seal-item h4 { font-size: 16px; line-height: 1.45; }
+.seal-item dl { font-size: 12px; line-height: 1.5; color: var(--fg-2); margin-top: 4px; }
+.seal-item dt { display: inline; }
+.seal-item dd { display: inline; margin: 0; }
+.seal-item .row { display: block; }
+
+/* ─────────────────────────────────────────────────────────────
+   5. 作品頁英雄區
+   ───────────────────────────────────────────────────────────── */
+.film-grid { display: grid; gap: 16px; grid-template-columns: 1fr; align-items: start; }
+@media (min-width: 980px) { .film-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; } }
+
+.hero { display: flex; gap: 16px; align-items: flex-start; }
+.poster {
+  flex: none;
+  width: 110px;              /* §3 海報欄寬離散為 70 / 110 / 150 / 230 */
+  aspect-ratio: 2 / 3;
+  margin: 0;
+  border-radius: var(--radius-poster);
+  overflow: hidden;
+  background: var(--sunken);
+  border: 1px solid var(--line);
+}
+.poster.sm { width: 70px; }
+.poster img { width: 100%; height: 100%; object-fit: cover; }
+.hero-text { min-width: 0; flex: 1 1 auto; }
+
+.title-zh {
+  font-size: var(--fs-hero);
+  line-height: 1.35;
+  font-feature-settings: 'palt' 1;    /* §2.5 大標的標點收緊，絕不動 letter-spacing */
+  word-break: auto-phrase;
+  text-wrap: balance;
+  overflow-wrap: anywhere;            /* 66 字＋長拉丁串不得撐破欄寬 */
+}
+@media (max-width: 480px) { :root { --fs-hero: 22px; } }
+.title-original {
+  font-family: var(--font-original);  /* §2.3 原文片名自己的堆疊 */
+  font-size: 0.8125rem;               /* 13px */
+  line-height: 1.5;
+  color: var(--fg-2);
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+.hero-meta {
+  display: flex; flex-wrap: wrap; align-items: center;
+  gap: 8px 12px;                      /* §0 用間距，不用中點分隔 */
+  margin-top: 12px;
+  font-size: 13px; line-height: 1.5;
+  color: var(--fg);
+}
+.hero-meta .num { color: var(--fg); }
+
+/* 核准紀錄 */
+.cert {
+  padding: 12px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+}
+.cert + .cert { margin-top: 8px; }
+.cert-top {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+  font-size: 13px; line-height: 1.5;
+}
+.cert-year { font-weight: 700; font-variant-numeric: tabular-nums; }
+.cert-fields {
+  display: grid; grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px 12px;
+  margin-top: 8px;
+  font-size: 12px; line-height: 1.5;
+}
+.cert-fields dt { color: var(--fg-2); }
+.cert-fields dd { color: var(--fg-1); overflow-wrap: anywhere; }
+.cert-flag {
+  display: inline-block; margin-top: 8px; padding: 2px 6px;
+  font-size: 12px; line-height: 1.5;
+  color: var(--fg-1); background: var(--sunken);
+  border-radius: var(--radius-chip);
+}
+
+.disclosure {
+  margin-top: 8px;
+  padding: 6px 0;
+  font: inherit; font-size: 13px; line-height: 1.5;
+  color: var(--fg-1);
+  background: none; border: 0;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  text-align: left;
+}
+.disclosure:hover { color: var(--fg); border-bottom-color: var(--fg-3); }
+.disclosure::before { content: '＞ '; color: var(--fg-2); }
+.disclosure[aria-expanded='true']::before { content: '∨ '; }
+
+/* 空狀態 */
+.empty {
+  padding: 24px 16px;
+  text-align: center;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+}
+.empty p { color: var(--fg-1); }
+
+/* 按鈕 */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 8px 16px;
+  font: inherit; font-size: 16px; line-height: 1.5;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+  transition: opacity 160ms ease-out;   /* §6 ≤200ms，只動 compositor 屬性 */
+}
+.btn:hover { opacity: 0.86; }
+.btn-primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 700; }
+.btn-sm { padding: 4px 10px; font-size: 13px; }
+
+a { color: var(--accent); text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+
+/* ─────────────────────────────────────────────────────────────
+   6. TicketCard — DESIGN_SYSTEM §4.3。全站主要物件。
+   ───────────────────────────────────────────────────────────── */
+.tc {
+  display: flex;
+  align-items: stretch;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+.tc + .tc { margin-top: 8px; }
+.tc-date {
+  flex: none;
+  width: 56px;
+  padding: 10px 6px;
+  border-right: 1px solid var(--line);   /* 撕線的位置，但不畫齒孔、不畫虛線 */
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-1);
+}
+.tc-y { display: block; font-size: 12px; line-height: 1.5; color: var(--fg-2); }
+.tc-md { display: block; font-size: 18px; line-height: 1.4; color: var(--fg); font-weight: 700; }
+.tc-w { display: block; font-size: 12px; line-height: 1.5; color: var(--fg-2); }
+.tc-main { min-width: 0; flex: 1 1 auto; padding: 10px 12px; }
+.tc-title {
+  font-size: 16px; line-height: 1.45; font-weight: 700;
+  overflow-wrap: anywhere; word-break: auto-phrase;
+}
+.tc-original { font-family: var(--font-original); font-size: 13px; line-height: 1.5; color: var(--fg-2); }
+.tc-meta {
+  margin-top: 4px;
+  font-size: 13px; line-height: 1.5;
+  color: var(--fg-1);
+  font-variant-numeric: tabular-nums;
+}
+.tc-meta > span + span { margin-left: 8px; }   /* 空白分隔，開眼式；不用中點 */
+.tc-memo { margin-top: 4px; font-size: 13px; line-height: 1.5; color: var(--fg-2); overflow-wrap: anywhere; }
+.tc-poster { flex: none; width: 70px; border-left: 1px solid var(--line); background: var(--sunken); }
+.tc-poster img { width: 100%; height: 100%; object-fit: cover; }
+
+.price-free {
+  color: var(--fg);
+  background: var(--sunken);
+  padding: 0 6px;
+  border-radius: var(--radius-chip);
+}
+
+/* 分布長條（§5.2 橫式 bar，不用圓餅圖） */
+.dist { margin-top: 12px; display: grid; gap: 8px; }
+.dist-row { display: grid; gap: 4px; }
+.dist-bar {
+  position: relative;
+  min-height: 26px;
+  background: var(--heat-0);
+  border-radius: var(--radius-chip);
+  overflow: hidden;
+}
+/* 填色刻意停在墨階的淺端：標籤是 ink-0，壓在 heat-2 上仍有 8.0:1，
+   暗色模式墨階整條反轉後也一樣及格（DS §1.3 / §7）。 */
+.dist-fill { position: absolute; inset: 0 auto 0 0; background: var(--heat-1); }
+.dist-fill.lead { background: var(--heat-2); }
+.dist-label {
+  position: relative;
+  display: flex; justify-content: space-between; gap: 4px 12px; flex-wrap: wrap;
+  padding: 4px 8px;
+  min-height: 26px; align-items: center;
+  font-size: 13px; line-height: 1.5;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.dist-label > span:last-child { flex: none; }
+.dist-note { font-size: 12px; line-height: 1.5; color: var(--fg-2); }
+.dist-label .muted { color: var(--fg); }   /* 條上不做明度階層，對比優先 */
+
+/* 表格 */
+.table-scroll { overflow-x: auto; margin-top: 12px; border: 1px solid var(--line); border-radius: var(--radius-card); }
+table { border-collapse: collapse; width: 100%; min-width: 420px; font-size: 13px; line-height: 1.5; background: var(--bg); }
+th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--line); }
+th { color: var(--fg-2); font-weight: 400; background: var(--sunken); }
+tbody tr:last-child td { border-bottom: 0; }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+tfoot td { font-weight: 700; background: var(--sunken); border-bottom: 0; }
+
+/* 句子型數字（§4.4 不做 stat tile） */
+.statline { font-size: 16px; line-height: 1.75; color: var(--fg-1); }
+.statline .big {
+  font-size: 24px;
+  line-height: 1.4;
+  color: var(--fg);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   7. B 部分：票價隱私
+   ───────────────────────────────────────────────────────────── */
+.split { display: grid; gap: 24px; grid-template-columns: 1fr; align-items: start; }
+@media (min-width: 1040px) { .split { grid-template-columns: minmax(0, 1fr) 320px; } }
+
+.preview {
+  margin-top: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--bg);
+}
+.preview-head {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--sunken);
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+}
+.preview-head h3 { font-size: 13px; line-height: 1.5; font-weight: 700; }
+.preview-body { padding: 12px; }
+.chip {
+  padding: 2px 8px;
+  font-size: 12px; line-height: 1.5;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-chip);
+  color: var(--fg-1);
+  background: var(--bg);
+}
+.chip-on { border-color: var(--accent); color: var(--accent); }
+
+.action-row {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+}
+.hint { font-size: 13px; line-height: 1.5; color: var(--fg-2); }
+
+.compare { display: grid; gap: 16px; grid-template-columns: 1fr; margin-top: 16px; }
+@media (min-width: 720px) { .compare { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.compare-col {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--bg);
+  padding: 12px;
+  min-width: 0;
+}
+.compare-col > h4 { font-size: 13px; line-height: 1.5; color: var(--fg-2); font-weight: 400; margin-bottom: 8px; }
+
+.rulecard {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  padding: 16px;
+  min-width: 0;
+}
+.rulecard + .rulecard { margin-top: 16px; }
+.rulegrid { display: grid; gap: 16px; grid-template-columns: 1fr; margin-top: 16px; align-items: start; }
+@media (min-width: 900px) { .rulegrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.rulegrid .rulecard + .rulecard { margin-top: 0; }
+.rulecard h3 { font-size: 16px; line-height: 1.45; }
+.rulecard .n-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; margin-right: 8px;
+  font-size: 12px; line-height: 1; font-variant-numeric: tabular-nums;
+  color: var(--bg); background: var(--fg);
+  border-radius: var(--radius-chip);
+}
+.rulecard .body { margin-top: 8px; font-size: 13px; line-height: 1.75; color: var(--fg-1); }
+
+.field { max-width: 320px; }
+.field label { display: block; font-size: 13px; line-height: 1.5; color: var(--fg-1); }
+.field .input-wrap { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.field input {
+  font: inherit; font-size: 16px; line-height: 1.5;
+  padding: 6px 10px;
+  width: 100%;
+  color: var(--fg);
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  font-variant-numeric: tabular-nums;
+}
+.field .prefix { color: var(--fg-2); font-size: 13px; line-height: 1.5; }
+.field .help { margin-top: 4px; font-size: 13px; line-height: 1.5; color: var(--fg-2); }
+
+.dont {
+  padding: 8px 12px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-card);
+  color: var(--fg-2);
+  font-size: 13px; line-height: 1.5;
+}
+.dont-tag { color: var(--danger); }
+
+.setting-row {
+  display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.setting-row:last-child { border-bottom: 0; }
+.setting-row > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.setting-row .t { font-size: 16px; line-height: 1.45; }
+.setting-row .d { font-size: 13px; line-height: 1.5; color: var(--fg-2); }
+.danger { color: var(--danger); border-color: var(--danger); }
+
+.legend-row { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 13px; line-height: 1.5; }
+</style>
+</head>
+<body>
+
+<!-- 開發用切換鈕，不是產品 UI（產品端由 @nuxtjs/color-mode 驅動同一個 .dark class） -->
+<button class="mode-toggle" id="modeToggle" type="button">切成暗色</button>
+
+<div class="page">
+
+  <header class="doc-head">
+    <p class="doc-kicker">影記 filmnote — 設計稿 mockup</p>
+    <h1 class="doc-title">作品頁與票價隱私</h1>
+    <p class="doc-lede">兩個畫面放在同一頁：公開的作品頁，以及全站最需要小心的那個開關。所有字串都是真的。</p>
+    <ul class="doc-facts">
+      <li>作品與核准資料：<span class="num">2,669</span> 部作品、<span class="num">3,116</span> 張核准證明（文化部影視及流行音樂產業局）</li>
+      <li>影城：<span class="num">111</span> 家（全國電影院資料）</li>
+      <li>紀錄：David 的 <span class="num">169</span> 筆真實觀影紀錄，<span class="num">2014</span> 年到 <span class="num">2026</span> 年</li>
+      <li>海報一律熱連結 image.tmdb.org，不自建代理，見 DS §9</li>
+    </ul>
+  </header>
+
+  <!-- ═══════════════ A 部分 ═══════════════ -->
+  <section class="part" id="part-a">
+    <div class="part-head">
+      <span class="part-tag">A</span>
+      <h2 class="part-title">作品頁</h2>
+      <span class="part-sub">/film/[slug]　SCREENS §5</span>
+    </div>
+    <p class="part-lede">英雄是官方核准資訊，不是海報。同一個版面渲染三次：有海報的短片名、<span class="num">66</span> 字的長片名、以及沒有 TMDB 的那 <span class="num">268</span> 部。</p>
+
+    <!-- ── RatingSeal 圖例 ── -->
+    <!-- 自製元件 RatingSeal（DS §4.2；Nuxt UI v4 沒有對應元件） -->
+    <section class="screen">
+      <div class="screen-chrome"><code>components/RatingSeal.vue</code><span class="screen-tag">元件</span></div>
+      <div class="screen-body">
+        <h3 class="sec-title">分級章</h3>
+        <p class="prose muted" style="font-size:13px;line-height:1.5;margin-top:4px;">實色方塊 ＋ 級別字，旁邊的說明文字用 ink-0。章內文字色逐級不同——白字在 普／護／輔<span class="num">12</span> 上全部不及格（<span class="num">2.54</span> ／ <span class="num">2.84</span> ／ <span class="num">1.44</span>）。</p>
+
+        <div class="seal-legend">
+          <div class="seal-item">
+            <span class="seal seal-pu" aria-hidden="true">普</span>
+            <div>
+              <h4>普遍級</h4>
+              <dl>
+                <div class="row"><dt>底色 </dt><dd class="num">#5CB731</dd></div>
+                <div class="row"><dt>章內字 </dt><dd>ink-0 <span class="num">#171512</span></dd></div>
+                <div class="row"><dt>對比 </dt><dd class="num">7.18:1</dd></div>
+              </dl>
+            </div>
+          </div>
+          <div class="seal-item">
+            <span class="seal seal-hu" aria-hidden="true">護</span>
+            <div>
+              <h4>保護級</h4>
+              <dl>
+                <div class="row"><dt>底色 </dt><dd class="num">#00A2ED</dd></div>
+                <div class="row"><dt>章內字 </dt><dd>ink-0 <span class="num">#171512</span></dd></div>
+                <div class="row"><dt>對比 </dt><dd class="num">6.41:1</dd></div>
+              </dl>
+            </div>
+          </div>
+          <div class="seal-item">
+            <span class="seal seal-f12" aria-hidden="true"><span class="s-main">輔</span><span class="s-sub">12</span></span>
+            <div>
+              <h4>輔導 <span class="num">12</span> 歲級</h4>
+              <dl>
+                <div class="row"><dt>底色 </dt><dd class="num">#FFD300</dd></div>
+                <div class="row"><dt>章內字 </dt><dd>ink-0 <span class="num">#171512</span></dd></div>
+                <div class="row"><dt>對比 </dt><dd class="num">12.64:1</dd></div>
+              </dl>
+            </div>
+          </div>
+          <div class="seal-item">
+            <span class="seal seal-f15" aria-hidden="true"><span class="s-main">輔</span><span class="s-sub">15</span></span>
+            <div>
+              <h4>輔導 <span class="num">15</span> 歲級</h4>
+              <dl>
+                <div class="row"><dt>底色 </dt><dd class="num">#D66800</dd></div>
+                <div class="row"><dt>章內字 </dt><dd>ink-0 <span class="num">#171512</span></dd></div>
+                <div class="row"><dt>對比 </dt><dd class="num">5.07:1</dd></div>
+              </dl>
+            </div>
+          </div>
+          <div class="seal-item">
+            <span class="seal seal-lim" aria-hidden="true">限</span>
+            <div>
+              <h4>限制級</h4>
+              <dl>
+                <div class="row"><dt>底色 </dt><dd class="num">#E30009</dd></div>
+                <div class="row"><dt>章內字 </dt><dd>白 <span class="num">#FFFFFF</span></dd></div>
+                <div class="row"><dt>對比 </dt><dd class="num">4.92:1</dd></div>
+              </dl>
+            </div>
+          </div>
+        </div>
+
+        <p class="note"><b class="note-tag">設計註記　</b>五個章的底色與章內字色都不隨明暗模式改變——對比是「章內字對章底」量的，不是對頁面底量的。分級章是類別色，不是色階（五個底色的亮度依序是 <span class="num">0.364</span>、<span class="num">0.320</span>、<span class="num">0.678</span>、<span class="num">0.242</span>、<span class="num">0.164</span>，不是單調遞減），所以不拿來當資料視覺化的色階用，也不進搜尋結果與列表。</p>
+      </div>
+    </section>
+
+    <!-- ── 三個作品頁 ── -->
+    <div class="film-grid" style="margin-top:24px;">
+
+      <!-- ══ A1 紅豬 ══ -->
+      <!-- UPage / UPageBody -->
+      <article class="screen">
+        <div class="screen-chrome">
+          <code>/film/film-…</code>
+          <span class="screen-tag">A1　有海報．重映</span>
+        </div>
+        <div class="screen-body">
+
+          <!-- 英雄區：官方核准資訊。FilmPoster 是全站唯一組海報 URL 的地方（DS §9） -->
+          <div class="hero">
+            <figure class="poster" id="a1-poster">
+              <img
+                src="https://image.tmdb.org/t/p/w342/8mIvSvnVBApfORL9N6S38Q7wD6A.jpg"
+                alt="紅豬 海報"
+                width="342" height="513"
+                loading="lazy" decoding="async" referrerpolicy="no-referrer"
+                data-fallback="ticket">
+            </figure>
+            <div class="hero-text">
+              <h1 class="title-zh">紅豬</h1>
+              <p class="title-original">紅の豚</p>
+              <p class="hero-meta">
+                <!-- RatingSeal -->
+                <span class="seal seal-pu" aria-hidden="true">普</span>
+                <span>普遍級</span>
+                <span>日本</span>
+                <span class="num">1992 年</span>
+                <span class="num">93 分鐘</span>
+              </p>
+            </div>
+          </div>
+          <p class="note"><b class="note-tag">設計註記　</b>海報載入失敗時整欄消失、卡片自然變寬，不留灰色佔位也不畫破圖圖示。
+            <button class="btn btn-sm" type="button" id="breakPoster" style="margin-top:8px;">模擬海報載入失敗</button>
+          </p>
+
+          <!-- 核准紀錄 -->
+          <!-- UCollapsible -->
+          <section class="block">
+            <h2 class="sec-title">核准紀錄</h2>
+            <div class="block-label"><span class="num">2</span> 張證明書</div>
+
+            <article class="cert">
+              <div class="cert-top">
+                <span class="seal seal-pu" aria-hidden="true">普</span>
+                <span class="cert-year">113 年<span class="muted">（2024）</span></span>
+                <span class="num">93 分</span>
+                <span>日本</span>
+              </div>
+              <dl class="cert-fields">
+                <dt>字號</dt><dd class="num">局影外第113013號</dd>
+                <dt>語言</dt><dd>國語</dd>
+                <dt>版本</dt><dd>中文版</dd>
+                <dt>製作</dt><dd>Studio Ghibli Inc.</dd>
+              </dl>
+            </article>
+
+            <button class="disclosure" type="button" aria-expanded="false" aria-controls="a1-more">還有 1 筆核准紀錄</button>
+            <div id="a1-more" hidden>
+              <article class="cert">
+                <div class="cert-top">
+                  <span class="seal seal-pu" aria-hidden="true">普</span>
+                  <span class="cert-year">112 年<span class="muted">（2023）</span></span>
+                  <span class="num">93 分</span>
+                  <span>日本</span>
+                </div>
+                <dl class="cert-fields">
+                  <dt>字號</dt><dd class="num">第112700號</dd>
+                  <dt>語言</dt><dd>日語</dd>
+                  <dt>製作</dt><dd>Studio Ghibli Inc.</dd>
+                </dl>
+              </article>
+            </div>
+
+            <p class="note"><b class="note-tag">重映　</b><span class="num">1992</span> 年的片，<span class="num">112</span> 年（<span class="num">2023</span>）與 <span class="num">113</span> 年（<span class="num">2024</span>）各核准一次，<span class="num">113</span> 年那張還是配音的中文版。<b>核准年不是上映年，這是正常的</b>——英雄區的年份寫 <span class="num">1992</span>（TMDB 的上映年），核准紀錄裡的年份寫民國年，兩個數字不一樣不是資料錯誤。</p>
+            <p class="note"><b class="note-tag">設計註記　</b>字號只是屬性，不做成可複製的識別碼、也不當標題——<span class="num">110</span>–<span class="num">112</span> 年之間 permit_no 會跨系列撞號（<span class="num">110</span> 年 <span class="num">128</span> 筆、<span class="num">111</span> 年 <span class="num">143</span> 筆、<span class="num">112</span> 年 <span class="num">157</span> 筆重複）。</p>
+          </section>
+
+          <!-- 誰看過 -->
+          <section class="block">
+            <h2 class="sec-title">誰看過</h2>
+            <!-- UEmpty -->
+            <div class="empty" style="margin-top:12px;">
+              <p>還沒有人記過這部片。</p>
+              <button class="btn btn-sm" type="button" style="margin-top:8px;">記下你的第一場</button>
+            </div>
+            <p class="note"><b class="note-tag">設計註記　</b>空狀態是邀請，給一個明確的下一步（DS §8）。沒有人看過時，「最常在哪看」整區不渲染，不畫成空的長條圖。這一區永遠是 client 端補的——SSR 期間碰使用者身分會讓第一個造訪者的結果被 ISR 快取給所有人（SCREENS §5.3）。</p>
+          </section>
+        </div>
+      </article>
+
+      <!-- ══ A2 66 字片名 ══ -->
+      <article class="screen">
+        <div class="screen-chrome">
+          <code>/film/idolish7-the-movie-live-4bit-beyond-the-period-d</code>
+          <span class="screen-tag">A2　66 字片名</span>
+        </div>
+        <div class="screen-body">
+
+          <div class="hero">
+            <div class="hero-text">
+              <h1 class="title-zh">劇場版IDOLiSH7-偶像星願- LIVE 4bit BEYOND THE PERiOD&lt;DAY2&gt;with After talk</h1>
+              <p class="title-original">IDOLiSH7 the Movie,LIVE 4bit BEYOND THE PERiOD＜DAY 2＞With After Talk version.</p>
+              <p class="hero-meta">
+                <span class="seal seal-pu" aria-hidden="true">普</span>
+                <span>普遍級</span>
+                <span>日本</span>
+                <span class="num">核准 113 年</span>
+                <span class="num">99 分鐘</span>
+              </p>
+            </div>
+          </div>
+
+          <p class="note"><b class="note-tag">最長的片名　</b>全庫 <span class="num">2,669</span> 部裡最長的中文片名，<span class="num">66</span> 個字，而且中英夾雜、含 <code>&lt;DAY2&gt;</code> 這種會被當成一長串拉丁字的片段。標題用 <code>overflow-wrap: anywhere</code> 打底、<code>word-break: auto-phrase</code> 漸進增強，<b>絕不動 letter-spacing</b>。<span class="num">375px</span> 下它會長到七、八行，那是對的——片名就是這麼長，不截斷、不加省略號。</p>
+          <p class="note"><b class="note-tag">沒有海報　</b>這一筆的 <code>tmdbId</code> 是 <code>null</code>，所以<b>沒有海報欄</b>，英雄區直接從片名開始。同系列在 TMDB 上有另一部 <code>tmdb:1108298</code>「劇場版IDOLiSH7-偶像星願- LIVE 4bit BEYOND THE PERiOD」（<span class="num">45</span> 字，<span class="num">93</span> 分鐘），那是不同的作品，不是這一筆的海報。</p>
+
+          <section class="block">
+            <h2 class="sec-title">核准紀錄</h2>
+            <div class="block-label"><span class="num">1</span> 張證明書</div>
+            <article class="cert">
+              <div class="cert-top">
+                <span class="seal seal-pu" aria-hidden="true">普</span>
+                <span class="cert-year">113 年<span class="muted">（2024）</span></span>
+                <span class="num">99 分</span>
+                <span>日本</span>
+              </div>
+              <dl class="cert-fields">
+                <dt>字號</dt><dd class="num">局影外第113228號</dd>
+                <dt>語言</dt><dd>日語</dd>
+                <dt>製作</dt><dd>Bandai Namco Filmworks Inc.</dd>
+              </dl>
+              <span class="cert-flag">這筆政府資料的欄位曾經錯位，已修復</span>
+            </article>
+            <p class="note"><b class="note-tag">設計註記　</b><code>defects: ["column-shift-recovered"]</code> 是真的存在於 <code>.data/certificates.json</code> 的欄位。修復過的資料要說出來，但不要嚇人——它是一行灰色註記，不是紅色警告。</p>
+          </section>
+
+          <section class="block">
+            <h2 class="sec-title">誰看過</h2>
+            <div class="empty" style="margin-top:12px;">
+              <p>還沒有人記過這部片。</p>
+              <button class="btn btn-sm" type="button" style="margin-top:8px;">記下你的第一場</button>
+            </div>
+          </section>
+        </div>
+      </article>
+
+      <!-- ══ A3 無 TMDB ══ -->
+      <article class="screen">
+        <div class="screen-chrome">
+          <code>/film/fleabag-…</code>
+          <span class="screen-tag">A3　268 部只有政府資料的其中一部</span>
+        </div>
+        <div class="screen-body">
+
+          <div class="hero">
+            <div class="hero-text">
+              <h1 class="title-zh">倫敦生活（英國國家劇院現場）</h1>
+              <p class="title-original">FLEABAG</p>
+              <p class="hero-meta">
+                <span class="seal seal-f12" aria-hidden="true"><span class="s-main">輔</span><span class="s-sub">12</span></span>
+                <span>輔導 <span class="num">12</span> 歲級</span>
+                <span>英國</span>
+                <span class="num">核准 110 年</span>
+                <span class="num">95 分鐘</span>
+              </p>
+            </div>
+          </div>
+
+          <section class="block">
+            <h2 class="sec-title">核准紀錄</h2>
+            <div class="block-label"><span class="num">1</span> 張證明書</div>
+            <article class="cert">
+              <div class="cert-top">
+                <span class="seal seal-f12" aria-hidden="true"><span class="s-main">輔</span><span class="s-sub">12</span></span>
+                <span class="cert-year">110 年<span class="muted">（2021）</span></span>
+                <span class="num">95 分</span>
+                <span>英國</span>
+              </div>
+              <dl class="cert-fields">
+                <dt>字號</dt><dd class="num">第110018號</dd>
+                <dt>語言</dt><dd>英語</dd>
+                <dt>製作</dt><dd>THE ROYAL NATIONAL THEATRE</dd>
+              </dl>
+            </article>
+          </section>
+
+          <section class="block">
+            <h2 class="sec-title">誰看過</h2>
+            <div class="empty" style="margin-top:12px;">
+              <p>還沒有人記過這部片。</p>
+              <button class="btn btn-sm" type="button" style="margin-top:8px;">記下你的第一場</button>
+            </div>
+          </section>
+
+          <p class="note"><b class="note-tag">驗收標準　</b>這一頁沒有海報欄、沒有灰盒子、沒有「資料不完整」的字樣，因為版面本來就不是為海報設計的。<span class="num">2,669</span> 部裡有 <span class="num">268</span> 部長這樣（<span class="num">10%</span>）。同一版面的另一個真實例子是「議事錄（英國國家劇院現場）」（HANSARD、英國、<span class="num">101</span> 分鐘、普遍級、第<span class="num">110020</span>號）。</p>
+          <p class="note"><b class="note-tag">slug　</b><code>film_assign_slug()</code> 取 <code>slugify(title_original)</code>，FLEABAG 產生的 slug 是 <code>fleabag-</code> 接上 id 前 <span class="num">8</span> 碼。A1 的「紅豬／紅の豚」兩個片名都不含拉丁字母，<code>slugify()</code> 兩次都回 null，slug 會退回 <code>film-</code> ＋ id 前 <span class="num">8</span> 碼——這是真的會發生的路由長相。</p>
+        </div>
+      </article>
+    </div>
+
+    <!-- ── 核准紀錄的極端案例 ── -->
+    <!-- UCollapsible -->
+    <section class="screen" style="margin-top:24px;">
+      <div class="screen-chrome"><code>/film/taylor-swift-the-eras-tour-…</code><span class="screen-tag">A．核准紀錄收合</span></div>
+      <div class="screen-body">
+        <div class="hero">
+          <div class="hero-text">
+            <h1 class="title-zh">TAYLOR SWIFT | THE ERAS TOUR</h1>
+            <p class="title-original">TAYLOR SWIFT | THE ERAS TOUR</p>
+            <p class="hero-meta">
+              <span class="seal seal-pu" aria-hidden="true">普</span>
+              <span>普遍級</span>
+              <span>美國</span>
+              <span class="num">2023 年</span>
+              <span class="num">169 分鐘</span>
+            </p>
+          </div>
+        </div>
+
+        <section class="block">
+          <h2 class="sec-title">核准紀錄</h2>
+          <div class="block-label">全庫最多的一部：<span class="num">13</span> 張證明書</div>
+
+          <article class="cert">
+            <div class="cert-top">
+              <span class="seal seal-pu" aria-hidden="true">普</span>
+              <span class="cert-year">113 年<span class="muted">（2024）</span></span>
+              <span class="num">169 分</span>
+              <span>美國</span>
+            </div>
+            <dl class="cert-fields">
+              <dt>片名</dt><dd>TAYLOR SWIFT | THE ERAS TOUR</dd>
+              <dt>字號</dt><dd class="num">局影外第113036號</dd>
+              <dt>語言</dt><dd>英語</dd>
+              <dt>製作</dt><dd>Trafalgar Releasing Limited</dd>
+            </dl>
+          </article>
+
+          <button class="disclosure" type="button" aria-expanded="false" aria-controls="eras-more">還有 12 筆核准紀錄</button>
+          <div id="eras-more" hidden>
+            <div class="table-scroll">
+              <!-- UTable -->
+              <table>
+                <caption class="block-label" style="text-align:left;padding:8px 12px;">同一部片的 <span class="num">13</span> 張證明書，四種不同的中文片名</caption>
+                <thead>
+                  <tr>
+                    <th>核准年</th>
+                    <th>字號</th>
+                    <th>核准片名</th>
+                    <th>級別</th>
+                    <th class="n">片長</th>
+                    <th>製作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td class="num">113（2024）</td><td class="num">局影外第113036號</td><td>TAYLOR SWIFT | THE ERAS TOUR</td><td>普遍級</td><td class="n">169 分</td><td>Trafalgar Releasing Limited</td></tr>
+                  <tr><td class="num">112（2023）</td><td class="num">第112702號</td><td>泰勒斯 時代巡迴演唱會</td><td>普遍級</td><td class="n">169 分</td><td>英國 Trafalgar Releasing</td></tr>
+                  <tr><td class="num">112（2023）</td><td class="num">第112701號</td><td>TAYLOR SWIFT | THE ERAS TOUR</td><td>普遍級</td><td class="n">169 分</td><td>英國 Trafalgar Releasing Ltd.</td></tr>
+                  <tr><td class="num">112（2023）</td><td class="num">第112648號</td><td>TAYLOR SWIFT THE ERAS TOUR</td><td>普遍級</td><td class="n">169 分</td><td>英國 Trafalgar Releasing</td></tr>
+                  <tr><td class="num">112（2023）</td><td class="num">第112647號</td><td>TAYLOR SWIFT THE ERAS TOUR</td><td>普遍級</td><td class="n">169 分</td><td>英國 Trafalgar Releasing</td></tr>
+                  <tr><td class="num">112（2023）</td><td class="num">第112581號</td><td>泰勒斯 時代巡迴演唱會</td><td>普遍級</td><td class="n">169 分</td><td>英國 Trafalgar Releasing</td></tr>
+                  <tr><td class="num">112（2023）</td><td class="num">第112580號</td><td>泰勒絲 | 年代巡迴演唱會電影</td><td>普遍級</td><td class="n">169 分</td><td>英國 Trafalgar Releasing</td></tr>
+                  <tr><td class="num">112（2023）</td><td class="num">第112579號</td><td>泰勒絲 | 年代巡迴演唱會電影</td><td>普遍級</td><td class="n">169 分</td><td>英國 Trafalgar Releasing</td></tr>
+                  <tr><td class="num">112（2023）</td><td class="num">第112578號</td><td>TAYLOR SWIFT THE ERAS TOUR</td><td>普遍級</td><td class="n">169 分</td><td>英國 Trafalgar Releasing</td></tr>
+                  <tr><td class="num">112（2023）</td><td class="num">第112577號</td><td>TAYLOR SWIFT THE ERAS TOUR</td><td>普遍級</td><td class="n">169 分</td><td>英國 Trafalgar Releasing</td></tr>
+                  <tr><td class="num">112（2023）</td><td class="num">第112576號</td><td>TAYLOR SWIFT THE ERAS TOUR</td><td>普遍級</td><td class="n">169 分</td><td>英國 Trafalgar Releasing</td></tr>
+                  <tr><td class="num">112（2023）</td><td class="num">第112575號</td><td>TAYLOR SWIFT | THE ERAS TOUR</td><td>普遍級</td><td class="n">169 分</td><td>英國 Trafalgar Releasing Ltd.</td></tr>
+                  <tr><td class="num">112（2023）</td><td class="num">第112574號</td><td>TAYLOR SWIFT | THE ERAS TOUR</td><td>普遍級</td><td class="n">169 分</td><td>英國 Trafalgar Releasing Ltd.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <p class="note"><b class="note-tag">為什麼要收合　</b>預設只顯示最新一筆。<span class="num">13</span> 張全部攤開會把「這部片是什麼」淹掉，但它們也不能丟——同一部片被核准成四種中文片名（TAYLOR SWIFT | THE ERAS TOUR、TAYLOR SWIFT THE ERAS TOUR、泰勒絲 | 年代巡迴演唱會電影、泰勒斯 時代巡迴演唱會），這正是「記得住台灣的片名」要處理的東西。</p>
+          <p class="note"><b class="note-tag">響應式　</b>展開後的表格在自己的 <code>overflow-x: auto</code> 容器裡橫捲，頁面 body 不動。</p>
+        </section>
+      </div>
+    </section>
+
+    <!-- ── 誰看過（有紀錄的樣子）── -->
+    <section class="screen" style="margin-top:24px;">
+      <div class="screen-chrome"><code>/film/film-…</code><span class="screen-tag">A．誰看過有資料時</span></div>
+      <div class="screen-body">
+        <div class="hero">
+          <figure class="poster sm">
+            <img src="https://image.tmdb.org/t/p/w342/jGa3LLsUzj9gooXstNyTIqazOWS.jpg"
+                 alt="少女與戰車 劇場版 海報" width="342" height="513"
+                 loading="lazy" decoding="async" referrerpolicy="no-referrer" data-fallback="ticket">
+          </figure>
+          <div class="hero-text">
+            <h1 class="title-zh" style="font-size:20px;line-height:1.4;">少女與戰車 劇場版</h1>
+            <p class="title-original">ガールズ&amp;パンツァー 劇場版</p>
+            <p class="hero-meta">
+              <span class="seal seal-hu" aria-hidden="true">護</span>
+              <span>保護級</span>
+              <span>日本</span>
+              <span class="num">核准 113 年</span>
+              <span class="num">120 分鐘</span>
+            </p>
+          </div>
+        </div>
+
+        <section class="block">
+          <h2 class="sec-title">誰看過</h2>
+          <p class="statline" style="margin-top:8px;"><span class="big">1</span> 個人看過 <span class="big">10</span> 次</p>
+
+          <div style="margin-top:12px;">
+            <!-- TicketCard × 10 -->
+            <article class="tc"><div class="tc-date"><span class="tc-y num">2026</span><span class="tc-md num">1/17</span><span class="tc-w">六</span></div><div class="tc-main"><h3 class="tc-title">clipwww</h3><p class="tc-meta"><span>大巨蛋秀泰</span><span>4DX 極爆</span><span class="num">10:00</span><span class="num">1張</span></p><p class="tc-memo">第 12 次上映</p></div></article>
+            <article class="tc"><div class="tc-date"><span class="tc-y num">2024</span><span class="tc-md num">1/19</span><span class="tc-w">五</span></div><div class="tc-main"><h3 class="tc-title">clipwww</h3><p class="tc-meta"><span>林口威秀</span><span>4DX 極爆</span><span class="num">19:25</span><span class="num">1張</span></p><p class="tc-memo">第 11 次上映</p></div></article>
+            <article class="tc"><div class="tc-date"><span class="tc-y num">2018</span><span class="tc-md num">9/23</span><span class="tc-w">日</span></div><div class="tc-main"><h3 class="tc-title">clipwww</h3><p class="tc-meta"><span>信義威秀</span><span>4DX</span><span class="num">11:40</span><span class="num">1張</span></p></div></article>
+            <article class="tc"><div class="tc-date"><span class="tc-y num">2017</span><span class="tc-md num">8/27</span><span class="tc-w">日</span></div><div class="tc-main"><h3 class="tc-title">clipwww</h3><p class="tc-meta"><span>信義威秀</span><span>4DX</span><span class="num">12:00</span><span class="num">1張</span></p></div></article>
+            <article class="tc"><div class="tc-date"><span class="tc-y num">2016</span><span class="tc-md num">9/15</span><span class="tc-w">四</span></div><div class="tc-main"><h3 class="tc-title">clipwww</h3><p class="tc-meta"><span>林口威秀</span><span>4DX 極爆</span><span class="num">12:25</span><span class="num">2張</span></p></div></article>
+            <article class="tc"><div class="tc-date"><span class="tc-y num">2016</span><span class="tc-md num">7/31</span><span class="tc-w">日</span></div><div class="tc-main"><h3 class="tc-title">clipwww</h3><p class="tc-meta"><span>林口威秀</span><span>4DX</span><span class="num">12:30</span><span class="num">1張</span></p></div></article>
+            <article class="tc"><div class="tc-date"><span class="tc-y num">2016</span><span class="tc-md num">7/9</span><span class="tc-w">六</span></div><div class="tc-main"><h3 class="tc-title">clipwww</h3><p class="tc-meta"><span>新竹威秀</span><span>4DX</span><span class="num">16:40</span><span class="num">1張</span></p></div></article>
+            <article class="tc"><div class="tc-date"><span class="tc-y num">2016</span><span class="tc-md num">6/5</span><span class="tc-w">日</span></div><div class="tc-main"><h3 class="tc-title">clipwww</h3><p class="tc-meta"><span>信義威秀</span><span>4DX</span><span class="num">10:00</span><span class="num">2張</span></p></div></article>
+            <article class="tc"><div class="tc-date"><span class="tc-y num">2016</span><span class="tc-md num">5/17</span><span class="tc-w">二</span></div><div class="tc-main"><h3 class="tc-title">clipwww</h3><p class="tc-meta"><span>信義威秀</span><span>4DX</span><span class="num">19:20</span><span class="num">1張</span></p></div></article>
+            <article class="tc"><div class="tc-date"><span class="tc-y num">2016</span><span class="tc-md num">5/13</span><span class="tc-w">五</span></div><div class="tc-main"><h3 class="tc-title">clipwww</h3><p class="tc-meta"><span>信義威秀</span><span>4DX</span><span class="num">19:20</span><span class="num">1張</span></p></div></article>
+          </div>
+
+          <p class="note"><b class="note-tag">和 B 部分的連結　</b>這十筆的 meta 行<b>沒有票價</b>，因為 <code>show_cost</code> 預設是 false。行就是短一截，沒有佔位符。這裡看到的正是 B 部分那個開關關著時的樣子。</p>
+        </section>
+
+        <section class="block">
+          <h2 class="sec-title">最常在哪看</h2>
+          <!-- 橫式 bar，不用圓餅圖（DS §5.2） -->
+          <div class="dist">
+            <div class="dist-row">
+              <div class="dist-bar">
+                <div class="dist-fill lead" style="width:50%"></div>
+                <div class="dist-label"><span>台北信義威秀影城</span><span class="num">5 場</span></div>
+              </div>
+              <p class="dist-note"><span class="num">15 廳</span>，紀錄裡寫的是「信義威秀」</p>
+            </div>
+            <div class="dist-row">
+              <div class="dist-bar">
+                <div class="dist-fill" style="width:30%"></div>
+                <div class="dist-label"><span>林口MITSUI OUTLET PARK威秀影城</span><span class="num">3 場</span></div>
+              </div>
+              <p class="dist-note"><span class="num">9 廳</span>，紀錄裡寫的是「林口威秀」</p>
+            </div>
+            <div class="dist-row">
+              <div class="dist-bar">
+                <div class="dist-fill" style="width:10%"></div>
+                <div class="dist-label"><span>大巨蛋秀泰影城</span><span class="num">1 場</span></div>
+              </div>
+              <p class="dist-note"><span class="num">12 廳</span>，紀錄裡寫的是「大巨蛋秀泰」</p>
+            </div>
+            <div class="dist-row">
+              <div class="dist-bar">
+                <div class="dist-fill" style="width:10%"></div>
+                <div class="dist-label"><span>新竹威秀</span><span class="num">1 場</span></div>
+              </div>
+              <p class="dist-note">還沒對應到官方影城</p>
+            </div>
+          </div>
+
+          <p class="note"><b class="note-tag">最長的影城名　</b>「林口MITSUI OUTLET PARK威秀影城」<span class="num">22</span> 個字，在 <span class="num">375px</span> 的長條裡照樣整串顯示（這正是不用圓餅圖的理由——圓餅標籤只分得到約 <span class="num">90px</span>）。</p>
+          <p class="note"><b class="note-tag">為什麼有一列沒有官方名　</b>使用者寫的是口語簡稱，<code>venues.json</code> 是官方全名，實測 <span class="num">169</span> 筆的直接命中率是 <b><span class="num">0%</span></b>，模糊比對還會猜錯（把「林口威秀」猜成「樹林秀泰影城」）。所以對應必須是使用者確認過的動作，不能自動綁定。「新竹威秀」同時可能是新竹大遠百威秀影城（<span class="num">11</span> 廳）或新竹巨城威秀影城（<span class="num">8</span> 廳）——猜不出來就誠實留白，不亂連。</p>
+        </section>
+      </div>
+    </section>
+  </section>
+
+  <hr class="rule">
+  <span class="rule-label">A 部分結束　／　B 部分開始</span>
+
+  <!-- ═══════════════ B 部分 ═══════════════ -->
+  <section class="part" id="part-b">
+    <div class="part-head">
+      <span class="part-tag">B</span>
+      <h2 class="part-title">票價隱私</h2>
+      <span class="part-sub">/app/settings　SCREENS §12　硬約束 (2)</span>
+    </div>
+    <p class="part-lede"><code>show_cost</code> 是一個全域、預設關閉、一翻就追溯套用全部歷史的布林。所以它不是設定清單裡的一個開關，它是一整個畫面。下面的預覽是活的，按鈕真的會動。</p>
+
+    <div class="split">
+      <div>
+        <!-- UPage -->
+        <article class="screen">
+          <div class="screen-chrome"><code>/app/settings</code><span class="screen-tag">B</span></div>
+          <div class="screen-body">
+
+            <!-- UPageCard：票價區塊獨立在最上方，跟其他項目有明顯的視覺分隔 -->
+            <section class="block">
+              <h2 class="sec-title">票價</h2>
+
+              <p class="prose" id="stateLine" aria-live="polite" style="margin-top:8px;">你的票價現在只有你看得到。</p>
+              <p class="prose">公開之後，任何人打開 <code>/u/clipwww</code> 都會看到你 <span class="num">169</span> 筆紀錄的每一筆票價，以及年度總花費。這會套用到你過去所有的紀錄，不只是之後新增的。</p>
+
+              <!-- 數字排成一行有量詞的句子，不做成 stat tile（DS §4.4） -->
+              <p class="statline" style="margin-top:16px;">你從 <span class="num">2014</span> 年記到現在，<span class="big">169</span> 場、<span class="big">243</span> 張票，花了 <span class="big">NT$5x,xxx</span></p>
+
+              <!-- 活的預覽：用使用者自己的真實紀錄渲染，不是示意圖 -->
+              <div class="preview" id="preview">
+                <div class="preview-head">
+                  <h3>別人會看到的樣子</h3>
+                  <span class="chip" id="previewState">票價沒有公開</span>
+                </div>
+                <div class="preview-body" id="previewBody">
+
+                  <!-- TicketCard × 6，全部是 David 的真實紀錄 -->
+                  <article class="tc">
+                    <div class="tc-date"><span class="tc-y num">2026</span><span class="tc-md num">7/26</span><span class="tc-w">日</span></div>
+                    <div class="tc-main">
+                      <h3 class="tc-title">劇場版 吉伊卡哇 人魚島的秘密</h3>
+                      <p class="tc-meta"><span>林口威秀</span><span>2D</span><span class="num">16:00</span><span class="num">2張</span><span class="num" data-price>NT$520</span></p>
+                    </div>
+                  </article>
+
+                  <article class="tc">
+                    <div class="tc-date"><span class="tc-y num">2026</span><span class="tc-md num">1/17</span><span class="tc-w">六</span></div>
+                    <div class="tc-main">
+                      <h3 class="tc-title">少女與戰車劇場版</h3>
+                      <p class="tc-meta"><span>大巨蛋秀泰</span><span>4DX 極爆</span><span class="num">10:00</span><span class="num">1張</span><span class="num" data-price>NT$570</span></p>
+                      <p class="tc-memo">第 12 次上映</p>
+                    </div>
+                  </article>
+
+                  <article class="tc">
+                    <div class="tc-date"><span class="tc-y num">2025</span><span class="tc-md num">9/14</span><span class="tc-w">日</span></div>
+                    <div class="tc-main">
+                      <h3 class="tc-title">電影版小林家的龍女僕：害怕寂寞的龍</h3>
+                      <p class="tc-meta"><span>林口威秀</span><span>2D</span><span class="num">12:10</span><span class="num">1張</span><span class="price-free" data-price>兌換</span></p>
+                      <p class="tc-memo">兌點票</p>
+                    </div>
+                  </article>
+
+                  <article class="tc">
+                    <div class="tc-date"><span class="tc-y num">2025</span><span class="tc-md num">8/8</span><span class="tc-w">五</span></div>
+                    <div class="tc-main">
+                      <h3 class="tc-title">劇場版「鬼滅之刃」無限城篇 第一章 猗窩座再襲</h3>
+                      <p class="tc-meta"><span>林口威秀</span><span>2D</span><span class="num">21:40</span><span class="num">1張</span><span class="num" data-price>NT$260</span></p>
+                    </div>
+                  </article>
+
+                  <article class="tc">
+                    <div class="tc-date"><span class="tc-y num">2022</span><span class="tc-md num">4/3</span><span class="tc-w">日</span></div>
+                    <div class="tc-main">
+                      <h3 class="tc-title">音速小子2</h3>
+                      <p class="tc-meta"><span>林口威秀</span><span>2D</span><span class="num">10:55</span><span class="num">2張</span><span class="price-free" data-price>免費</span></p>
+                      <p class="tc-memo">藝FUN券</p>
+                    </div>
+                  </article>
+
+                  <article class="tc">
+                    <div class="tc-date"><span class="tc-y num">2021</span><span class="tc-md num">1/24</span><span class="tc-w">日</span></div>
+                    <div class="tc-main">
+                      <h3 class="tc-title">喬瑟與虎與魚群</h3>
+                      <p class="tc-meta"><span>林口威秀</span><span>2D</span><span class="num">18:45</span><span class="num">1張</span><span class="price-free" data-price>免費</span></p>
+                      <p class="tc-memo">去年購買20張以上電影票，威秀回饋免費票</p>
+                    </div>
+                  </article>
+
+                  <!-- 彙總：show_cost = false 時整段從 DOM 移除，不是畫成 0、不是打馬賽克 -->
+                  <div id="aggregate" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--line);">
+                    <h4 class="block-label" style="margin-bottom:4px;">年度總花費</h4>
+                    <p class="statline"><span class="num">2026</span> 年看了 <span class="big">8</span> 場、<span class="big">11</span> 張票，花了 <span class="big">NT$3,130</span></p>
+                    <div class="table-scroll">
+                      <!-- UTable -->
+                      <table>
+                        <thead>
+                          <tr><th>年份</th><th class="n">場次</th><th class="n">張數</th><th class="n">花費</th></tr>
+                        </thead>
+                        <tbody>
+                          <tr><td class="num">2026</td><td class="n">8</td><td class="n">11</td><td class="n">NT$3,130</td></tr>
+                          <tr><td class="num">2025</td><td class="n">9</td><td class="n">13</td><td class="n">NT$3,130</td></tr>
+                          <tr><td class="num">2024</td><td class="n">18</td><td class="n">23</td><td class="n">NT$7,236</td></tr>
+                          <tr><td class="num">2023</td><td class="n">14</td><td class="n">16</td><td class="n">NT$3,735</td></tr>
+                          <tr><td class="num">2022</td><td class="n">9</td><td class="n">11</td><td class="n">NT$2,507</td></tr>
+                          <tr><td class="num">2021</td><td class="n">11</td><td class="n">16</td><td class="n">NT$3,808</td></tr>
+                          <tr><td class="num">2020</td><td class="n">19</td><td class="n">26</td><td class="n">NT$6,260</td></tr>
+                          <tr><td class="num">2019</td><td class="n">25</td><td class="n">37</td><td class="n">NT$7,910</td></tr>
+                          <tr><td class="num">2018</td><td class="n">13</td><td class="n">23</td><td class="n">NT$4,730</td></tr>
+                          <tr><td class="num">2017</td><td class="n">18</td><td class="n">30</td><td class="n">NT$5,980</td></tr>
+                          <tr><td class="num">2016</td><td class="n">20</td><td class="n">29</td><td class="n">NT$8,280</td></tr>
+                          <tr><td class="num">2015</td><td class="n">2</td><td class="n">5</td><td class="n">NT$0</td></tr>
+                          <tr><td class="num">2014</td><td class="n">3</td><td class="n">3</td><td class="n">NT$1,167</td></tr>
+                        </tbody>
+                        <tfoot>
+                          <tr><td>全部</td><td class="n">169</td><td class="n">243</td><td class="n">NT$5x,xxx</td></tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                    <p class="dist-note" style="margin-top:8px;"><span class="num">2015</span> 年那兩場都是國賓兌換票，所以整年是 <span class="num">NT$0</span>——這是真的資料，不是缺漏。</p>
+                  </div>
+
+                </div>
+              </div>
+
+              <div class="action-row">
+                <!-- UButton。刻意不是 USwitch：一翻就追溯公開 169 筆歷史，不該混在一排開關裡 -->
+                <button class="btn btn-primary" id="publishBtn" type="button">公開票價</button>
+                <p class="hint" id="publishHint">隨時可以收回。收回之後別人就看不到了。</p>
+              </div>
+
+              <p class="note"><b class="note-tag">兩種狀態都在這裡　</b>上面的預覽會跟著按鈕變。下面把兩種狀態並排放，不用切換也看得到差別。</p>
+
+              <!-- 兩種狀態並排，永遠同時可見 -->
+              <div class="compare">
+                <div class="compare-col">
+                  <h4>現在：票價沒有公開</h4>
+                  <article class="tc">
+                    <div class="tc-date"><span class="tc-y num">2026</span><span class="tc-md num">7/26</span><span class="tc-w">日</span></div>
+                    <div class="tc-main">
+                      <h3 class="tc-title">劇場版 吉伊卡哇 人魚島的秘密</h3>
+                      <p class="tc-meta"><span>林口威秀</span><span>2D</span><span class="num">16:00</span><span class="num">2張</span></p>
+                    </div>
+                  </article>
+                  <article class="tc">
+                    <div class="tc-date"><span class="tc-y num">2025</span><span class="tc-md num">9/14</span><span class="tc-w">日</span></div>
+                    <div class="tc-main">
+                      <h3 class="tc-title">電影版小林家的龍女僕：害怕寂寞的龍</h3>
+                      <p class="tc-meta"><span>林口威秀</span><span>2D</span><span class="num">12:10</span><span class="num">1張</span></p>
+                    </div>
+                  </article>
+                  <p class="dist-note" style="margin-top:8px;">meta 行到「<span class="num">2張</span>」就結束了。沒有年度總花費這一段。</p>
+                </div>
+                <div class="compare-col">
+                  <h4>公開之後：票價會出現</h4>
+                  <article class="tc">
+                    <div class="tc-date"><span class="tc-y num">2026</span><span class="tc-md num">7/26</span><span class="tc-w">日</span></div>
+                    <div class="tc-main">
+                      <h3 class="tc-title">劇場版 吉伊卡哇 人魚島的秘密</h3>
+                      <p class="tc-meta"><span>林口威秀</span><span>2D</span><span class="num">16:00</span><span class="num">2張</span><span class="num">NT$520</span></p>
+                    </div>
+                  </article>
+                  <article class="tc">
+                    <div class="tc-date"><span class="tc-y num">2025</span><span class="tc-md num">9/14</span><span class="tc-w">日</span></div>
+                    <div class="tc-main">
+                      <h3 class="tc-title">電影版小林家的龍女僕：害怕寂寞的龍</h3>
+                      <p class="tc-meta"><span>林口威秀</span><span>2D</span><span class="num">12:10</span><span class="num">1張</span><span class="price-free">兌換</span></p>
+                    </div>
+                  </article>
+                  <p class="dist-note" style="margin-top:8px;">第二筆的票價是 <span class="num">NT$0</span>，寫「兌換」，不是空白、也不是 <span class="num">NT$0</span>。</p>
+                </div>
+              </div>
+            </section>
+
+            <!-- 12.2 其他項目：跟票價區塊之間有明顯的視覺分隔 -->
+            <section class="block">
+              <h2 class="sec-title">帳號</h2>
+              <div style="margin-top:8px;">
+                <div class="setting-row">
+                  <div><span class="t">使用者名稱</span><span class="d">clipwww　改名之後舊網址會 301 到新的</span></div>
+                  <!-- UButton -->
+                  <button class="btn btn-sm" type="button">改名</button>
+                </div>
+                <div class="setting-row">
+                  <div><span class="t">匯出我的資料</span><span class="d">169 筆紀錄，JSON</span></div>
+                  <button class="btn btn-sm" type="button">匯出</button>
+                </div>
+                <div class="setting-row">
+                  <div><span class="t">刪掉帳號</span><span class="d">169 筆紀錄會一起刪掉，救不回來</span></div>
+                  <!-- UModal + UInput 打字確認 -->
+                  <button class="btn btn-sm danger" type="button">刪掉帳號</button>
+                </div>
+              </div>
+              <p class="note"><b class="note-tag">設計註記　</b>票價區塊在最上方、自己佔一整段；帳號這三項才是常見的設定列。票價不能混在這一排裡（SCREENS §12.2）。</p>
+            </section>
+
+          </div>
+        </article>
+      </div>
+
+      <!-- 註記欄 -->
+      <aside>
+        <div class="rulecard">
+          <h3>為什麼不是一個 USwitch</h3>
+          <div class="body">一般的設定開關只影響「之後」。這一個影響「過去」——按下去的那一刻，<span class="num">169</span> 筆紀錄、<span class="num">NT$5x,xxx</span> 的消費、<span class="num">13</span> 年的年度總花費，全部同時變成公開。翻之前必須看得到後果，所以預覽用的是使用者自己的真實紀錄，不是示意圖。</div>
+        </div>
+        <div class="rulecard">
+          <h3>文案</h3>
+          <div class="body">按鈕寫「公開票價」——主動語態，說出會發生什麼事，不寫「啟用」也不寫「開啟票價功能」。關掉的動作寫「收回票價」，前後一致。</div>
+        </div>
+        <div class="rulecard">
+          <h3>UI 擋不住，要 RLS 擋</h3>
+          <div class="body"><code>/u/[username]</code> 這種 SSR 路由會另外產生 <code>_payload.json</code>。票價如果只用 <code>v-if</code> 藏起來，HTML 看不到，payload 還是會被快取而且公開可讀。驗收方式是對那份 payload 跑 <code>grep -c '"cost"'</code>，結果必須是 <b><span class="num">0</span></b>。</div>
+        </div>
+        <div class="rulecard">
+          <h3>自己永遠看得到</h3>
+          <div class="body">這個開關只管「別人看不看得到」。<code>/app</code> 儀表板上的花費統計不受影響——上面那個 <span class="num">NT$5x,xxx</span> 一直都在，因為那是你自己的頁面。</div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- ── 四條規則 ── -->
+    <h3 class="sec-title" style="margin-top:40px;">四條規則</h3>
+
+    <div class="rulegrid">
+      <div class="rulecard">
+        <h3><span class="n-badge num">1</span>記錄不等於公開</h3>
+        <div class="body">
+          <p>表單永遠可以填票價，這個開關只管「發佈」。不講清楚，使用者會以為關著就不能記帳。</p>
+          <!-- UForm + UFormField + UInput -->
+          <div class="field" style="margin-top:12px;">
+            <label for="priceInput">票價</label>
+            <div class="input-wrap">
+              <span class="prefix">NT$</span>
+              <input id="priceInput" type="text" inputmode="numeric" value="260" autocomplete="off">
+            </div>
+            <p class="help">票價一直都可以記，這個開關只管要不要公開。</p>
+          </div>
+          <p class="note"><b class="note-tag">要檢查的　</b>把上面的按鈕切成「票價沒有公開」，這個欄位<b>不會</b>變灰、不會消失、也不會多出一行警告。它跟開關完全無關。</p>
+        </div>
+      </div>
+
+      <div class="rulecard">
+        <h3><span class="n-badge num">2</span>隱藏時不留佔位</h3>
+        <div class="body">
+          <p>票價是 meta 行的最後一項。被擋掉時那一行就是短一截。</p>
+          <div style="margin-top:12px;">
+            <p class="block-label">要的樣子</p>
+            <article class="tc">
+              <div class="tc-date"><span class="tc-y num">2026</span><span class="tc-md num">6/20</span><span class="tc-w">六</span></div>
+              <div class="tc-main">
+                <h3 class="tc-title">玩具總動員5</h3>
+                <p class="tc-meta"><span>林口威秀</span><span>2D</span><span class="num">22:10</span><span class="num">2張</span></p>
+              </div>
+            </article>
+          </div>
+          <div style="margin-top:12px;">
+            <p class="block-label"><span class="dont-tag">不這樣做</span></p>
+            <div class="dont">
+              <article class="tc" style="background:transparent;border:0;">
+                <div class="tc-date"><span class="tc-y num">2026</span><span class="tc-md num">6/20</span><span class="tc-w">六</span></div>
+                <div class="tc-main">
+                  <h3 class="tc-title">玩具總動員5</h3>
+                  <p class="tc-meta"><span>林口威秀</span><span>2D</span><span class="num">22:10</span><span class="num">2張</span><span>NT$ ———</span></p>
+                </div>
+              </article>
+              <p style="margin-top:8px;">畫一條底線等於公告「這裡有一個價格」，反而洩漏了「這個人有記帳」。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="rulecard">
+        <h3><span class="n-badge num">3</span>彙總必須跟著消失</h3>
+        <div class="body">
+          <p>「年度總花費」「平均票價」這類彙總在票價沒有公開時<b>整個章節不存在</b>——不是畫成 <span class="num">0</span>、不是打馬賽克、不是「已隱藏」四個字。</p>
+          <p style="margin-top:8px;">理由是算術：<span class="num">2026</span> 年公開了「<span class="num">8</span> 場、<span class="num">NT$3,130</span>」，就算每一筆票價都藏起來，<span class="num">3,130 ÷ 8 ≈ 391</span>；再配上公開的張數（<span class="num">11</span> 張）就是 <span class="num">3,130 ÷ 11 ≈ 285</span>。<span class="num">2015</span> 年只有 <span class="num">2</span> 場，除下去幾乎等於直接把票價印出來。隱私會變成假的。</p>
+          <p class="note"><b class="note-tag">怎麼驗　</b>把上面的預覽切成「票價沒有公開」，然後在 DevTools 找 <code>#aggregate</code>——那個節點是真的被移除，不是 <code>display: none</code>。正式環境更前面一層：那些欄位根本不會離開資料庫。</p>
+        </div>
+      </div>
+
+      <div class="rulecard">
+        <h3><span class="n-badge num">4</span>NT$0 不等於隱藏</h3>
+        <div class="body">
+          <p><span class="num">169</span> 筆裡有 <span class="num">16</span> 筆的 <code>cost</code> 是 <span class="num">0</span>，全部是兌點票、公關票或免費場。它們跟「已隱藏」在視覺上必須完全不同。三種狀態長這樣：</p>
+          <div style="margin-top:12px;">
+            <article class="tc">
+              <div class="tc-date"><span class="tc-y num">2019</span><span class="tc-md num">12/11</span><span class="tc-w">三</span></div>
+              <div class="tc-main">
+                <h3 class="tc-title">普羅米亞</h3>
+                <p class="tc-meta"><span>林口威秀</span><span>4DX</span><span class="num">20:20</span><span class="num">1張</span><span class="price-free">兌換</span></p>
+                <p class="tc-memo">累積點兌換</p>
+              </div>
+            </article>
+            <article class="tc">
+              <div class="tc-date"><span class="tc-y num">2017</span><span class="tc-md num">3/10</span><span class="tc-w">五</span></div>
+              <div class="tc-main">
+                <h3 class="tc-title">電影版聲之形</h3>
+                <p class="tc-meta"><span>西門 in89</span><span>2D</span><span class="num">12:30</span><span class="num">1張</span><span class="price-free">免費</span></p>
+                <p class="tc-memo">巴哈特映票</p>
+              </div>
+            </article>
+            <article class="tc">
+              <div class="tc-date"><span class="tc-y num">2026</span><span class="tc-md num">4/28</span><span class="tc-w">二</span></div>
+              <div class="tc-main">
+                <h3 class="tc-title">極限返航</h3>
+                <p class="tc-meta"><span>林口威秀</span><span>2D</span><span class="num">22:00</span><span class="num">1張</span></p>
+              </div>
+            </article>
+          </div>
+          <div class="legend-row" style="margin-top:12px;">
+            <span><span class="price-free">兌換</span> memo 裡有兌點、累積點、兌換票</span>
+            <span><span class="price-free">免費</span> 其餘的 <span class="num">NT$0</span>：公關票、特映、回饋免費票</span>
+            <span>第三筆什麼都沒有：被擋掉，或根本沒填</span>
+          </div>
+          <p class="note"><b class="note-tag">設計註記　</b>「被擋掉」與「沒填」長得一樣是可以接受的——外人本來就不該分辨得出這兩者。但「<span class="num">NT$0</span>」跟這兩者一定要分得出來，因為那是一筆有意義的資訊：這場是免費的。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- AttributionFooter：DS §9，法遵元件不是禮貌，是授權生效要件 -->
+  <footer style="margin-top:64px;padding-top:24px;border-top:1px solid var(--line);font-size:13px;line-height:1.75;color:var(--fg-2);">
+    <p style="color:var(--fg-1);font-size:16px;line-height:1.45;font-weight:700;">影記 filmnote</p>
+    <p style="margin-top:8px;max-width:var(--measure);">本網站使用文化部影視及流行音樂產業局「電影片分級及相關資訊」與「全國電影院資料」，依政府資料開放授權條款第 1 版提供。</p>
+    <p style="margin-top:8px;max-width:var(--measure);font-size:12px;line-height:1.5;">This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
+    <p style="margin-top:8px;">
+      <a href="#part-a">使用條款</a>　<a href="#part-a">隱私權</a>　<a href="#part-a">著作權</a>　<a href="#part-a">DMCA</a>
+    </p>
+    <p class="note"><b class="note-tag">設計註記　</b>TMDB 聲明的視覺份量小於本站標誌（TMDB 條款要求），所以它是 <span class="num">12px</span>，站名是 <span class="num">16px</span> 粗體。上面四個連結在正式站分別連向 /legal/terms、/legal/privacy、/legal/copyright、/legal/dmca。</p>
+  </footer>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ── 明暗模式 ────────────────────────────────────────── */
+  var root = document.documentElement;
+  var toggle = document.getElementById('modeToggle');
+  function syncToggleLabel() {
+    var dark = root.classList.contains('dark');
+    toggle.textContent = dark ? '切成亮色' : '切成暗色';
+    toggle.setAttribute('aria-label', dark ? '切換成亮色模式' : '切換成暗色模式');
+  }
+  syncToggleLabel();
+  toggle.addEventListener('click', function () {
+    var dark = root.classList.contains('dark');
+    root.classList.remove('dark', 'light');
+    root.classList.add(dark ? 'light' : 'dark');
+    try { localStorage.setItem('filmnote-mode', dark ? 'light' : 'dark'); } catch (e) {}
+    syncToggleLabel();
+  });
+
+  /* ── 海報降級：404 時整欄消失，不留破圖 ───────────────── */
+  function degradePoster(img) {
+    var fig = img.closest('.poster');
+    if (fig && fig.parentNode) { fig.parentNode.removeChild(fig); }
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('img[data-fallback]'), function (img) {
+    img.addEventListener('error', function () { degradePoster(img); });
+    if (img.complete && img.naturalWidth === 0) { degradePoster(img); }
+  });
+  var breakBtn = document.getElementById('breakPoster');
+  if (breakBtn) {
+    breakBtn.addEventListener('click', function () {
+      var fig = document.getElementById('a1-poster');
+      var img = fig && fig.querySelector('img');
+      if (img) { img.src = 'https://image.tmdb.org/t/p/w342/this-path-does-not-exist.jpg'; }
+      breakBtn.disabled = true;
+      breakBtn.textContent = '海報欄已移除，卡片自然變寬';
+    });
+  }
+
+  /* ── 收合：核准紀錄 ──────────────────────────────────── */
+  Array.prototype.forEach.call(document.querySelectorAll('.disclosure'), function (btn) {
+    var target = document.getElementById(btn.getAttribute('aria-controls'));
+    if (!target) { return; }
+    var closedLabel = btn.textContent;
+    btn.addEventListener('click', function () {
+      var open = btn.getAttribute('aria-expanded') === 'true';
+      btn.setAttribute('aria-expanded', open ? 'false' : 'true');
+      target.hidden = open;
+      btn.textContent = open ? closedLabel : '收起來';
+    });
+  });
+
+  /* ── 票價隱私：show_cost ─────────────────────────────── */
+  var showCost = false;
+  var publishBtn = document.getElementById('publishBtn');
+  var publishHint = document.getElementById('publishHint');
+  var stateLine = document.getElementById('stateLine');
+  var previewState = document.getElementById('previewState');
+  var previewBody = document.getElementById('previewBody');
+
+  /* 票價節點與彙總區塊都是「真的從 DOM 移除」，不是 display:none。
+     正式站更前面一層：RLS 直接不回傳這些欄位，payload 裡也不會有。 */
+  var priceNodes = Array.prototype.map.call(
+    previewBody.querySelectorAll('[data-price]'),
+    function (el) { return { el: el, parent: el.parentNode }; }
+  );
+  var aggregateEl = document.getElementById('aggregate');
+  var aggregateParent = aggregateEl.parentNode;
+
+  function render() {
+    priceNodes.forEach(function (n) {
+      if (showCost) {
+        if (!n.el.parentNode) { n.parent.appendChild(n.el); }
+      } else if (n.el.parentNode) {
+        n.el.parentNode.removeChild(n.el);
+      }
+    });
+
+    if (showCost) {
+      if (!aggregateEl.parentNode) { aggregateParent.appendChild(aggregateEl); }
+    } else if (aggregateEl.parentNode) {
+      aggregateEl.parentNode.removeChild(aggregateEl);
+    }
+
+    publishBtn.textContent = showCost ? '收回票價' : '公開票價';
+    publishHint.textContent = showCost
+      ? '現在任何人都看得到這 169 筆的票價。隨時可以收回，收回之後別人就看不到了。'
+      : '隨時可以收回。收回之後別人就看不到了。';
+    stateLine.textContent = showCost
+      ? '你的票價現在是公開的，過去 169 筆全部都是。'
+      : '你的票價現在只有你看得到。';
+    previewState.textContent = showCost ? '票價已公開' : '票價沒有公開';
+    previewState.className = showCost ? 'chip chip-on' : 'chip';
+  }
+
+  publishBtn.addEventListener('click', function () {
+    showCost = !showCost;
+    render();
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

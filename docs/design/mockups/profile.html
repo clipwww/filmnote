@@ -1,0 +1,794 @@
+<!doctype html>
+<!--
+  影記 / filmnote — /u/clipwww 公開個人頁 mockup
+  對應 docs/design/SCREENS.md §2、docs/design/DESIGN_SYSTEM.md §1–§9
+  資料：David 的 169 筆真實紀錄（fixture.json）+ .data/films.json + .data/venues.json
+        海報路徑取自 TMDB API，圖檔一律熱連結 image.tmdb.org（DESIGN_SYSTEM §9）
+  這是靜態原型：無框架、無建置步驟、除海報外無外部請求。
+-->
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>影記 clipwww</title>
+<style>
+/* hidden 屬性只是 UA 樣式的 display:none，任何作者端 display 宣告都會蓋掉它 */
+[hidden] { display: none !important; }
+
+/* ─────────────────────────────────────────────────────────────
+   §1 色彩 — 亮色（紙）為基準，.dark 只覆寫語意 token
+   ───────────────────────────────────────────────────────────── */
+:root {
+  /* §1.1 中性軸：紙與墨 */
+  --paper-0: #FCFBF8;  --paper-1: #F6F4EE;  --paper-2: #EDEAE3;  --paper-3: #DEDACF;
+  --ink-0:   #171512;  --ink-1:   #4A453D;  --ink-2:   #6E675C;  --ink-3:   #8C8477;
+  /* §1.1 暗色組（在 .dark 才會被指派） */
+  --dark-0:  #12110F;  --dark-1:  #1C1A17;  --dark-2:  #2A2621;  --dark-3:  #3D3830;
+  --dim-0:   #F2EFE8;  --dim-1:   #C4BDB0;  --dim-2:   #A8A196;  --dim-3:   #787164;
+  /* §1.2 重點色：琥珀（單一） */
+  --color-amber-50:  #FBF6E4;  --color-amber-100: #F6EBC2;  --color-amber-200: #EBD68C;
+  --color-amber-300: #DEBE52;  --color-amber-400: #C9A62B;  --color-amber-500: #AD8A14;
+  --color-amber-600: #8A6800;  --color-amber-700: #6E5303;  --color-amber-800: #584209;
+  --color-amber-900: #48360C;  --color-amber-950: #2A1F05;
+
+  /* 語意層（唯一被元件使用的名字） */
+  --bg:      var(--paper-0);
+  --surface: var(--paper-1);
+  --sunken:  var(--paper-2);
+  --line:    var(--paper-3);
+  --text-0:  var(--ink-0);
+  --text-1:  var(--ink-1);
+  --text-2:  var(--ink-2);
+  --text-3:  var(--ink-3);
+  --accent:      var(--color-amber-600);
+  --accent-soft: var(--color-amber-50);
+  --accent-on:   #FFFFFF;
+
+  /* §1.3 序列色階：墨階（亮色） */
+  --heat-0: #EDEAE3;  --heat-1: #D6D0C4;  --heat-2: #B3AB9B;  --heat-3: #8C8477;
+  --heat-4: #615B50;  --heat-5: #3A362F;  --heat-6: #171512;
+
+  /* §2.2 字型堆疊：拉丁與數字交給 Inter，漢字交給平台 */
+  --font-sans: 'Inter', 'PingFang TC', 'Noto Sans CJK TC', 'Noto Sans TC',
+               'Microsoft JhengHei', 'Source Han Sans TC', sans-serif;
+  /* §2.3 原文片名有自己的堆疊 */
+  --font-orig: 'Inter', 'PingFang TC', 'Hiragino Sans', 'Noto Sans JP',
+               'Apple SD Gothic Neo', 'Noto Sans KR', 'Noto Sans Thai', sans-serif;
+
+  /* §3 空間與形狀 */
+  --radius-chip: 2px;  --radius-card: 4px;  --radius-poster: 3px;
+  --pad: 12px;
+
+  /* 年表格子（§2.1 SCREENS：桌機 8px、手機 5px，間距皆 2px） */
+  --cell: 8px;  --cell-gap: 2px;
+  --week-start: 0;              /* 0 = 週日起始（台灣慣例，§5.4） */
+}
+
+/* 暗色：不是把亮色反相，是換一組（§1.1、§7） */
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --bg: var(--dark-0);  --surface: var(--dark-1);  --sunken: var(--dark-2);  --line: var(--dark-3);
+    --text-0: var(--dim-0);  --text-1: var(--dim-1);  --text-2: var(--dim-2);  --text-3: var(--dim-3);
+    --accent: var(--color-amber-400);  --accent-soft: var(--color-amber-950);  --accent-on: var(--ink-0);
+    --heat-0: #1F1D19;  --heat-1: #2E2B25;  --heat-2: #454037;  --heat-3: #615B50;
+    --heat-4: #8C8477;  --heat-5: #B3AB9B;  --heat-6: #E4DFD4;
+  }
+}
+:root.dark {
+  --bg: var(--dark-0);  --surface: var(--dark-1);  --sunken: var(--dark-2);  --line: var(--dark-3);
+  --text-0: var(--dim-0);  --text-1: var(--dim-1);  --text-2: var(--dim-2);  --text-3: var(--dim-3);
+  --accent: var(--color-amber-400);  --accent-soft: var(--color-amber-950);  --accent-on: var(--ink-0);
+  --heat-0: #1F1D19;  --heat-1: #2E2B25;  --heat-2: #454037;  --heat-3: #615B50;
+  --heat-4: #8C8477;  --heat-5: #B3AB9B;  --heat-6: #E4DFD4;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   基礎
+   ───────────────────────────────────────────────────────────── */
+* { box-sizing: border-box; }
+:root { color-scheme: light; }
+@media (prefers-color-scheme: dark) { :root:not(.light) { color-scheme: dark; } }
+:root.dark { color-scheme: dark; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text-0);
+  font-family: var(--font-sans);
+  font-feature-settings: 'cv05', 'ss01';   /* Inter 專屬；漢字不受影響 */
+  font-size: 16px;
+  line-height: 1.75;                        /* §2.4 內文 */
+  line-break: strict;                       /* §2.5 */
+  overflow-x: clip;                         /* §10 頁面永遠不橫向捲動（clip 不建立捲動容器，sticky 不受影響） */
+  -webkit-text-size-adjust: 100%;
+}
+h1, h2, h3, p, dl, dd, figure { margin: 0; }
+ul { margin: 0; padding: 0; list-style: none; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+img { max-width: 100%; display: block; }
+button { font: inherit; color: inherit; }
+:focus-visible {                            /* §10 琥珀 focus ring，2px offset */
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+.num { font-variant-numeric: tabular-nums; }   /* §10 數字一律 tabular-nums */
+.wrap { max-width: 880px; margin: 0 auto; padding: 0 var(--pad); }
+
+/* ─────────────────────────────────────────────────────────────
+   Header（UHeader）
+   ───────────────────────────────────────────────────────────── */
+.site-head { border-bottom: 1px solid var(--line); background: var(--bg); }
+.site-head .wrap { display: flex; align-items: center; justify-content: space-between; height: 56px; }
+/* §2.6 品牌字以 inline SVG 路徑輸出，不依賴任何字型 */
+.wordmark { display: flex; align-items: center; gap: 8px; color: var(--text-0); }
+.wordmark svg { height: 22px; width: auto; fill: currentColor; }
+.wordmark .latin { font-size: 13px; line-height: 1.5; color: var(--text-2); }
+.btn {
+  border: 1px solid var(--line); background: var(--surface); color: var(--text-0);
+  border-radius: var(--radius-card); padding: 5px 14px; font-size: 14px; line-height: 1.5;
+  cursor: pointer;
+}
+.btn:hover { background: var(--sunken); }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-on); }
+.btn-primary:hover { background: var(--accent); }
+
+/* ─────────────────────────────────────────────────────────────
+   個人頁抬頭
+   ───────────────────────────────────────────────────────────── */
+.profile { padding: 28px 0 20px; }
+.profile h1 { font-size: 28px; line-height: 1.35; font-weight: 600; font-feature-settings: 'palt' 1; }
+.profile .sub { font-size: 13px; line-height: 1.5; color: var(--text-2); margin-top: 2px; }
+
+/* ─────────────────────────────────────────────────────────────
+   §4.2 YearStrip — 自製元件。一列一年，一格一週（53 格）
+   ───────────────────────────────────────────────────────────── */
+.strip-block { padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+.strip-scroll { overflow-x: auto; overflow-y: hidden; }
+.strip { width: max-content; }
+.strip-row {
+  display: grid;
+  grid-template-columns: 10px 38px auto 30px;
+  grid-template-areas: "marker year cells total";
+  align-items: center;
+  column-gap: 8px;
+  border-left: 2px solid transparent;   /* 選取時換成琥珀，不造成位移 */
+  padding: 1px 0 1px 4px;
+  cursor: pointer;
+}
+.strip-row:hover .strip-year { color: var(--text-0); }
+.strip-marker { grid-area: marker; font-size: 11px; line-height: 1; color: transparent; }
+.strip-year { grid-area: year; font-size: 12px; line-height: 1.5; color: var(--text-2); }
+.strip-total { grid-area: total; font-size: 12px; line-height: 1.5; color: var(--text-2); text-align: right; }
+.strip-row[aria-selected="true"] { border-left-color: var(--accent); }
+.strip-row[aria-selected="true"] .strip-marker { color: var(--accent); }
+.strip-row[aria-selected="true"] .strip-year,
+.strip-row[aria-selected="true"] .strip-total { color: var(--text-0); font-weight: 600; }
+.strip-cells {
+  grid-area: cells;
+  display: grid; grid-template-columns: repeat(53, var(--cell)); gap: var(--cell-gap);
+}
+.strip-cells i { width: var(--cell); height: var(--cell); border-radius: 1px; background: var(--heat-0); }
+.strip-cells i.v1 { background: var(--heat-4); }
+.strip-cells i.v2 { background: var(--heat-6); }
+.strip-cells i.v3 { background: var(--heat-6); }
+.strip-axis {
+  display: grid;
+  grid-template-columns: 10px 38px auto 30px;
+  grid-template-areas: "marker year cells total";
+  column-gap: 8px;
+  padding-left: 6px; margin-top: 4px;
+}
+.strip-axis .months {
+  grid-area: cells;
+  display: grid; grid-template-columns: repeat(53, var(--cell)); gap: var(--cell-gap);
+}
+.strip-axis .months span { font-size: 11px; line-height: 1.5; color: var(--text-2); white-space: nowrap; }
+.strip-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-top: 12px; }
+.legend { display: flex; align-items: center; gap: 8px; font-size: 12px; line-height: 1.5; color: var(--text-2); }
+.legend span { display: inline-flex; align-items: center; gap: 4px; }
+.legend i { width: 8px; height: 8px; border-radius: 1px; display: inline-block; }
+details.table-fallback { font-size: 12px; line-height: 1.5; color: var(--text-2); }
+details.table-fallback summary { cursor: pointer; }
+details.table-fallback table { border-collapse: collapse; margin-top: 8px; }
+details.table-fallback th, details.table-fallback td {
+  border: 1px solid var(--line); padding: 2px 10px; text-align: right; font-weight: 400; color: var(--text-1);
+}
+details.table-fallback th:first-child, details.table-fallback td:first-child { text-align: left; }
+
+/* ─────────────────────────────────────────────────────────────
+   §4.4 StatLine — 一行有量詞的句子，不是 stat tile
+   ───────────────────────────────────────────────────────────── */
+.toolbar {
+  display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+  gap: 12px; padding: 18px 0; border-bottom: 1px solid var(--line);
+}
+.statline { font-size: 16px; line-height: 1.75; color: var(--text-2); }
+.statline .n {
+  font-size: 24px;                   /* 1.5× 內文，§4.4 */
+  line-height: 1; font-weight: 600; color: var(--text-0);
+  font-variant-numeric: tabular-nums;
+}
+.viewtoggle { display: flex; border: 1px solid var(--line); border-radius: var(--radius-card); overflow: hidden; }
+.viewtoggle button {
+  background: transparent; border: 0; color: var(--text-2);
+  padding: 4px 14px; font-size: 14px; line-height: 1.5; cursor: pointer;
+}
+.viewtoggle button + button { border-left: 1px solid var(--line); }
+.viewtoggle button[aria-selected="true"] { background: var(--sunken); color: var(--text-0); font-weight: 600; }
+
+/* ─────────────────────────────────────────────────────────────
+   §4.3 TicketCard — 全站主要物件
+   ───────────────────────────────────────────────────────────── */
+.ledger { padding: 4px 0 40px; }
+.month-h {
+  position: sticky; top: 0; z-index: 2;
+  background: var(--bg); border-bottom: 1px solid var(--line);
+  font-size: 13px; line-height: 1.5; font-weight: 600; color: var(--text-1);
+  padding: 10px 0 6px; margin-top: 12px;
+}
+.cards { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.tc {
+  display: grid; grid-template-columns: 44px minmax(0, 1fr) auto;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-card);
+  overflow: hidden;
+}
+.tc-date {
+  background: var(--sunken); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 10px 0;
+}
+.tc-date .d { font-size: 18px; line-height: 1.2; font-weight: 600; color: var(--text-0); font-variant-numeric: tabular-nums; }
+.tc-date .wd { font-size: 12px; line-height: 1.5; color: var(--text-2); }
+.tc-body { padding: 10px 14px; min-width: 0; }
+.title-zh {
+  font-size: 16px; line-height: 1.45; font-weight: 600; color: var(--text-0);
+  font-feature-settings: 'palt' 1; word-break: auto-phrase; overflow-wrap: anywhere;
+}
+.title-original {
+  font-family: var(--font-orig);
+  font-size: 13px; line-height: 1.5; color: var(--text-2); overflow-wrap: anywhere;
+}
+.tc-meta { font-size: 13px; line-height: 1.5; color: var(--text-1); margin-top: 2px; }
+.tc-poster { width: 54px; height: auto; object-fit: cover; align-self: stretch; background: var(--sunken); }
+
+/* ─────────────────────────────────────────────────────────────
+   網格模式：海報磚 與 票根磚（兩種正當的物件，§0 / §4.3）
+   ───────────────────────────────────────────────────────────── */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 12px; }
+.tile { aspect-ratio: 2 / 3; border-radius: var(--radius-poster); overflow: hidden; }
+.tile.poster { background: var(--sunken); border: 1px solid var(--line); }
+.tile.poster img { width: 100%; height: 100%; object-fit: cover; }
+.tile.ticket {
+  background: var(--surface); border: 1px solid var(--line);
+  display: flex; flex-direction: column; padding: 10px 10px 0;
+}
+.tt-title {
+  font-weight: 600; color: var(--text-0); font-feature-settings: 'palt' 1;
+  word-break: auto-phrase; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; overflow: hidden;
+  flex: 0 1 auto; min-height: 0;   /* 片名過長時裁切自己，不把欄位擠出磚外 */
+}
+.tt-xl { font-size: 30px; line-height: 1.25; }
+.tt-lg { font-size: 24px; line-height: 1.3; }
+.tt-md { font-size: 19px; line-height: 1.35; }
+.tt-sm { font-size: 15px; line-height: 1.45; }
+.tt-xs { font-size: 12px; line-height: 1.5; }
+.tt-original {
+  font-family: var(--font-orig); font-size: 12px; line-height: 1.5; color: var(--text-2);
+  margin-top: 4px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  flex: 0 1 auto; min-height: 0;
+}
+.tt-fields { margin-top: auto; flex: none; }
+.tt-fields div { display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid var(--line); padding: 3px 0; }
+.tt-fields dt { font-size: 12px; line-height: 1.5; color: var(--text-2); }
+.tt-fields dd { font-size: 12px; line-height: 1.5; color: var(--text-0); font-variant-numeric: tabular-nums; }
+.tt-rec { border-top: 1px solid var(--line); font-size: 12px; line-height: 1.5; color: var(--text-2);
+  padding: 4px 0 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none; }
+
+/* ─────────────────────────────────────────────────────────────
+   mockup 註記（不屬於產品頁面）
+   ───────────────────────────────────────────────────────────── */
+.note { border: 1px solid var(--line); border-radius: var(--radius-card); padding: 16px; margin: 0 0 40px; background: var(--surface); }
+.note > h2 { font-size: 20px; line-height: 1.4; font-weight: 600; }
+.note > p, .note > ul > li { font-size: 13px; line-height: 1.75; color: var(--text-1); max-width: 34ch; }
+.note > ul { margin-top: 8px; }
+.note > ul > li { position: relative; padding-left: 16px; }
+.note > ul > li::before { content: '—'; position: absolute; left: 0; color: var(--text-3); }
+.note .stress-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin: 12px 0 16px; max-width: 480px; }
+.note > h3 { font-size: 13px; line-height: 1.5; font-weight: 600; color: var(--text-2); margin-top: 16px; }
+.note code {
+  font-family: var(--font-sans); font-size: 12px; line-height: 1.5;
+  background: var(--sunken); color: var(--text-0);
+  border-radius: var(--radius-chip); padding: 0 4px;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   §9 AttributionFooter — 授權生效要件
+   ───────────────────────────────────────────────────────────── */
+.site-foot { border-top: 1px solid var(--line); background: var(--surface); padding: 24px 0 40px; }
+.site-foot p, .site-foot li { font-size: 12px; line-height: 1.75; color: var(--text-2); max-width: 34ch; }
+.site-foot .tmdb { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+/* TMDB logo 的視覺份量必須小於本站標誌（§9）：本站字標 22px，此處 11px */
+.tmdb-logo { height: 11px; width: auto; }
+.foot-links { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
+.foot-links a { font-size: 12px; line-height: 1.75; }
+
+/* 主題切換（mockup 用；產品由 @nuxtjs/color-mode 提供，§7） */
+.theme-toggle {
+  position: fixed; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom));
+  z-index: 10; border: 1px solid var(--line); background: var(--surface); color: var(--text-1);
+  border-radius: var(--radius-card); padding: 5px 10px; font-size: 12px; line-height: 1.5; cursor: pointer;
+}
+.theme-toggle:hover { background: var(--sunken); }
+
+/* §6 動態：尊重 prefers-reduced-motion（本頁本來就沒有進場動畫） */
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ─────────────────────────────────────────────────────────────
+   手機（375px 基準）
+   ───────────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  /* 年表格子縮到 5px：53×5 + 52×2 = 369px。
+     全出血（margin-inline: -12px）讓捲動容器等於視窗寬 375px，
+     左右各留 3px：3 + 369 + 3 = 375，剛好不需要橫向捲動。
+     因此手機上的列不能再有左側縮排，選取態改用 §1.2 已驗證的琥珀底色。 */
+  :root { --cell: 5px; }
+  .strip-scroll { margin-inline: calc(0px - var(--pad)); padding-inline: 3px; }
+  .strip-row {
+    grid-template-columns: 10px 38px minmax(0, 1fr);
+    grid-template-areas: "marker year total" "cells cells cells";
+    row-gap: 2px; padding: 3px 0; border-left: 0;
+  }
+  .strip-row[aria-selected="true"] { background: var(--accent-soft); }
+  .strip-axis { grid-template-columns: minmax(0, 1fr); grid-template-areas: "cells"; padding-left: 0; }
+  .tc-poster { width: 48px; }   /* §2.3 手機海報欄縮到 48px */
+  .grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+}
+@media (min-width: 641px) { :root { --pad: 32px; } }
+</style>
+</head>
+<body>
+
+<!-- UButton（icon-only 之外仍給文字，§10） -->
+<button class="theme-toggle" id="themeToggle" type="button" aria-pressed="false">暗色</button>
+
+<!-- USlideover/UHeader 對應區：站台頁首 -->
+<header class="site-head">
+  <div class="wrap">
+    <a class="wordmark" href="/" aria-label="影記 首頁">
+      <!-- §2.6 「影記」二字以 inline SVG 路徑輸出，零位元組、跨平台一致 -->
+      <svg viewBox="60 -840 1900 920" role="img" aria-label="影記">
+        <g transform="scale(1,-1)">
+          <path d="M866 808L893 796Q860 754 815.5 711Q771 668 723 630.5Q675 593 629 566Q625 571 618.5 576.5Q612 582 605 586Q651 612 699.5 648.5Q748 685 791.5 726.5Q835 768 866 808ZM907 539L934 527Q898 481 846.5 435.5Q795 390 738 351Q681 312 626 284Q622 289 616 295.5Q610 302 604 306Q659 333 715.5 370.5Q772 408 822 451.5Q872 495 907 539ZM930 241L957 229Q917 170 858 114Q799 58 729.5 11.5Q660 -35 587 -66Q583 -61 577 -55Q571 -49 566 -45Q639 -14 708 31Q777 76 834.5 130Q892 184 930 241ZM72 456L579 456L579 426L72 426ZM156 328L156 213L507 213L507 328ZM127 358L536 358L536 183L127 183ZM432 131L456 144Q485 113 513.5 75Q542 37 557 11L533 -6Q518 22 489.5 60.5Q461 99 432 131ZM155 653L155 568L515 568L515 653ZM155 766L155 682L515 682L515 766ZM126 795L544 795L544 538L126 538ZM317 195L346 195L346 -18Q346 -34 341.5 -42Q337 -50 324 -55Q311 -59 284.5 -60Q258 -61 214 -61Q213 -54 209.5 -46.5Q206 -39 201 -32Q241 -33 267 -33Q293 -33 302 -32Q312 -32 314.5 -29Q317 -26 317 -19ZM173 141L202 134Q183 91 153.5 49Q124 7 92 -22Q90 -20 85.5 -16.5Q81 -13 76 -9.5Q71 -6 67 -4Q100 25 127.5 62.5Q155 100 173 141ZM282 518L308 527Q321 510 334 486Q347 462 354 444L328 433Q321 450 308 474.5Q295 499 282 518Z"/>
+          <path d="M1520 439L1868 439L1868 410L1520 410ZM1510 439L1539 439L1539 32Q1539 5 1553 -4Q1567 -13 1613 -13Q1624 -13 1655 -13Q1686 -13 1724.5 -13Q1763 -13 1796 -13Q1829 -13 1844 -13Q1875 -13 1890 0.5Q1905 14 1911 53.5Q1917 93 1919 170Q1924 167 1929 164Q1934 161 1939 159Q1944 157 1949 156Q1946 77 1937.5 34Q1929 -9 1907.5 -25.5Q1886 -42 1843 -42Q1837 -42 1814 -42Q1791 -42 1760 -42Q1729 -42 1698 -42Q1667 -42 1644 -42Q1621 -42 1616 -42Q1575 -42 1552 -36Q1529 -30 1519.5 -14Q1510 2 1510 33ZM1489 770L1881 770L1881 352L1852 352L1852 741L1489 741ZM1101 536L1384 536L1384 507L1101 507ZM1084 399L1407 399L1407 370L1084 370ZM1053 669L1437 669L1437 639L1053 639ZM1108 270L1391 270L1391 -10L1108 -10L1108 20L1362 20L1362 240L1108 240ZM1093 270L1123 270L1123 -62L1093 -62ZM1178 818L1198 834Q1227 807 1253.5 774Q1280 741 1293 716L1271 698Q1258 724 1231.5 758Q1205 792 1178 818Z"/>
+        </g>
+      </svg>
+      <span class="latin">filmnote</span>
+    </a>
+    <!-- UButton -->
+    <a class="btn" href="/login">登入</a>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+
+    <!-- UPageHeader 對應區：公開個人頁抬頭 -->
+    <section class="profile">
+      <h1>clipwww</h1>
+      <p class="sub num">169 場　2014–2026</p>
+    </section>
+
+    <!-- YearStrip（自製元件，§4.2 / SCREENS §2.1）：一列一年、一格一週，兼任年份選擇器 -->
+    <section class="strip-block" aria-labelledby="strip-title">
+      <h2 id="strip-title" class="sr-only" hidden>年表</h2>
+      <div class="strip-scroll">
+        <div class="strip" id="strip" role="listbox" aria-label="選擇年份"></div>
+        <div class="strip-axis">
+          <div class="months" aria-hidden="true">
+            <span style="grid-column: 1 / span 8">1月</span>
+            <span style="grid-column: 9 / span 9">3月</span>
+            <span style="grid-column: 18 / span 8">5月</span>
+            <span style="grid-column: 26 / span 9">7月</span>
+            <span style="grid-column: 35 / span 9">9月</span>
+            <span style="grid-column: 44 / span 10">11月</span>
+          </div>
+        </div>
+      </div>
+      <div class="strip-foot">
+        <p class="legend">
+          <span><i style="background: var(--heat-0)"></i>沒去</span>
+          <span><i style="background: var(--heat-4)"></i>1 場</span>
+          <span><i style="background: var(--heat-6)"></i>2 場</span>
+        </p>
+        <!-- §5.6 每張圖都要有資料表 fallback -->
+        <details class="table-fallback">
+          <summary>以表格檢視年表</summary>
+          <table id="stripTable">
+            <thead><tr><th scope="col">年</th><th scope="col">場次</th><th scope="col">張數</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </details>
+      </div>
+    </section>
+
+    <!-- StatLine（自製元件，§4.4）＋ 檢視切換 -->
+    <div class="toolbar">
+      <p class="statline" id="statline"></p>
+      <!-- UTabs -->
+      <div class="viewtoggle" role="tablist" aria-label="檢視方式">
+        <button type="button" role="tab" id="tab-list" aria-selected="true" aria-controls="ledger">條列</button>
+        <button type="button" role="tab" id="tab-grid" aria-selected="false" aria-controls="ledger">網格</button>
+      </div>
+    </div>
+
+    <!-- 帳本：TicketCard 列表（§4.3），依月分組、月標題 sticky -->
+    <div class="ledger" id="ledger" role="tabpanel" aria-labelledby="tab-list"></div>
+
+    <!-- ── 以下為 mockup 註記，不屬於產品頁面 ───────────────────── -->
+    <section class="note">
+      <h2>版面壓力測試</h2>
+      <p>這一區不是 <code>/u/clipwww</code> 的一部分，是把 <code>.data/films.json</code>（2,669 部）與 <code>.data/venues.json</code>（111 筆）裡的極端值餵進同一組元件，檢查版面。所有字串都是目錄裡的真實資料。</p>
+
+      <h3>票根磚：最長與最短的片名</h3>
+      <div class="stress-grid">
+        <article class="tile ticket">
+          <h3 class="tt-title tt-xs">劇場版IDOLiSH7-偶像星願- LIVE 4bit BEYOND THE PERiOD&lt;DAY2&gt;with After talk</h3>
+          <p class="tt-original">IDOLiSH7 the Movie,LIVE 4bit BEYOND THE PERiOD＜DAY 2＞With After Talk version.</p>
+          <dl class="tt-fields">
+            <div><dt>國別</dt><dd>日本</dd></div>
+            <div><dt>核准年度</dt><dd class="num">2024</dd></div>
+            <div><dt>片長</dt><dd class="num">99 分鐘</dd></div>
+          </dl>
+          <p class="tt-rec">目錄最長片名 66 字，無 TMDB</p>
+        </article>
+        <article class="tile ticket">
+          <h3 class="tt-title tt-xl">紅豬</h3>
+          <p class="tt-original">紅の豚</p>
+          <dl class="tt-fields">
+            <div><dt>國別</dt><dd>日本</dd></div>
+            <div><dt>核准年度</dt><dd class="num">2023</dd></div>
+            <div><dt>片長</dt><dd class="num">93 分鐘</dd></div>
+          </dl>
+          <p class="tt-rec">2 字片名的字級上限</p>
+        </article>
+      </div>
+
+      <h3>票根卡：對帳到官方全名之後的影城欄</h3>
+      <p>紀錄裡存的是使用者自己打的口語簡稱「林口威秀」（115 筆）。<code>venues.json</code> 裡最長的影城全名是 24 字的「林口MITSUI OUTLET PARK威秀影城」（統編 24808911，9 廳）。下面這張卡把 meta 行換成全名，驗證換行行為——這是 <code>/app/import</code> 對帳完成之後 meta 行會變成的樣子。</p>
+      <div class="cards">
+        <article class="tc">
+          <div class="tc-date"><span class="d">26</span><span class="wd">日</span></div>
+          <div class="tc-body">
+            <h3 class="title-zh">劇場版 吉伊卡哇 人魚島的秘密</h3>
+            <p class="tc-meta">林口MITSUI OUTLET PARK威秀影城 2D 16:00 2張</p>
+          </div>
+        </article>
+      </div>
+
+      <h3>沒有渲染出來的東西</h3>
+      <ul>
+        <li>票價。<code>show_cost</code> 預設 false，公開頁不存在票價欄，也沒有年度總花費——不是畫成 0，是整段不存在（§12 規則 3、4）。</li>
+        <li>「免費」。169 筆裡有 16 筆是兌換票或免費場（例如 2016-08-18 的「4DX體驗場兌換票」、2023-06-24 的「iShow 兌點票」）。<code>cost = 0</code> 與「被擋掉」在自己的儀表板上必須看得出差別，但在公開頁兩者都不出現——外人本來就不該分辨得出（§12.1）。</li>
+        <li>色階第四階。年表的色階是 0／1／2／3 場以上，但 David 十二年裡最密的一週也只有 2 場（169 筆分佈於 689 週，滿格率 22.1%），所以 <code>heat-6</code> 永遠不會被畫出來，圖例也就只列出實際存在的三階（§1.3）。</li>
+        <li>廳別。SCREENS 的 meta 行範例有「(7廳)」，但 mylog 的 169 筆沒有廳別欄位，<code>venues.json</code> 的 <code>hallCount</code> 是「這家影城有幾廳」而不是「你坐哪一廳」。沒有的資料不編造，量詞串就少一節。</li>
+      </ul>
+    </section>
+
+  </div>
+</main>
+
+<!-- AttributionFooter（§9，法遵元件） -->
+<footer class="site-foot">
+  <div class="wrap">
+    <p>本站使用文化部影視及流行音樂產業局「電影片分級及相關資訊」與「全國電影院資料」開放資料，依政府資料開放授權條款第 1 版利用。</p>
+    <div class="tmdb">
+      <!-- 正式版請置換為 TMDB 官方 logo 檔；此處為等比佔位，高度 11px，小於本站字標的 22px -->
+      <svg class="tmdb-logo" viewBox="0 0 88 24" role="img" aria-label="TMDB">
+        <rect x="0" y="0" width="88" height="24" rx="2" fill="#01B4E4"></rect>
+        <text x="44" y="17" text-anchor="middle" font-family="Inter, sans-serif" font-size="13" font-weight="700" fill="#0D253F">TMDB</text>
+      </svg>
+      <p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
+    </div>
+    <nav class="foot-links" aria-label="法律文件">
+      <a href="/legal/terms">使用條款</a>
+      <a href="/legal/privacy">隱私權</a>
+      <a href="/legal/copyright">著作權</a>
+      <a href="/legal/dmca">DMCA</a>
+    </nav>
+  </div>
+</footer>
+
+<script type="application/json" id="fixture">{"records":[{"d":"2026-07-26","w":0,"t":"16:00","z":"劇場版 吉伊卡哇 人魚島的秘密","o":"","v":"林口威秀","e":"2D","n":2,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2026-06-20","w":6,"t":"22:10","z":"玩具總動員5","o":"","v":"林口威秀","e":"2D","n":2,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2026-05-23","w":6,"t":"10:15","z":"曼達洛人與古古","o":"","v":"京站威秀","e":"2D","n":1,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2026-04-28","w":2,"t":"22:00","z":"極限返航","o":"","v":"林口威秀","e":"2D","n":1,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2026-04-17","w":5,"t":"21:20","z":"超級瑪利歐銀河電影版","o":"","v":"林口威秀","e":"2D","n":2,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2026-03-30","w":1,"t":"15:30","z":"劇場版「暗殺教室」：我們的時光","o":"","v":"林口威秀","e":"2D","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2026-01-17","w":6,"t":"10:00","z":"少女與戰車 劇場版","o":"ガールズ&パンツァー 劇場版","v":"大巨蛋秀泰","e":"4DX 極爆","n":1,"c":"日本","r":120,"y":2024,"p":"/idscINNSMvch2RsAEZXyef7qm4q.jpg","f":1,"free":0},{"d":"2026-01-07","w":3,"t":"14:40","z":"冠軍之路","o":"","v":"林口威秀","e":"2D","n":1,"c":"台灣","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2025-12-25","w":4,"t":"10:00","z":"佐賀偶像是傳奇 夢幻銀河樂園","o":"","v":"京站威秀","e":"2D","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2025-09-28","w":0,"t":"21:30","z":"劇場版『鏈鋸人 蕾潔篇』","o":"","v":"林口威秀","e":"2D","n":2,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2025-09-14","w":0,"t":"12:10","z":"電影版小林家的龍女僕：害怕寂寞的龍","o":"","v":"林口威秀","e":"2D","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":1},{"d":"2025-08-08","w":5,"t":"21:40","z":"劇場版「鬼滅之刃」無限城篇 第一章 猗窩座再襲","o":"","v":"林口威秀","e":"2D","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2025-07-04","w":5,"t":"22:10","z":"侏羅紀世界：重生","o":"","v":"林口威秀","e":"2D","n":3,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2025-06-13","w":5,"t":"20:00","z":"劇場版 我與機器子","o":"","v":"信義威秀","e":"2D","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2025-03-01","w":6,"t":"13:30","z":"機動戰士GUNDAM GQUUUUUUX BEGINNING","o":"","v":"林口威秀","e":"2D","n":2,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2025-02-22","w":6,"t":"15:30","z":"THUNDERBOLT FANTASY 東離劍遊紀 最終章","o":"","v":"林口威秀","e":"2D","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2025-01-14","w":2,"t":"20:10","z":"劇場版「進擊的巨人」完結篇THE LAST ATTACK","o":"劇場版「進撃の巨人」完結編 THE LAST ATTACK","v":"林口威秀","e":"2D","n":1,"c":"日本","r":144,"y":2024,"p":"/kkbGiEFXaLFWKLuJzMMJ4oEjUXS.jpg","f":1,"free":0},{"d":"2024-12-27","w":5,"t":"21:55","z":"音速小子 3","o":"Sonic the Hedgehog 3","v":"林口威秀","e":"2D","n":2,"c":"美國","r":110,"y":2024,"p":"/bekdAKIaggJxYBbmDa1MOeJ9MC4.jpg","f":1,"free":0},{"d":"2024-10-19","w":6,"t":"21:35","z":"荒野機器人","o":"The Wild Robot","v":"林口威秀","e":"2D","n":2,"c":"美國","r":102,"y":2024,"p":"/gzq36QVwlXpkHWTQ4ob0Kb1C50i.jpg","f":1,"free":0},{"d":"2024-10-13","w":0,"t":"12:05","z":"劇場總集篇 孤獨搖滾！Re:Re:","o":"劇場総集編ぼっち・ざ・ろっく！Re:Re:","v":"板橋威秀","e":"2D","n":1,"c":"日本","r":75,"y":2024,"p":"/2ZTCMwvcEp4rC4dbxnMVMTGYgaS.jpg","f":1,"free":0},{"d":"2024-09-22","w":0,"t":"15:30","z":"變形金剛：源起","o":"Transformers One","v":"京站威秀","e":"2D","n":1,"c":"美國","r":104,"y":2024,"p":"/bqflnJui6q8y0cZCdVcnNEc1THd.jpg","f":1,"free":0},{"d":"2024-08-09","w":5,"t":"20:00","z":"劇場版 賽馬娘Pretty Derby：新時代之門","o":"ウマ娘 プリティーダービー 新時代の扉","v":"林口威秀","e":"4DX","n":1,"c":"日本","r":107,"y":2024,"p":"/5d3qO6HZaupc6D4Ln9mID4g23F0.jpg","f":1,"free":0},{"d":"2024-08-04","w":0,"t":"21:30","z":"劇場版 賽馬娘Pretty Derby：新時代之門","o":"ウマ娘 プリティーダービー 新時代の扉","v":"林口威秀","e":"2D","n":1,"c":"日本","r":107,"y":2024,"p":"/5d3qO6HZaupc6D4Ln9mID4g23F0.jpg","f":1,"free":0},{"d":"2024-08-02","w":5,"t":"20:50","z":"驀然回首","o":"ルックバック","v":"林口國賓","e":"2D","n":1,"c":"日本","r":57,"y":2024,"p":"/8JjlnxNPgmS4U4pA7X9aKFwH3AO.jpg","f":1,"free":0},{"d":"2024-07-27","w":6,"t":"17:40","z":"劇場總集篇 孤獨搖滾！Re:","o":"劇場総集編ぼっち・ざ・ろっく！Re:","v":"京站威秀","e":"2D","n":1,"c":"日本","r":90,"y":2024,"p":"/79Om3aHEtVGuE1fuAFAIiU02CW4.jpg","f":1,"free":0},{"d":"2024-07-27","w":6,"t":"13:20","z":"死侍與金鋼狼","o":"Deadpool & Wolverine","v":"京站威秀","e":"2D","n":1,"c":"美國","r":128,"y":2024,"p":"/wjVZAMWgfPfn2ALtLkUJY88ZySm.jpg","f":1,"free":0},{"d":"2024-04-05","w":5,"t":"12:30","z":"哥吉拉與金剛 : 新帝國","o":"Godzilla x Kong: The New Empire","v":"京站威秀","e":"2D","n":1,"c":"美國","r":115,"y":2024,"p":"/lTO7nerUjKZ3QeJgZfMU7d6sD9d.jpg","f":1,"free":0},{"d":"2024-03-16","w":6,"t":"17:10","z":"少女與戰車最終章 3+4","o":"","v":"林口威秀","e":"4DX","n":2,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2024-03-09","w":6,"t":"15:15","z":"少女與戰車最終章 3+4","o":"","v":"林口威秀","e":"4DX","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2024-03-09","w":6,"t":"13:00","z":"少女與戰車最終章 1+2","o":"","v":"林口威秀","e":"4DX","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2024-03-02","w":6,"t":"13:10","z":"沙丘：第二部","o":"Dune: Part Two","v":"京站威秀","e":"2D","n":1,"c":"美國","r":166,"y":2024,"p":"/1p25wDEdFRRTtwtPFbtPHISefzG.jpg","f":1,"free":0},{"d":"2024-02-10","w":6,"t":"13:40","z":"少女與戰車 最終章 第４話","o":"ガールズ＆パンツァー 最終章 第4話","v":"林口威秀","e":"2D","n":2,"c":"日本","r":54,"y":2024,"p":"/75jMF5tH3bTp4H7VFt4KAcqFKbo.jpg","f":1,"free":0},{"d":"2024-02-03","w":6,"t":"14:45","z":"魔法公主","o":"もののけ姫","v":"京站威秀","e":"2D","n":1,"c":"日本","r":133,"y":2023,"p":"/nBBnjdKb2QEB1A1HKz56rvCudQc.jpg","f":1,"free":0},{"d":"2024-01-27","w":6,"t":"22:30","z":"SPY x FAMILY CODE: White","o":"","v":"林口威秀","e":"2D","n":2,"c":"日本","r":110,"y":2024,"p":"","f":1,"free":0},{"d":"2024-01-19","w":5,"t":"19:25","z":"少女與戰車 劇場版","o":"ガールズ&パンツァー 劇場版","v":"林口威秀","e":"4DX 極爆","n":1,"c":"日本","r":120,"y":2024,"p":"/idscINNSMvch2RsAEZXyef7qm4q.jpg","f":1,"free":0},{"d":"2023-12-15","w":5,"t":"19:00","z":"歡迎來到駒田蒸餾所","o":"駒田蒸留所へようこそ","v":"信義威秀","e":"2D","n":1,"c":"日本","r":91,"y":2023,"p":"/YtiRpPwNfyhM8TrF9oDKYBmEUD.jpg","f":1,"free":0},{"d":"2023-11-18","w":6,"t":"10:40","z":"蒼鷺與少年","o":"君たちはどう生きるか","v":"林口威秀","e":"2D","n":1,"c":"日本","r":124,"y":2023,"p":"/7q7z6f2m8sHjTDjcZ4e1W81BvVP.jpg","f":1,"free":0},{"d":"2023-11-04","w":6,"t":"19:00","z":"少女與戰車 最終章 第４話","o":"ガールズ＆パンツァー 最終章 第4話","v":"イオンシネマ シアタス心斎橋","e":"2D","n":1,"c":"日本","r":54,"y":2024,"p":"/75jMF5tH3bTp4H7VFt4KAcqFKbo.jpg","f":1,"free":0},{"d":"2023-10-27","w":5,"t":"19:40","z":"數碼寶貝02 THE BEGINNING","o":"デジモンアドベンチャー02 THE BEGINNING","v":"林口威秀","e":"2D","n":1,"c":"日本","r":80,"y":2023,"p":"/sOBfkAN7MmIrIzC62xY4l0E8W85.jpg","f":1,"free":0},{"d":"2023-07-14","w":5,"t":"20:25","z":"GRIDMAN UNIVERSE","o":"グリッドマン ユニバース","v":"信義威秀","e":"2D","n":1,"c":"日本","r":118,"y":2023,"p":"/dPALPAJoQ6y9W8TTMvem50vU2ID.jpg","f":1,"free":0},{"d":"2023-07-02","w":0,"t":"17:40","z":"蜘蛛人：穿越新宇宙","o":"Spider-Man: Across the Spider-Verse","v":"林口威秀","e":"2D","n":1,"c":"美國","r":140,"y":2023,"p":"/zuXZnzHvXdWyVDVPZcLvPNrKvEq.jpg","f":1,"free":0},{"d":"2023-06-24","w":6,"t":"10:25","z":"星際異攻隊3","o":"Guardians of the Galaxy Vol. 3","v":"林口威秀","e":"2D","n":1,"c":"美國","r":150,"y":2023,"p":"/3JQbthSO6tuVt1VwjvVJqrc1oPo.jpg","f":1,"free":1},{"d":"2023-04-09","w":0,"t":"11:55","z":"鏡之孤城","o":"かがみの孤城","v":"林口威秀","e":"MAPPA","n":1,"c":"日本","r":116,"y":2023,"p":"/wnbboIhiyycRQR34BmTQVQX9lFC.jpg","f":1,"free":0},{"d":"2023-04-05","w":3,"t":"10:45","z":"超級瑪利歐兄弟電影版","o":"The Super Mario Bros. Movie","v":"林口威秀","e":"2D","n":2,"c":"美國","r":92,"y":2023,"p":"/lZVumU6dplne9LpitkVDYxhKSDl.jpg","f":1,"free":0},{"d":"2023-03-31","w":5,"t":"15:15","z":"魔女宅急便","o":"","v":"大直美麗華","e":"2D","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2023-03-12","w":0,"t":"12:30","z":"鈴芽之旅","o":"すずめの戸締まり","v":"桃園青埔新光影城","e":"Dolby Cinema","n":1,"c":"日本","r":121,"y":2023,"p":"/newKNDhIMnDylqzFedFzWZsXqxw.jpg","f":1,"free":0},{"d":"2023-02-26","w":0,"t":"13:50","z":"鈴芽之旅","o":"すずめの戸締まり","v":"林口威秀","e":"2D","n":2,"c":"日本","r":121,"y":2023,"p":"/newKNDhIMnDylqzFedFzWZsXqxw.jpg","f":1,"free":0},{"d":"2023-02-18","w":6,"t":"14:50","z":"「鬼滅之刃」上弦集結，前進刀匠村","o":"「鬼滅の刃」上弦集結、そして刀鍛冶の里へ","v":"大直美麗華","e":"2D","n":1,"c":"日本","r":110,"y":2023,"p":"/5uEuUv9GsnMWAn0WRtQPrRxAi3K.jpg","f":1,"free":0},{"d":"2023-02-15","w":3,"t":"13:00","z":"蟻人與黃蜂女 : 量子狂熱","o":"Ant-Man and the Wasp: Quantumania","v":"林口威秀","e":"2D","n":1,"c":"美國","r":124,"y":2023,"p":"/g0OWGM7HoIt866Lu7yKohYO31NU.jpg","f":1,"free":0},{"d":"2022-12-26","w":1,"t":"18:45","z":"輝夜姬想讓人告白－永不結束的初吻","o":"かぐや様は告らせたい-ファーストキッスは終わらない-","v":"林口威秀","e":"2D","n":1,"c":"日本","r":96,"y":2022,"p":"/zTIlSKPCW5CNpEQEgHtzceWfiD6.jpg","f":1,"free":0},{"d":"2022-12-12","w":1,"t":"16:50","z":"捍衛戰士: 獨行俠","o":"Top Gun: Maverick","v":"林口威秀","e":"4DX","n":1,"c":"美國","r":130,"y":2022,"p":"/9eiKUlyHx5McEpL4R7A14Jo13Ep.jpg","f":1,"free":0},{"d":"2022-11-12","w":6,"t":"10:30","z":"刀劍神域劇場版 –Progressive- 陰沉薄暮的詼諧曲","o":"劇場版 ソードアート・オンライン -プログレッシブ- 冥き夕闇のスケルツォ","v":"松仁威秀","e":"2D","n":1,"c":"日本","r":101,"y":2022,"p":"/xYXZQIsPk8Sh4HYb5t2A3db5yke.jpg","f":1,"free":0},{"d":"2022-09-16","w":5,"t":"19:05","z":"新·超人力霸王","o":"シン・ウルトラマン","v":"京站威秀","e":"2D","n":1,"c":"日本","r":112,"y":2022,"p":"/xJdIoXkmnVW3F7weM4NcgDsV5ix.jpg","f":1,"free":0},{"d":"2022-07-10","w":0,"t":"15:25","z":"侏羅紀世界: 統霸天下","o":"Jurassic World Dominion","v":"林口威秀","e":"2D","n":2,"c":"美國","r":147,"y":2022,"p":"/mC9SZcD4lNqXYZVKrB3DPvDBv3k.jpg","f":1,"free":0},{"d":"2022-06-24","w":5,"t":"14:10","z":"捍衛戰士: 獨行俠","o":"Top Gun: Maverick","v":"大直美麗華","e":"IMAX","n":1,"c":"美國","r":130,"y":2022,"p":"/9eiKUlyHx5McEpL4R7A14Jo13Ep.jpg","f":1,"free":0},{"d":"2022-05-28","w":6,"t":"10:00","z":"捍衛戰士: 獨行俠","o":"Top Gun: Maverick","v":"林口威秀","e":"2D","n":1,"c":"美國","r":130,"y":2022,"p":"/9eiKUlyHx5McEpL4R7A14Jo13Ep.jpg","f":1,"free":0},{"d":"2022-04-03","w":0,"t":"10:55","z":"音速小子 2","o":"Sonic the Hedgehog 2","v":"林口威秀","e":"2D","n":2,"c":"美國","r":122,"y":2022,"p":"/5tVmIPVvfOCqCK7ATKgWjuY4aS2.jpg","f":1,"free":1},{"d":"2022-03-19","w":6,"t":"10:20","z":"劇場版 咒術迴戰 0","o":"劇場版 呪術廻戦 0","v":"林口威秀","e":"2D","n":1,"c":"日本","r":105,"y":2022,"p":"/cLECtzDB07Q4SMaMXic9jQPGpI8.jpg","f":1,"free":0},{"d":"2021-12-17","w":5,"t":"21:50","z":"蜘蛛人：無家日","o":"Spider-Man: No Way Home","v":"林口威秀","e":"2D","n":2,"c":"美國","r":148,"y":2021,"p":"/fm3fiiKCTJip2UAn78XJ8Avo49i.jpg","f":1,"free":0},{"d":"2021-11-27","w":6,"t":"10:00","z":"少女與戰車 最終章 第3話","o":"ガールズ＆パンツァー 最終章 第3話","v":"林口威秀","e":"4DX","n":2,"c":"日本","r":48,"y":2021,"p":"/sefKkMbRwPwMH08cA0fsuSH9hoC.jpg","f":1,"free":0},{"d":"2021-11-19","w":5,"t":"20:30","z":"少女與戰車 最終章 第3話","o":"ガールズ＆パンツァー 最終章 第3話","v":"林口威秀","e":"4DX","n":1,"c":"日本","r":48,"y":2021,"p":"/sefKkMbRwPwMH08cA0fsuSH9hoC.jpg","f":1,"free":0},{"d":"2021-11-13","w":6,"t":"16:30","z":"刀劍神域 Progressive 無星夜的詠嘆調","o":"","v":"京站威秀","e":"2D","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2021-10-16","w":6,"t":"14:25","z":"龍與雀斑公主","o":"竜とそばかすの姫","v":"林口威秀","e":"MAPPA","n":1,"c":"美國","r":121,"y":2021,"p":"/jqO9430D52JLgNzo4deAgSZTkRA.jpg","f":1,"free":0},{"d":"2021-09-26","w":0,"t":"09:35","z":"尚氣與十環傳奇","o":"Shang-Chi and the Legend of the Ten Rings","v":"林口威秀","e":"2D","n":1,"c":"美國","r":132,"y":2021,"p":"/x4IpU9xSyG1TR9kf0w2vyS6zlmr.jpg","f":1,"free":1},{"d":"2021-08-21","w":6,"t":"09:40","z":"脫稿玩家","o":"Free Guy","v":"林口威秀","e":"2D","n":2,"c":"美國","r":115,"y":2021,"p":"/sbzhdDaO1YEo6aqdVmL2BVmeOjy.jpg","f":1,"free":0},{"d":"2021-08-15","w":0,"t":"10:20","z":"自殺突擊隊：集結","o":"The Suicide Squad","v":"林口威秀","e":"2D","n":2,"c":"美國","r":132,"y":2021,"p":"/slycPSgfMn6PgikBB5JUqUbH6xL.jpg","f":1,"free":0},{"d":"2021-03-28","w":0,"t":"21:10","z":"哥吉拉大戰金剛","o":"Godzilla vs. Kong","v":"林口威秀","e":"2D","n":2,"c":"美國","r":113,"y":2021,"p":"/batpSNJ12az7ucqfJ6AS9UDk7nA.jpg","f":1,"free":0},{"d":"2021-02-09","w":2,"t":"12:15","z":"T-34：玩命坦克","o":"Т-34","v":"松仁威秀","e":"TITAN","n":1,"c":"俄羅斯","r":139,"y":2021,"p":"/ohXp7p4lfBQbrM2VRs11diYROTk.jpg","f":1,"free":0},{"d":"2021-01-24","w":0,"t":"18:45","z":"喬瑟與虎與魚群","o":"","v":"林口威秀","e":"2D","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":1},{"d":"2020-12-18","w":5,"t":"22:30","z":"魔物獵人","o":"","v":"林口威秀","e":"2D","n":2,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2020-11-06","w":5,"t":"15:00","z":"鬼滅之刃劇場版 無限列車篇","o":"","v":"大直美麗華","e":"IMAX","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2020-10-30","w":5,"t":"22:30","z":"鬼滅之刃劇場版 無限列車篇","o":"","v":"林口威秀","e":"2D","n":2,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2020-10-28","w":3,"t":"20:00","z":"玉子愛情故事","o":"","v":"林口威秀","e":"2D","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2020-10-23","w":5,"t":"10:00","z":"玉子愛情故事","o":"","v":"林口威秀","e":"2D","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2020-10-17","w":6,"t":"16:30","z":"少女與戰車最終章 1+2","o":"","v":"林口威秀","e":"4DX","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2020-10-08","w":4,"t":"21:30","z":"少女與戰車最終章 1+2","o":"","v":"林口威秀","e":"4DX","n":2,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2020-10-01","w":4,"t":"15:05","z":"紫羅蘭永恆花園電影版","o":"","v":"林口威秀","e":"MAPPA","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2020-09-04","w":5,"t":"14:50","z":"天能","o":"","v":"大直美麗華","e":"IMAX","n":1,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2020-08-30","w":0,"t":"21:00","z":"天能","o":"","v":"林口威秀","e":"2D","n":1,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2020-08-21","w":5,"t":"22:25","z":"Fate stay night Heaven's feel 3","o":"","v":"林口威秀","e":"2D","n":2,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2020-05-21","w":4,"t":"19:55","z":"天氣之子","o":"","v":"板橋威秀","e":"IMAX","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2020-05-08","w":5,"t":"17:15","z":"白箱","o":"","v":"松仁威秀","e":"2D","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2020-05-02","w":6,"t":"14:20","z":"數碼寶貝 Last Evolution 絆","o":"","v":"林口威秀","e":"2D","n":2,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2020-04-11","w":6,"t":"19:00","z":"來自深淵 深沉靈魂的黎明","o":"","v":"林口威秀","e":"2D","n":2,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2020-04-04","w":6,"t":"14:10","z":"我的英雄學院劇場版：英雄新世紀","o":"","v":"林口威秀","e":"2D","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":1},{"d":"2020-02-22","w":6,"t":"22:10","z":"音速小子","o":"","v":"林口威秀","e":"2D","n":2,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2020-01-22","w":3,"t":"10:00","z":"夏日大作戰","o":"","v":"林口威秀","e":"4DX","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2020-01-03","w":5,"t":"21:25","z":"少女與戰車總篇集","o":"","v":"林口威秀","e":"4DX","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2019-12-20","w":5,"t":"22:50","z":"星際大戰九部曲：天行者的崛起","o":"","v":"林口威秀","e":"2D","n":3,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2019-12-11","w":3,"t":"20:20","z":"普羅米亞","o":"プロメア","v":"林口威秀","e":"4DX","n":1,"c":"日本","r":111,"y":2023,"p":"/fHHPvzKXdr7DuTj0P9HY9qUkEac.jpg","f":1,"free":1},{"d":"2019-12-08","w":0,"t":"20:50","z":"賽道狂人","o":"","v":"林口威秀","e":"2D","n":1,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2019-11-21","w":4,"t":"20:20","z":"HELLO WORLD","o":"","v":"林口威秀","e":"2D","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2019-11-16","w":6,"t":"16:50","z":"為美好的世界獻上祝福！紅傳說","o":"","v":"林口威秀","e":"2D","n":2,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2019-11-13","w":3,"t":"20:30","z":"決戰中途島","o":"","v":"林口威秀","e":"2D","n":1,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2019-11-02","w":6,"t":"12:20","z":"電影版 吹響吧 ! 上低音號 ~ 誓言的終章 ~","o":"","v":"林口威秀","e":"2D","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2019-11-02","w":6,"t":"10:10","z":"紫羅蘭永恆花園外傳–永遠與自動手記人偶–","o":"","v":"林口威秀","e":"2D","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2019-10-23","w":3,"t":"21:40","z":"電影版 吹響吧 ! 上低音號 ~ 誓言的終章 ~","o":"","v":"林口威秀","e":"2D","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2019-10-19","w":6,"t":"17:10","z":"電影版 吹響吧 ! 上低音號 ~ 歡迎加入北宇治高中管樂社 ~","o":"","v":"林口威秀","e":"2D","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2019-10-19","w":6,"t":"13:10","z":"電影版 吹響吧 ! 上低音號 ~ 想傳達的旋律 ~","o":"","v":"林口威秀","e":"2D","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2019-10-10","w":4,"t":"20:50","z":"小丑","o":"Joker","v":"林口威秀","e":"2D","n":2,"c":"美國","r":122,"y":2024,"p":"/kjNbXFfYLDUdFpfaMkzHbJ5Zq30.jpg","f":1,"free":0},{"d":"2019-09-30","w":1,"t":"12:30","z":"天氣之子","o":"","v":"林口威秀","e":"2D","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2019-09-26","w":4,"t":"10:00","z":"天氣之子","o":"","v":"大直美麗華","e":"IMAX","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2019-09-20","w":5,"t":"21:30","z":"返校","o":"","v":"林口威秀","e":"2D","n":2,"c":"台灣","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2019-09-15","w":0,"t":"09:45","z":"普羅米亞","o":"プロメア","v":"板橋威秀","e":"2D","n":2,"c":"日本","r":111,"y":2023,"p":"/fHHPvzKXdr7DuTj0P9HY9qUkEac.jpg","f":1,"free":0},{"d":"2019-09-12","w":4,"t":"21:50","z":"天氣之子","o":"","v":"林口威秀","e":"2D","n":2,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2019-08-22","w":4,"t":"14:35","z":"普羅米亞","o":"プロメア","v":"信義威秀","e":"2D","n":1,"c":"日本","r":111,"y":2023,"p":"/fHHPvzKXdr7DuTj0P9HY9qUkEac.jpg","f":1,"free":0},{"d":"2019-07-04","w":4,"t":"22:20","z":"蜘蛛人：離家日","o":"Spider-Man: Far From Home","v":"林口威秀","e":"2D","n":2,"c":"美國","r":129,"y":2021,"p":"/iBkhkeCow6viMRn12FSPjpMHwYs.jpg","f":1,"free":0},{"d":"2019-06-29","w":6,"t":"17:00","z":"復仇者聯盟：終局之戰","o":"","v":"日新威秀","e":"IMAX 3D","n":1,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2019-05-29","w":3,"t":"22:00","z":"哥吉拉 II：怪獸之王","o":"","v":"林口威秀","e":"2D","n":2,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2019-05-10","w":5,"t":"15:55","z":"名偵探皮卡丘","o":"","v":"林口威秀","e":"2D","n":2,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2019-04-24","w":3,"t":"21:50","z":"復仇者聯盟：終局之戰","o":"","v":"林口威秀","e":"2D","n":2,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2019-03-16","w":6,"t":"14:55","z":"Fate stay night Heaven's feel 2","o":"","v":"林口威秀","e":"2D","n":2,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2019-01-20","w":0,"t":"13:30","z":"企鵝公路","o":"","v":"林口威秀","e":"2D","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2018-12-22","w":6,"t":"21:25","z":"蜘蛛人：新宇宙","o":"Spider-Man: Into the Spider-Verse","v":"林口威秀","e":"2D","n":1,"c":"美國","r":117,"y":2023,"p":"/sxubDbvo0FhMe9TSikRn7npohjb.jpg","f":1,"free":1},{"d":"2018-11-17","w":6,"t":"22:55","z":"怪獸與葛林戴華德的罪行","o":"","v":"林口威秀","e":"2D","n":2,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2018-10-13","w":6,"t":"18:00","z":"電影版 吹響吧！上低音號～莉茲與青鳥～","o":"リズと青い鳥","v":"林口威秀","e":"2D","n":1,"c":"日本","r":91,"y":2024,"p":"/6PYhcifIXGJo6hnTzwm210ex3ir.jpg","f":1,"free":0},{"d":"2018-10-12","w":5,"t":"21:50","z":"猛毒","o":"","v":"林口威秀","e":"2D","n":2,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2018-10-06","w":6,"t":"14:30","z":"電影版 吹響吧！上低音號～莉茲與青鳥～","o":"リズと青い鳥","v":"林口威秀","e":"2D","n":1,"c":"日本","r":91,"y":2024,"p":"/6PYhcifIXGJo6hnTzwm210ex3ir.jpg","f":1,"free":0},{"d":"2018-09-23","w":0,"t":"11:40","z":"少女與戰車 劇場版","o":"ガールズ&パンツァー 劇場版","v":"信義威秀","e":"4DX","n":1,"c":"日本","r":120,"y":2024,"p":"/idscINNSMvch2RsAEZXyef7qm4q.jpg","f":1,"free":0},{"d":"2018-08-19","w":0,"t":"23:05","z":"未來的未來","o":"","v":"林口威秀","e":"2D","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2018-07-06","w":5,"t":"23:10","z":"蟻人與黃蜂女","o":"","v":"林口威秀","e":"2D","n":2,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2018-06-08","w":5,"t":"22:40","z":"侏儸紀世界：殞落國度","o":"","v":"林口威秀","e":"2D","n":3,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2018-05-25","w":5,"t":"23:25","z":"星際大戰外傳：韓索羅","o":"","v":"林口威秀","e":"2D","n":3,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2018-05-18","w":5,"t":"22:50","z":"死侍2","o":"","v":"林口威秀","e":"2D","n":2,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2018-04-27","w":5,"t":"22:30","z":"復仇者聯盟：無限之戰","o":"","v":"林口威秀","e":"2D","n":2,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2018-01-20","w":6,"t":"20:20","z":"Fate stay night Heaven's feel","o":"","v":"林口威秀","e":"2D","n":2,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2017-12-30","w":6,"t":"00:00","z":"少女與戰車 最終章 第1話","o":"","v":"林口威秀","e":"2D","n":2,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2017-12-13","w":3,"t":"22:40","z":"星際大戰八部曲：最後的絕地武士","o":"","v":"林口威秀","e":"2D","n":3,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2017-12-10","w":0,"t":"21:30","z":"遊戲人生 ZERO","o":"","v":"林口威秀","e":"4DX","n":2,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2017-11-01","w":3,"t":"00:00","z":"正義聯盟","o":"","v":"林口威秀","e":"2D","n":2,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2017-10-21","w":6,"t":"00:00","z":"氣象戰","o":"","v":"林口威秀","e":"2D","n":2,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2017-10-01","w":0,"t":"00:00","z":"雷神索爾3：諸神黃昏","o":"","v":"林口威秀","e":"2D","n":2,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2017-08-27","w":0,"t":"12:00","z":"少女與戰車 劇場版","o":"ガールズ&パンツァー 劇場版","v":"信義威秀","e":"4DX","n":1,"c":"日本","r":120,"y":2024,"p":"/idscINNSMvch2RsAEZXyef7qm4q.jpg","f":1,"free":0},{"d":"2017-08-06","w":0,"t":"14:40","z":"敦克爾克大行動","o":"","v":"林口威秀","e":"2D","n":1,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2017-07-31","w":1,"t":"10:10","z":"謝謝你 在世界的角落找到我","o":"","v":"林口威秀","e":"2D","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2017-07-08","w":6,"t":"19:20","z":"蜘蛛人：返校日","o":"Spider-Man: Homecoming","v":"西門 in89","e":"2D","n":2,"c":"美國","r":133,"y":2021,"p":"/1Mdeo2Id5Q0uGna46wrnCBWkhMY.jpg","f":1,"free":1},{"d":"2017-06-10","w":6,"t":"23:00","z":"神力女超人","o":"","v":"林口威秀","e":"2D","n":2,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2017-04-30","w":0,"t":"22:20","z":"星際異攻隊2","o":"","v":"林口威秀","e":"2D","n":2,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2017-03-26","w":0,"t":"10:45","z":"電影版聲之形","o":"","v":"林口威秀","e":"2D","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2017-03-18","w":6,"t":"18:10","z":"劇場版艦隊收藏","o":"","v":"信義威秀","e":"2D","n":2,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2017-03-10","w":5,"t":"12:30","z":"電影版聲之形","o":"","v":"西門 in89","e":"2D","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":1},{"d":"2017-02-28","w":2,"t":"20:20","z":"羅根","o":"","v":"林口威秀","e":"2D","n":2,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2017-02-24","w":5,"t":"16:30","z":"刀劍神域劇場版-序列爭戰","o":"劇場版 ソードアート・オンライン -オーディナル・スケール-","v":"信義威秀","e":"2D","n":1,"c":"日本","r":120,"y":2024,"p":"/5BUUDGJkpRE3bd6lf1Dz3iXqKrh.jpg","f":1,"free":1},{"d":"2017-01-14","w":6,"t":"17:30","z":"你的名字。","o":"Your Name","v":"大直美麗華","e":"IMAX","n":1,"c":"日本","r":106,"y":2024,"p":"","f":1,"free":0},{"d":"2016-12-24","w":6,"t":"15:30","z":"星際大戰外傳：俠盜一號","o":"","v":"大直美麗華","e":"IMAX 3D","n":1,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2016-12-18","w":0,"t":"22:00","z":"星際大戰外傳：俠盜一號","o":"","v":"林口威秀","e":"2D","n":3,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2016-11-20","w":0,"t":"11:00","z":"怪獸與牠們的產地","o":"","v":"林口威秀","e":"2D","n":2,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2016-11-11","w":5,"t":"10:50","z":"你的名字。","o":"Your Name","v":"林口威秀","e":"2D","n":1,"c":"日本","r":106,"y":2024,"p":"","f":1,"free":0},{"d":"2016-10-23","w":0,"t":"10:10","z":"你的名字。","o":"Your Name","v":"喜滿客京華影城","e":"2D","n":1,"c":"日本","r":106,"y":2024,"p":"","f":1,"free":0},{"d":"2016-10-16","w":0,"t":"18:20","z":"你的名字。","o":"Your Name","v":"林口威秀","e":"2D","n":2,"c":"日本","r":106,"y":2024,"p":"","f":1,"free":0},{"d":"2016-10-14","w":5,"t":"20:35","z":"你的名字。","o":"Your Name","v":"信義威秀","e":"2D","n":1,"c":"日本","r":106,"y":2024,"p":"","f":1,"free":0},{"d":"2016-09-28","w":3,"t":"22:35","z":"薩利機長 哈德遜奇蹟","o":"","v":"林口威秀","e":"MAPPA","n":1,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2016-09-15","w":4,"t":"12:25","z":"少女與戰車 劇場版","o":"ガールズ&パンツァー 劇場版","v":"林口威秀","e":"4DX 極爆","n":2,"c":"日本","r":120,"y":2024,"p":"/idscINNSMvch2RsAEZXyef7qm4q.jpg","f":1,"free":0},{"d":"2016-09-05","w":1,"t":"22:00","z":"屍速列車","o":"","v":"林口威秀","e":"2D","n":1,"c":"韓國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2016-08-19","w":5,"t":"20:00","z":"正宗哥吉拉","o":"","v":"喜滿客京華影城","e":"2D","n":1,"c":"日本","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2016-08-18","w":4,"t":"22:30","z":"自殺突擊隊","o":"","v":"林口威秀","e":"4DX 3D","n":2,"c":"美國","r":0,"y":0,"p":"","f":0,"free":1},{"d":"2016-07-31","w":0,"t":"12:30","z":"少女與戰車 劇場版","o":"ガールズ&パンツァー 劇場版","v":"林口威秀","e":"4DX","n":1,"c":"日本","r":120,"y":2024,"p":"/idscINNSMvch2RsAEZXyef7qm4q.jpg","f":1,"free":0},{"d":"2016-07-09","w":6,"t":"16:40","z":"少女與戰車 劇場版","o":"ガールズ&パンツァー 劇場版","v":"新竹威秀","e":"4DX","n":1,"c":"日本","r":120,"y":2024,"p":"/idscINNSMvch2RsAEZXyef7qm4q.jpg","f":1,"free":0},{"d":"2016-06-26","w":0,"t":"10:20","z":"ID4星際重生","o":"","v":"林口國賓","e":"2D (ATMOS)","n":2,"c":"美國","r":0,"y":0,"p":"","f":0,"free":1},{"d":"2016-06-05","w":0,"t":"10:00","z":"少女與戰車 劇場版","o":"ガールズ&パンツァー 劇場版","v":"信義威秀","e":"4DX","n":2,"c":"日本","r":120,"y":2024,"p":"/idscINNSMvch2RsAEZXyef7qm4q.jpg","f":1,"free":0},{"d":"2016-05-17","w":2,"t":"19:20","z":"少女與戰車 劇場版","o":"ガールズ&パンツァー 劇場版","v":"信義威秀","e":"4DX","n":1,"c":"日本","r":120,"y":2024,"p":"/idscINNSMvch2RsAEZXyef7qm4q.jpg","f":1,"free":0},{"d":"2016-05-13","w":5,"t":"19:20","z":"少女與戰車 劇場版","o":"ガールズ&パンツァー 劇場版","v":"信義威秀","e":"4DX","n":1,"c":"日本","r":120,"y":2024,"p":"/idscINNSMvch2RsAEZXyef7qm4q.jpg","f":1,"free":0},{"d":"2016-04-30","w":6,"t":"00:00","z":"美國隊長3：英雄內戰","o":"","v":"欣欣秀泰","e":"2D","n":1,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2016-02-27","w":6,"t":"19:20","z":"惡棍英雄：死侍","o":"","v":"林口國賓","e":"2D (ATMOS)","n":2,"c":"美國","r":0,"y":0,"p":"","f":0,"free":1},{"d":"2015-12-18","w":5,"t":"18:00","z":"星際大戰七部曲：原力覺醒","o":"","v":"林口國賓","e":"2D (ATMOS)","n":3,"c":"美國","r":0,"y":0,"p":"","f":0,"free":1},{"d":"2015-12-05","w":6,"t":"13:10","z":"怪物的孩子","o":"","v":"林口國賓","e":"2D","n":2,"c":"日本","r":0,"y":0,"p":"","f":0,"free":1},{"d":"2014-11-29","w":6,"t":"14:30","z":"星際效應","o":"Interstellar","v":"日新威秀","e":"IMAX","n":1,"c":"美國","r":169,"y":2024,"p":"/v7Iib57HHgSEI9B7XYRF6qrs11T.jpg","f":1,"free":0},{"d":"2014-06-01","w":0,"t":"09:30","z":"明日邊界","o":"","v":"信義威秀","e":"4DX 3D","n":1,"c":"美國","r":0,"y":0,"p":"","f":0,"free":0},{"d":"2014-03-01","w":6,"t":"14:00","z":"KANO","o":"","v":"信義威秀","e":"2D","n":1,"c":"中華民國","r":185,"y":2024,"p":"/x4q3ILYN6M8PD7Xy0Sufa985Qtd.jpg","f":1,"free":0}],"weeks":{"2014":[0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0],"2015":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,1,0,0],"2016":[0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,1,1,0,0,1,0,0,1,1,0,0,0,1,0,2,0,0,1,1,0,1,0,1,1,1,0,1,0,1,0,0,0,2,0],"2017":[0,1,0,0,0,0,0,1,1,1,1,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,0,0,0,1,1,0,0,1,0,0,0,0,1,0,1,0,1,0,0,0,0,0,2,0,1,0],"2018":[0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,1,1,0,1,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,1,1,2,0,0,0,0,1,0,0,0,0,1,0,0],"2019":[0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,1,0,1,0,0,1,0,0,0,1,1,0,0,0,0,0,0,1,0,0,1,2,1,1,1,2,1,2,0,2,1,0,0,2,1,0,0],"2020":[1,0,0,1,0,0,0,1,0,0,0,0,0,1,1,0,0,1,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,2,0,0,0,1,1,1,1,2,1,0,0,0,0,0,1,0,0],"2021":[0,0,0,0,1,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,1,0,1,0,0,0,1,1,1,0,0,1,0,0],"2022":[0,0,0,0,0,0,0,0,0,0,0,1,0,0,1,0,0,0,0,0,0,1,0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,1,0,1],"2023":[0,0,0,0,0,0,2,0,1,0,1,0,1,1,1,0,0,0,0,0,0,0,0,0,1,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,1,0,0,0,1,0,0,0],"2024":[0,0,1,1,1,1,0,0,1,2,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,1,2,0,0,0,0,0,0,1,0,0,2,0,0,0,0,0,0,0,0,0,1,0],"2025":[0,0,1,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,1,0,0,0,0,1,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0],"2026":[0,1,1,0,0,0,0,0,0,0,0,0,0,1,0,1,0,1,0,0,1,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]},"totals":{"2014":{"n":3,"t":3},"2015":{"n":2,"t":5},"2016":{"n":20,"t":29},"2017":{"n":18,"t":30},"2018":{"n":13,"t":23},"2019":{"n":25,"t":37},"2020":{"n":19,"t":26},"2021":{"n":11,"t":16},"2022":{"n":9,"t":11},"2023":{"n":14,"t":16},"2024":{"n":18,"t":23},"2025":{"n":9,"t":13},"2026":{"n":8,"t":11}},"monthCols":[[1,0],[3,8],[5,17],[7,25],[9,34],[11,43]]}</script>
+<script>
+(function () {
+  'use strict';
+
+  var DATA = JSON.parse(document.getElementById('fixture').textContent);
+  var YEARS = Object.keys(DATA.totals).map(Number).sort(function (a, b) { return a - b; });
+  var WD = '日一二三四五六';
+  var THIS_YEAR = 2026;              // fixture.meta.generatedAt = 2026-09-05 (Asia/Taipei)
+  var DEFAULT_YEAR = 2024;
+  var activeYear = DEFAULT_YEAR;
+  var view = 'list';
+
+  /* ── 小工具 ───────────────────────────────────────────── */
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+  function store(key, val) {
+    try {
+      if (val === undefined) return window.localStorage.getItem(key);
+      window.localStorage.setItem(key, val);
+    } catch (e) { /* 私密視窗／擋 cookie：靜靜降級 */ }
+    return null;
+  }
+
+  /* ── 主題（§7）───────────────────────────────────────── */
+  var root = document.documentElement;
+  var toggle = document.getElementById('themeToggle');
+  function isDark() {
+    if (root.classList.contains('dark')) return true;
+    if (root.classList.contains('light')) return false;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+  function paintToggle() {
+    var dark = isDark();
+    toggle.textContent = dark ? '亮色' : '暗色';
+    toggle.setAttribute('aria-pressed', dark ? 'true' : 'false');
+    toggle.setAttribute('aria-label', dark ? '切換到亮色模式' : '切換到暗色模式');
+  }
+  var saved = store('filmnote-theme');
+  if (saved === 'dark' || saved === 'light') root.classList.add(saved);
+  paintToggle();
+  toggle.addEventListener('click', function () {
+    var next = isDark() ? 'light' : 'dark';
+    root.classList.remove('dark', 'light');
+    root.classList.add(next);
+    store('filmnote-theme', next);
+    paintToggle();
+  });
+
+  /* ── YearStrip ────────────────────────────────────────── */
+  var stripEl = document.getElementById('strip');
+
+  function buildStrip() {
+    YEARS.forEach(function (y) {
+      var t = DATA.totals[y];
+      var row = el('div', 'strip-row');
+      row.setAttribute('role', 'option');
+      row.id = 'year-' + y;
+      row.dataset.year = String(y);
+      row.setAttribute('aria-selected', y === activeYear ? 'true' : 'false');
+      row.setAttribute('aria-label', y + ' 年 ' + t.n + ' 場' + (y === THIS_YEAR ? '（今年）' : ''));
+      row.tabIndex = y === activeYear ? 0 : -1;
+
+      var marker = el('span', 'strip-marker', '▸');
+      marker.setAttribute('aria-hidden', 'true');
+      var year = el('span', 'strip-year num', String(y));
+      row.appendChild(marker);
+      row.appendChild(year);
+
+      var cells = el('span', 'strip-cells');
+      cells.setAttribute('aria-hidden', 'true');
+      DATA.weeks[y].forEach(function (v) {
+        var c = el('i');
+        // §1.3 熱度斜坡（拉開取值，不取相鄰階）：0 → heat-0、1 → heat-4、2 以上 → heat-6
+        if (v === 1) c.className = 'v1';
+        else if (v === 2) c.className = 'v2';
+        else if (v >= 3) c.className = 'v3';
+        cells.appendChild(c);
+      });
+
+      row.appendChild(cells);
+      row.appendChild(el('span', 'strip-total num', String(t.n)));
+      if (y === THIS_YEAR) row.title = '今年';
+      stripEl.appendChild(row);
+    });
+  }
+
+  function selectYear(y, focus) {
+    activeYear = y;
+    Array.prototype.forEach.call(stripEl.children, function (row) {
+      var on = Number(row.dataset.year) === y;
+      row.setAttribute('aria-selected', on ? 'true' : 'false');
+      row.tabIndex = on ? 0 : -1;
+      if (on && focus) row.focus();
+    });
+    renderStat();
+    renderLedger();
+  }
+
+  stripEl.addEventListener('click', function (e) {
+    var row = e.target.closest('.strip-row');
+    if (row) selectYear(Number(row.dataset.year), true);
+  });
+  stripEl.addEventListener('keydown', function (e) {
+    var row = e.target.closest('.strip-row');
+    if (!row) return;
+    var i = YEARS.indexOf(Number(row.dataset.year));
+    var next = null;
+    if (e.key === 'ArrowDown') next = YEARS[Math.min(i + 1, YEARS.length - 1)];
+    else if (e.key === 'ArrowUp') next = YEARS[Math.max(i - 1, 0)];
+    else if (e.key === 'Home') next = YEARS[0];
+    else if (e.key === 'End') next = YEARS[YEARS.length - 1];
+    else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      selectYear(Number(row.dataset.year), true);
+      return;
+    }
+    if (next != null) {
+      e.preventDefault();
+      var target = document.getElementById('year-' + next);
+      Array.prototype.forEach.call(stripEl.children, function (r) { r.tabIndex = -1; });
+      target.tabIndex = 0;
+      target.focus();
+    }
+  });
+
+  function buildStripTable() {
+    var tb = document.querySelector('#stripTable tbody');
+    YEARS.forEach(function (y) {
+      var tr = el('tr');
+      tr.appendChild(el('th', null, y + ' 年'));
+      tr.appendChild(el('td', 'num', String(DATA.totals[y].n)));
+      tr.appendChild(el('td', 'num', String(DATA.totals[y].t)));
+      tr.firstChild.setAttribute('scope', 'row');
+      tb.appendChild(tr);
+    });
+  }
+
+  /* ── StatLine（§4.4）─────────────────────────────────── */
+  function renderStat() {
+    var t = DATA.totals[activeYear];
+    var p = document.getElementById('statline');
+    p.textContent = '';
+    function n(v) { var s = el('span', 'n', String(v)); return s; }
+    p.appendChild(n(activeYear));
+    p.appendChild(document.createTextNode(' 年看了 '));
+    p.appendChild(n(t.n));
+    p.appendChild(document.createTextNode(' 場、'));
+    p.appendChild(n(t.t));
+    p.appendChild(document.createTextNode(' 張票'));
+  }
+
+  /* ── 帳本 ─────────────────────────────────────────────── */
+  function recordsOf(year) {
+    return DATA.records.filter(function (r) { return Number(r.d.slice(0, 4)) === year; });
+  }
+  function metaLine(r) {
+    // 開眼式括號量詞串：影城 版本 時間 張數；1 張時量詞不出現（§0 表格）
+    var s = r.v + ' ' + r.e + ' ' + r.t;
+    if (r.n > 1) s += ' ' + r.n + '張';
+    return s;
+  }
+  function posterUrl(path, size) { return 'https://image.tmdb.org/t/p/' + size + path; }
+
+  function ticketCard(r) {
+    var card = el('article', 'tc');
+    var date = el('div', 'tc-date');
+    date.appendChild(el('span', 'd', String(Number(r.d.slice(8, 10)))));
+    date.appendChild(el('span', 'wd', WD[r.w]));
+    card.appendChild(date);
+
+    var body = el('div', 'tc-body');
+    body.appendChild(el('h3', 'title-zh', r.z));
+    if (r.o) body.appendChild(el('p', 'title-original', r.o));
+    body.appendChild(el('p', 'tc-meta', metaLine(r)));
+    card.appendChild(body);
+
+    if (r.p) {
+      var img = el('img', 'tc-poster');
+      img.src = posterUrl(r.p, 'w154');
+      img.alt = '';
+      img.loading = 'lazy';
+      img.width = 154; img.height = 231;
+      // 海報 404 → 海報欄整個不存在，卡片自然變寬（§4.3），不留灰佔位
+      img.addEventListener('error', function () { img.remove(); });
+      card.appendChild(img);
+    }
+    return card;
+  }
+
+  function titleClass(z) {
+    var n = z.length;
+    if (n <= 3) return 'tt-xl';
+    if (n <= 6) return 'tt-lg';
+    if (n <= 12) return 'tt-md';
+    if (n <= 26) return 'tt-sm';
+    return 'tt-xs';
+  }
+
+  function ticketTile(r) {
+    var tile = el('article', 'tile ticket');
+    tile.appendChild(el('h3', 'tt-title ' + titleClass(r.z), r.z));
+    if (r.o) tile.appendChild(el('p', 'tt-original', r.o));
+    var dl = el('dl', 'tt-fields');
+    function field(label, value) {
+      var row = el('div');
+      row.appendChild(el('dt', null, label));
+      row.appendChild(el('dd', 'num', value));
+      dl.appendChild(row);
+    }
+    // 有什麼就寫什麼，沒有的欄位不留佔位（§4.3）
+    if (r.c) field('國別', r.c);
+    if (r.y) field('核准年度', String(r.y));
+    if (r.r) field('片長', r.r + ' 分鐘');
+    if (r.v) field('影城', r.v);
+    if (r.e) field('版本', r.e);
+    tile.appendChild(dl);
+    tile.appendChild(el('p', 'tt-rec', r.d.slice(5).replace('-', '/') + '（' + WD[r.w] + '）' + r.t));
+    return tile;
+  }
+
+  function posterTile(r) {
+    var tile = el('figure', 'tile poster');
+    var img = el('img');
+    img.src = posterUrl(r.p, 'w342');
+    img.alt = r.z + '　海報';
+    img.loading = 'lazy';
+    img.width = 342; img.height = 513;
+    // 海報 404 → 換成票根磚，不是破圖（§4.3）
+    img.addEventListener('error', function () { tile.replaceWith(ticketTile(r)); });
+    tile.appendChild(img);
+    return tile;
+  }
+
+  function renderLedger() {
+    var host = document.getElementById('ledger');
+    host.textContent = '';
+    var rows = recordsOf(activeYear);
+
+    if (view === 'grid') {
+      var grid = el('div', 'grid');
+      rows.forEach(function (r) { grid.appendChild(r.p ? posterTile(r) : ticketTile(r)); });
+      host.appendChild(grid);
+      return;
+    }
+
+    var currentMonth = null;
+    var cards = null;
+    rows.forEach(function (r) {
+      var m = Number(r.d.slice(5, 7));
+      if (m !== currentMonth) {
+        currentMonth = m;
+        var h = el('h2', 'month-h', m + ' 月');
+        host.appendChild(h);
+        cards = el('div', 'cards');
+        host.appendChild(cards);
+      }
+      cards.appendChild(ticketCard(r));
+    });
+  }
+
+  /* ── 檢視切換 ─────────────────────────────────────────── */
+  var tabList = document.getElementById('tab-list');
+  var tabGrid = document.getElementById('tab-grid');
+  function setView(v) {
+    view = v;
+    tabList.setAttribute('aria-selected', v === 'list' ? 'true' : 'false');
+    tabGrid.setAttribute('aria-selected', v === 'grid' ? 'true' : 'false');
+    document.getElementById('ledger').setAttribute('aria-labelledby', v === 'list' ? 'tab-list' : 'tab-grid');
+    store('filmnote-view', v);
+    renderLedger();
+  }
+  tabList.addEventListener('click', function () { setView('list'); });
+  tabGrid.addEventListener('click', function () { setView('grid'); });
+
+  /* ── 起手 ─────────────────────────────────────────────── */
+  buildStrip();
+  buildStripTable();
+  var savedView = store('filmnote-view');
+  view = savedView === 'grid' ? 'grid' : 'list';   // §2.2 預設條列
+  tabList.setAttribute('aria-selected', view === 'list' ? 'true' : 'false');
+  tabGrid.setAttribute('aria-selected', view === 'grid' ? 'true' : 'false');
+  renderStat();
+  renderLedger();
+})();
+</script>
+</body>
+</html>
