@@ -15,7 +15,7 @@ const toast = useToast()
 
 const { venues } = useVenueOptions()
 const { read: readLastVenue, write: writeLastVenue } = useLastVenue()
-const { term: filmTerm, items: filmItems, loading: filmLoading } = useFilmSearch()
+const { term: filmTerm, items: filmItems, loading: filmLoading, queried: filmQueried } = useFilmSearch()
 
 /**
  * 「今天」是使用者所在地的今天。
@@ -118,7 +118,14 @@ async function onSubmit(event: FormSubmitEvent<RecordForm>) {
       片名、日期、場所填完就能存，其餘都可以之後再補。
     </p>
 
-    <UForm :schema="recordSchema" :state="state" class="mt-8 space-y-5" @submit="onSubmit">
+    <!-- @keydown：注音選字按 Enter 不該把表單送出去，見 useImeGuard -->
+    <UForm
+      :schema="recordSchema"
+      :state="state"
+      class="mt-8 space-y-5"
+      @submit="onSubmit"
+      @keydown="blockSubmitWhileComposing"
+    >
       <UFormField label="看了什麼" name="film" required>
         <!--
           ignore-filter：過濾交給 Postgres，不要讓 reka-ui 對 2,669 筆做子字串比對。
@@ -139,13 +146,22 @@ async function onSubmit(event: FormSubmitEvent<RecordForm>) {
           <template #item-label="{ item }">
             {{ filmLabel(item) }}
           </template>
+          <!--
+            空狀態一律用 filmQueried（items 對應的查詢字串）而不是 filmTerm，
+            否則在 debounce 與查詢往返的幾百毫秒內，會拿剛打的字配上一次的空結果，
+            使用者在字還沒查之前就先看到「找不到」。注音組字中間態由 reka-ui 的
+            ListboxFilter 擋掉，filmTerm 本來就收不到（見 useFilmSearch 檔頭）。
+          -->
           <template #empty>
             <div class="px-2 py-3 text-sm">
-              <p v-if="!filmTerm">
+              <p v-if="filmLoading">
+                搜尋中…
+              </p>
+              <p v-else-if="!filmQueried">
                 輸入片名開始搜尋
               </p>
               <p v-else>
-                找不到「{{ filmTerm }}」。
+                找不到「{{ filmQueried }}」。
                 <NuxtLink to="/app/films/new" class="underline underline-offset-4">
                   手動新增這部片
                 </NuxtLink>

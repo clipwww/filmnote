@@ -8,12 +8,25 @@ const q = ref(String(route.query.q ?? ''))
 const debounced = ref(q.value)
 let timer: ReturnType<typeof setTimeout> | undefined
 
-watch(q, (value) => {
+function schedule(value: string) {
   clearTimeout(timer)
   timer = setTimeout(() => {
     debounced.value = value
     router.replace({ query: value ? { q: value } : {} })
   }, 300)
+}
+
+/**
+ * 注音組字中不查。ㄍ → ㄍㄨ → ㄍㄨㄟ → ㄍㄨㄟˇ 這四步都會發 input 事件，
+ * 但注音符號查不到任何東西，使用者會在選出「鬼」之前先看到四次「找不到」。
+ * `UInput` 沒有這層保護（Vue 原生 v-model 有），細節見 useImeGuard。
+ */
+const { composing, handlers: imeHandlers } = useImeGuard(schedule)
+
+watch(q, (value) => {
+  if (composing.value)
+    return
+  schedule(value)
 })
 onBeforeUnmount(() => clearTimeout(timer))
 
@@ -42,6 +55,7 @@ useSeoMeta({
 
     <UInput
       v-model="q"
+      v-bind="imeHandlers"
       class="mt-6 w-full"
       size="lg"
       icon="i-lucide-search"

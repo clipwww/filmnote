@@ -122,7 +122,14 @@ async function onSubmit(event: FormSubmitEvent<RecordEditForm>) {
       <p class="mt-1 text-muted">
         {{ filmTitle }}
       </p>
-      <UForm :schema="recordEditSchema" :state="state" class="mt-6 space-y-5" @submit="onSubmit">
+      <!-- @keydown：注音選字按 Enter 不該把表單送出去，見 useImeGuard -->
+      <UForm
+        :schema="recordEditSchema"
+        :state="state"
+        class="mt-6 space-y-5"
+        @submit="onSubmit"
+        @keydown="blockSubmitWhileComposing"
+      >
         <div class="grid grid-cols-2 gap-4">
           <UFormField label="哪天看的" name="watchedOn" required>
             <UInput v-model="state.watchedOn" type="date" class="w-full" />
