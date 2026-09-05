@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<title>影記 — OG 分享圖版面（1200×630 實尺寸）</title>
+<style>
+[hidden]{display:none!important}
+:root{
+  --paper-25:#FDF9F1; --paper-50:#F8EDDC; --paper-100:#EADDCA; --paper-200:#DACCB9;
+  --paper-300:#C5B5A3; --paper-500:#776A5D; --paper-600:#5F5348; --paper-700:#4A4036;
+  --paper-900:#29211A; --amber-50:#FFF1C2; --amber-600:#866500;
+  --heat-0:#EADDCA; --heat-4:#685946; --heat-6:#1A1209;
+  --font:'Inter','PingFang TC','Noto Sans CJK TC','Noto Sans TC','Microsoft JhengHei',sans-serif;
+  line-break:strict; text-autospace:normal;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper-100);font-family:var(--font);color:var(--paper-700);
+  font-variant-numeric:tabular-nums;}
+.wrap{max-width:1240px;margin:0 auto;padding:24px 20px 80px}
+h2{font-size:19px;color:var(--paper-900);margin:40px 0 4px;padding-bottom:6px;
+  border-bottom:1px solid var(--paper-300);font-feature-settings:'palt' 1}
+p.n{font-size:13px;line-height:1.55;color:var(--paper-500);margin:4px 0 14px;max-width:78ch}
+code{font-family:var(--font);color:var(--paper-900)}
+
+/* ── OG 畫布：1200×630 實尺寸，固定亮色紙，不跟隨主題 ── */
+.og{width:1200px;height:630px;background:var(--paper-25);position:relative;
+  display:flex;flex-direction:column;overflow:hidden;
+  border:1px solid var(--paper-300);}
+.og .frame{position:absolute;inset:36px;border:2px solid var(--paper-200);border-radius:4px;pointer-events:none}
+.og .inner{position:relative;flex:1;display:flex;flex-direction:column;padding:76px 80px 72px}
+.og .stub{position:absolute;left:0;top:0;bottom:0;width:26px;background:var(--amber-50);
+  border-right:1px solid var(--paper-200)}
+
+.kicker{font-size:30px;line-height:1.2;color:var(--paper-500);letter-spacing:0}
+.title{font-size:72px;line-height:1.18;font-weight:600;color:var(--paper-900);
+  font-feature-settings:'palt' 1;margin-top:16px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.title.sm{font-size:56px}
+.meta{font-size:34px;line-height:1.45;color:var(--paper-700);margin-top:auto}
+.meta .venue{display:block}
+.meta .rest{display:block;color:var(--paper-500);font-size:30px}
+.foot{display:flex;align-items:baseline;gap:14px;margin-top:26px;
+  padding-top:20px;border-top:1px solid var(--paper-200)}
+.mark{font-size:28px;font-weight:600;color:var(--paper-900)}
+.who{font-size:26px;color:var(--paper-500)}
+.attrib{margin-left:auto;font-size:19px;color:var(--paper-500)}
+
+.hero{font-size:132px;line-height:1;font-weight:600;color:var(--paper-900)}
+.hero .u{font-size:44px;font-weight:400;color:var(--paper-500);margin-left:12px}
+.sub{font-size:32px;color:var(--paper-500);margin-top:10px}
+
+/* 年表：純格子，不需要字型 */
+.strip{display:flex;flex-direction:column;gap:5px;margin-top:auto}
+.strip .r{display:flex;align-items:center;gap:9px}
+.strip .y{font-size:22px;color:var(--paper-500);width:58px;text-align:right}
+.strip .cells{display:flex;gap:3px}
+.strip i{width:12px;height:12px;border-radius:1px;background:var(--heat-0);display:block}
+.strip i.a{background:var(--heat-4)} .strip i.b{background:var(--heat-6)}
+
+.seal{display:inline-flex;align-items:center;justify-content:center;width:52px;height:52px;
+  border-radius:2px;font-size:20px;font-weight:700;color:#1D1610;vertical-align:middle}
+.seal-g{display:inline-flex;align-items:center;justify-content:center;min-width:96px;height:44px;
+  border-radius:2px;font-size:24px;font-weight:700;color:#1D1610;background:#5CB731;
+  margin-right:16px;vertical-align:middle}
+.tofu{display:inline-block;width:.9em;height:.9em;border:2px solid var(--paper-300);
+  vertical-align:-2px;margin:0 2px}
+</style>
+</head>
+<body><div class="wrap">
+
+<h2>OG 分享圖 — 六種版面，1200×630 實尺寸</h2>
+<p class="n">
+  審查用說明物。<strong>OG 圖固定用亮色的紙，不跟隨檢視者的主題</strong>——它是一張 PNG，
+  沒有主題可跟；而且票根本來就是紙。<br>
+  版面共同結構：<strong>細內框 + 左側琥珀撕線帶 + 底部一條顯名列</strong>。
+  撕線帶是 <code>§4.3</code> 票根卡日期帶的放大版，讓分享圖一眼認得出跟站上是同一個物件。
+</p>
+
+<h2>① <code>/u/[username]/records/[id]</code> — 單筆分享（US-32，主力）</h2>
+<div class="og">
+  <div class="stub"></div><div class="frame"></div>
+  <div class="inner">
+    <div class="kicker">2026 / 07 / 26（六）16:00</div>
+    <div class="title">劇場版 吉伊卡哇 人魚島的秘密</div>
+    <div class="meta">
+      <span class="venue">林口MITSUI OUTLET PARK威秀影城（7廳）</span>
+      <span class="rest">數位　2張</span>
+    </div>
+    <div class="foot">
+      <span class="mark">影記</span><span class="who">clipwww</span>
+      <span class="attrib">片名資料：文化部影視局　·　TMDB</span>
+    </div>
+  </div>
+</div>
+<p class="n">
+  <strong>沒有原文片名、沒有備註、沒有票價。</strong>票價是 <code>SCREENS §4-2</code>（爬蟲是 anon，永不畫價）；
+  另外兩個是字型決定，理由見下方 §字型。<br>
+  影城名自己一行、其餘量詞串第二行——跟 <code>DS §4.3</code> 的兩段式 meta 同一條規則，
+  在 OG 圖上更重要，因為這裡沒有 hover 也沒有第二次機會。
+</p>
+
+<h2>② <code>/u/[username]</code> — 個人頁</h2>
+<div class="og">
+  <div class="stub"></div><div class="frame"></div>
+  <div class="inner">
+    <div class="kicker">2014 — 2026</div>
+    <div class="hero">169<span class="u">場</span></div>
+    <div class="sub">在 12 家電影院</div>
+    <div class="strip">
+      <div class="r"><span class="y">2024</span><span class="cells">
+        <i></i><i class="a"></i><i></i><i></i><i class="a"></i><i class="b"></i><i></i><i></i><i class="a"></i><i></i><i class="a"></i><i></i><i></i><i class="a"></i><i></i><i></i><i class="a"></i><i></i><i class="b"></i><i></i><i></i><i class="a"></i><i></i><i></i><i class="a"></i><i></i><i></i><i class="a"></i><i></i><i></i><i class="a"></i><i></i><i></i><i class="a"></i><i></i><i></i><i class="a"></i><i></i><i></i><i></i><i class="a"></i><i></i><i></i><i></i><i class="a"></i><i></i><i></i><i></i><i class="a"></i><i></i><i></i><i></i><i></i>
+      </span></div>
+      <div class="r"><span class="y">2025</span><span class="cells">
+        <i></i><i></i><i class="a"></i><i></i><i></i><i></i><i class="a"></i><i></i><i></i><i></i><i></i><i class="a"></i><i></i><i></i><i></i><i></i><i class="a"></i><i></i><i></i><i></i><i></i><i></i><i class="a"></i><i></i><i></i><i></i><i></i><i class="a"></i><i></i><i></i><i></i><i></i><i></i><i class="a"></i><i></i><i></i><i></i><i></i><i></i><i></i><i class="a"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+      </span></div>
+      <div class="r"><span class="y">2026</span><span class="cells">
+        <i class="a"></i><i></i><i class="a"></i><i></i><i></i><i></i><i></i><i class="a"></i><i></i><i></i><i></i><i></i><i class="a"></i><i></i><i></i><i></i><i></i><i></i><i class="a"></i><i></i><i></i><i></i><i></i><i class="b"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+      </span></div>
+    </div>
+    <div class="foot">
+      <span class="mark">影記</span><span class="who">clipwww</span>
+      <span class="attrib">片名資料：文化部影視局　·　TMDB</span>
+    </div>
+  </div>
+</div>
+<p class="n">
+  <strong>年表是全站簽名，而且它零字型成本</strong>——格子是方塊，年份是拉丁數字。
+  把它放進 OG 圖等於用一個不需要中文的元素承擔辨識度，同時它就是這個產品在賣的東西：看得見自己的軌跡。
+</p>
+
+<h2>③ <code>/u/[username]/[year]</code> — 年度回顧</h2>
+<div class="og">
+  <div class="stub"></div><div class="frame"></div>
+  <div class="inner">
+    <div class="kicker">clipwww 的 2024</div>
+    <div class="hero">18<span class="u">場</span>　23<span class="u">張票</span></div>
+    <div class="sub">最常去 林口MITSUI OUTLET PARK威秀影城</div>
+    <div class="sub" style="margin-top:22px">最愛的一場　少女與戰車 最終章 第 4 話</div>
+    <div class="foot" style="margin-top:auto">
+      <span class="mark">影記</span><span class="who">clipwww</span>
+      <span class="attrib">片名資料：文化部影視局　·　TMDB</span>
+    </div>
+  </div>
+</div>
+
+<h2>④ <code>/film/[slug]</code> — 作品頁</h2>
+<div class="og">
+  <div class="stub"></div><div class="frame"></div>
+  <div class="inner">
+    <div class="kicker">2024　日本　96 分鐘</div>
+    <div class="title sm">劇場版 吉伊卡哇 人魚島的秘密</div>
+    <div style="margin-top:28px;font-size:30px;color:var(--paper-500)">
+      <span class="seal-g">普遍級</span>7 個人記過這部片
+    </div>
+    <div class="foot" style="margin-top:auto">
+      <span class="mark">影記</span>
+      <span class="attrib">片名資料：文化部影視局　·　TMDB</span>
+    </div>
+  </div>
+</div>
+<p class="n">
+  <strong>沒有原文片名。</strong>這不是省略，是量出來的：全站 2,669 部作品的原文片名，
+  <strong>344 部（12.9%）含有 Noto Sans TC 畫不出來的字</strong>（諺文、日本新字體、泰文、阿拉伯文…）。
+  八分之一的機率讓分享圖出現豆腐格，不值得換那一行附註。
+</p>
+
+<h2>⑤ <code>/venue/[id]</code> — 影城頁</h2>
+<div class="og">
+  <div class="stub"></div><div class="frame"></div>
+  <div class="inner">
+    <div class="kicker">新北市　9 個廳</div>
+    <div class="title sm">林口MITSUI OUTLET PARK威秀影城</div>
+    <div class="sub" style="margin-top:24px">115 場紀錄</div>
+    <div class="foot" style="margin-top:auto">
+      <span class="mark">影記</span>
+      <span class="attrib">影城資料：文化部影視局「全國電影院資料」</span>
+    </div>
+  </div>
+</div>
+
+<h2>⑥ 站台通用 ／ 缺字降級態</h2>
+<div class="og">
+  <div class="stub"></div><div class="frame"></div>
+  <div class="inner">
+    <div class="kicker">2026 / 07 / 26（六）16:00</div>
+    <div class="title" style="color:var(--paper-500);font-size:56px">一張票根</div>
+    <div class="meta">
+      <span class="venue">林口MITSUI OUTLET PARK威秀影城（7廳）</span>
+      <span class="rest">數位　2張</span>
+    </div>
+    <div class="foot">
+      <span class="mark">影記</span><span class="who">clipwww</span>
+      <span class="attrib">片名資料：文化部影視局　·　TMDB</span>
+    </div>
+  </div>
+</div>
+<p class="n">
+  片名有字型畫不出來的字時，<strong>把片名那一行換掉，其餘照常</strong>——
+  日期、影城、場次、顯名列全部保留，資訊量幾乎沒少。<br>
+  <strong>絕對不要渲染豆腐格</strong>（<span class="tofu"></span>）。一個破格子讀起來是「這站壞了」，
+  而 OG 圖唯一的工作就是讓人覺得值得點進來。<br>
+  實測命中率：2,669 部中文片名裡 <strong>5 部</strong>（0.2%）會走到這一態。
+</p>
+
+</div></body></html>
