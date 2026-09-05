@@ -1,6 +1,17 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "categories": { "correctness": "error", "suspicious": "warn", "perf": "warn" },
+  "plugins": ["vue", "typescript", "oxc", "import"],
   "rules": { "no-await-in-loop": "off" },
-  "ignorePatterns": ["tests/fixtures/**", ".data/**", "node_modules/**", "BUILD_PLAN.md"]
+  "ignorePatterns": [
+    "tests/fixtures/**",
+    ".data/**",
+    "node_modules/**",
+    ".nuxt/**",
+    ".output/**",
+    ".vercel/**",
+    "app/types/database.types.ts",
+    "docs/**",
+    "SPEC.md"
+  ]
 }

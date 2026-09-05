@@ -1,19 +1,25 @@
 {
+  // Nuxt 4 的 solution file：實際設定在 .nuxt/ 的四份子專案裡。
+  //
+  // paths 放在這裡是刻意的：tsx 讀「最近的 tsconfig.json」來解析路徑別名，
+  // 讀不到 tsconfig.pipeline.json。少了它，src/ 內以 `~/` 匯入的模組在
+  // pnpm run ingest:* 執行期會 Cannot find package '~'（型別檢查卻是過的——
+  // 又是一次「測試/型別綠燈但 CLI 跑不動」）。
+  //
+  // `~/*` 是過渡條目：src/ 內尚有 12 行未轉成 #pipeline/，那些檔案屬主
+  // session 的分工範圍。全部轉換完之後，這一條與 tsconfig.pipeline.json
+  // 裡對應的那條可以一起刪掉。
   "compilerOptions": {
-    "target": "ES2023",
-    "lib": ["ES2023"],
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "paths": { "~/*": ["./src/*"] },
-    "resolveJsonModule": true,
-    "types": ["node", "vitest/globals"],
-    "strict": true,
-    "noImplicitOverride": true,
-    "noUncheckedIndexedAccess": true,
-    "noEmit": true,
-    "esModuleInterop": true,
-    "verbatimModuleSyntax": true,
-    "skipLibCheck": true
+    "paths": {
+      "#pipeline/*": ["./src/*"],
+      "~/*": ["./src/*"]
+    }
   },
-  "include": ["src", "tests", "*.ts"]
+  "references": [
+    { "path": "./.nuxt/tsconfig.app.json" },
+    { "path": "./.nuxt/tsconfig.server.json" },
+    { "path": "./.nuxt/tsconfig.shared.json" },
+    { "path": "./.nuxt/tsconfig.node.json" }
+  ],
+  "files": []
 }

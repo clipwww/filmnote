@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    // `#pipeline/*` 是目標別名（與 package.json 的 imports 一致，執行期才有效）。
+    // `~/*` 是過渡期保留：src/ 內尚有 12 行未轉換，而 src/** 屬主 session 的
+    // 檔案分工範圍，不由本 session 改。全部轉換完後刪掉這一條。
+    "paths": {
+      "#pipeline/*": ["./src/*"],
+      "~/*": ["./src/*"]
+    },
+    "resolveJsonModule": true,
+    "types": ["node", "vitest/globals"],
+    "strict": true,
+    "noImplicitOverride": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true
+  },
+  "include": ["src", "tests", "scripts", "vitest.config.ts"]
+}
