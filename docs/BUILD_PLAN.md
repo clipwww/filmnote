@@ -1921,6 +1921,91 @@ curl -s "$URL/rest/v1/dmca_notice?select=*" -H "apikey: $ANON"                  
 
 ---
 
+#### ✅ 已完成：David 本人的 169 筆實測匯入
+
+CLI 先行（`pnpm import:mylog`，`scripts/import-mylog.ts`）。`/app/import` 的
+上傳 UI 尚未做，但比對、拆分、冪等這三件事已在真實資料上驗證，UI 只需複用
+`src/import/**` 的純函式。
+
+**來源**：`https://mechakucha-api.vercel.app/my-log/movie`，169 筆，2014-03 至 2026-07。
+
+**結果**：169 筆來源 → 展開後 **174 筆** viewing_record，指向 **133 部相異作品**，
+全部落地、零筆略過。`viewing_record_cost` 169 列、總金額 **5x,xxx 元**。
+連跑四次 `--apply`，六個計數全部不變。
+
+片名比對的分佈（**首次匯入**、尚無人工對照表與拆分規則時的 134 個相異片名）：
+
+| 比對路徑 | 片 | 筆 |
+|---|---|---|
+| 既有片庫（政府 110–113 年）中文片名完全吻合 | 50 | 72 |
+| TMDB 比對命中 | 66 | 76 |
+| 未命中 → 進 UGC 佇列 | 18 | 21 |
+
+那 18 部未命中中，**16 部 TMDB 其實查得到**，只是片名寫法差一截而未達門檻
+（詳下方 ⚠️）；另外 2 部是雙片連映，屬資料語意問題（見 ⑤）。補上人工對照表與
+拆分規則後重跑，**未命中降為 0**，人工對照表涵蓋 20 個片名／30 筆紀錄。
+
+**五個實測結論，都與事前假設不同：**
+
+**① 時區偏移的方向與直覺相反。** 上游 `date` 存 UTC 但代表台北牆上時間。
+台北 = UTC+8，所以 08:00 以後的場次（含全部晚場）UTC 日期不變，真正會跑掉的是
+**午夜場**——台北 00:00 的 UTC 是**前一天** 16:00。169 筆中有 5 筆 00:00 午夜場，
+不換算會全部退到前一天。`toTaipeiWallClock()` 用 `Intl` 而非硬寫 +8（台灣 1979 年前
+有日光節約時間）。每筆的 `id` 是原始 CSV 列的 base64，解碼後就是答案，
+匯入時逐筆交叉驗證——上游哪天改了 `date` 的產生方式會立刻炸出來。
+
+**② `import_key` 不必自己算 hash。** 上游 `id` 就是原始 CSV 列的 base64，
+天生確定性。唯一的例外是拆分（見 ⑤），拆出來的用 `<原id>#<序號>`。
+
+**③ 票價欄位的語意要實測才知道。** 169 筆中有 19 筆 `cost ≠ price×tickets+fee−discount`，
+因為 `fee` 是**每張**手續費而非每筆（`240,20,2,0,520` → 240×2+20×2）。
+一律採用上游的 `cost`，它也是唯一能同時解釋兌換票（0 元）與折扣票的欄位。
+
+**④ 影廳簡稱只能人工對照，不能用演算法。** 15 個口語簡稱與 107 家官方名稱
+**零個完全相同**，而子字串比對會出災難性的錯（「林口威秀」的子字串「威秀」
+會配到「台北京站威秀影城」）。對照表在 `src/import/venue-aliases.ts`，
+每筆附判定依據。其中兩個看似歧義的其實查得出來：「大直美麗華」由 8 筆中 6 筆是
+IMAX 場次定為美麗華大直影城（美麗新大直皇家從無 IMAX）；「新竹威秀」由該筆是
+2016 年 4DX 場次定為新竹大遠百威秀（巨城館從未設 4DX）。
+
+三家不在 2025 年名冊中——日新威秀（2020-09-08 歇業）、喜滿客京華影城
+（2019-11-30 歇業）、AEON THEATUS 心斎橋（日本大阪）。這些是真的去過的地方，
+建成 `ugc:` 場所保留歷史，並以 `venue.selectable = false` 擋在選單外
+（見 `0002_venue_selectable.sql`）。**新增／編輯紀錄的場所選單必須查
+`public.venue_option`，不可直接查 `venue`。**
+
+**⑤ 雙片連映必須拆成多筆紀錄。** 「少女與戰車最終章 1+2」是一次進場看兩話，
+TMDB 上四話各自獨立、沒有連映版條目，而一筆 `viewing_record` 只能指向一部作品。
+實測 5 筆連映 → 10 筆。三個必須同時做對的細節：票價**全額記在第一筆、第二筆不建
+`viewing_record_cost` 那一列**（對半拆會捏造價格，兩筆都記會讓年度總花費翻倍）；
+`import_key` 必須互斥否則冪等直接壞掉；備註註明是連映，否則半年後會誤以為重複記錄。
+規則在 `src/import/double-features.ts`。
+
+**⚠️ 給後續使用比對器的人：`runtimeOf` 回 null 時最強的驗證訊號會消失。**
+
+片長交叉驗證是比對器唯一能擋住「片名相近但根本是另一部片」的機制，但它只在
+片長兩端皆非 null 時生效——任一為 null 會**靜默跳過**而非拒絕比對。政府資料有片長
+所以感覺不到，舊 log 沒有片長就踩到了：《Fate stay night Heaven's feel》靠 `zh-prefix`
+配到系列**第二部**《Ⅱ.迷途之蝶》，分數 4.5 高於門檻。
+
+**正確的補償方向是收緊而非放寬**：要求 signals 含 `zh-exact` 或 `original-exact`，
+否則一律視為未命中，缺口用人工對照表（`src/import/tmdb-overrides.ts`）補。
+反過來調鬆門檻，等於在最沒有把握的時候最敢猜。該表的 `reason` 欄記錄每筆
+「比對器為什麼沒配到」，是 Step 7 調整門檻時的依據——目前分佈為
+`zh-wording` 10、`series-numbering` 3、`zh-has-latin-main-title` 3、
+`zh-typo` 1、`zh-too-short` 1、`punctuation` 1。Step 7 的審核 UI 可直接把這張表
+當「建議配對」的種子資料。
+
+**新增檔案**：`src/import/{mylog,venue-aliases,tmdb-overrides,double-features}.ts`、
+`scripts/import-mylog.ts`、`supabase/migrations/0002_venue_selectable.sql`、
+`tests/import.test.ts`（65 個測試）。
+
+**匯入對象一律以 email 精確指定**（`IMPORT_TARGET_EMAIL` 或 `--email`），
+不寫死在程式碼裡、也不用「DB 裡唯一一筆 profile」這種假設——多 session 開發時
+測試帳號隨時會出現，猜錯就匯到別人身上。
+
+---
+
 ### Step 11 — 部署 Vercel
 
 **做**：Framework Preset = Nuxt.js；Build Command 保持 `nuxt build`（**絕不能是 `nuxt generate`**，踩雷 #2）；**不設 `NITRO_PRESET`**（踩雷 #11）；Node 22.x/24.x；環境變數照 2.7；Supabase Redirect URLs 補 `https://*-<team-slug>.vercel.app/**` 與正式網域。

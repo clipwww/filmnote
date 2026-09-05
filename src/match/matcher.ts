@@ -4,6 +4,23 @@
  * 演算法經 110–113 年全部 3,116 筆實測驗證：命中率 90.3%、
  * 端到端可用率 81.1%。以下三個設計選擇都是實測失敗換來的，
  * 修改前請先看 tests/matcher.test.ts 的回歸案例。
+ *
+ * ⚠ 給呼叫端：`runtimeOf` 回傳 null 時，最強的那道驗證訊號會消失。
+ *
+ * 片長交叉驗證是本比對器唯一能擋住「片名相近但根本是另一部片」的機制
+ * （花絮、幕後特輯、同系列的另一部）。但它只在 certificate.runtimeMinutes
+ * 與 runtimeOf 皆非 null 時才生效——兩者任一為 null，該檢查會**靜默跳過**，
+ * 而不是拒絕比對。政府資料有片長所以感覺不到，換一個沒有片長的來源就會踩到。
+ *
+ * 實測（舊 log 匯入，US-56）：來源沒有片長欄位，runtimeOf 只能回 null，
+ * 於是《Fate stay night Heaven's feel》靠 zh-prefix 配到了系列**第二部**
+ * 《Ⅱ.迷途之蝶》——分數 4.5 高於門檻，片長那關形同不存在。
+ *
+ * 沒有片長可用時，呼叫端必須自行補一道護欄。已驗證有效的做法是**收緊**
+ * 而非放寬：要求 signals 含 `zh-exact` 或 `original-exact`，否則一律視為
+ * 未命中送進 UGC 佇列，缺口用人工對照表補
+ * （見 scripts/import-mylog.ts 與 src/import/tmdb-overrides.ts）。
+ * 反過來調鬆門檻來提高命中率，等於在最沒有把握的時候最敢猜。
  */
 
 import type {

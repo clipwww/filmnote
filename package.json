@@ -25,7 +25,8 @@
     "lint:fix": "oxlint --fix . && eslint . --fix",
     "ingest:rating": "tsx src/pipeline/ingest-rating.ts",
     "ingest:cinema": "tsx src/pipeline/ingest-cinema.ts",
-    "db:sql": "tsx --env-file=.env scripts/db.ts"
+    "db:sql": "tsx --env-file=.env scripts/db.ts",
+    "import:mylog": "tsx --env-file=.env scripts/import-mylog.ts"
   },
   "dependencies": {
     "@internationalized/date": "^3.12.3",
