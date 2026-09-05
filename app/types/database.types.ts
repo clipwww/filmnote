@@ -672,6 +672,87 @@ export interface Database {
         }
         Relationships: []
       }
+      takedown_action: {
+        Row: {
+          id: number
+          notice_id: number
+          subject_kind: string
+          film_id: string | null
+          record_id: string | null
+          prev_visibility: Database["public"]["Enums"]["visibility"]
+          prev_moderation_state: Database["public"]["Enums"]["moderation_state"]
+          acted_at: string
+          acted_by: string | null
+          restored_at: string | null
+          restored_by: string | null
+          note: string | null
+        }
+        Insert: {
+          id?: number
+          notice_id: number
+          subject_kind: string
+          film_id?: string | null
+          record_id?: string | null
+          prev_visibility: Database["public"]["Enums"]["visibility"]
+          prev_moderation_state: Database["public"]["Enums"]["moderation_state"]
+          acted_at?: string
+          acted_by?: string | null
+          restored_at?: string | null
+          restored_by?: string | null
+          note?: string | null
+        }
+        Update: {
+          id?: number
+          notice_id?: number
+          subject_kind?: string
+          film_id?: string | null
+          record_id?: string | null
+          prev_visibility?: Database["public"]["Enums"]["visibility"]
+          prev_moderation_state?: Database["public"]["Enums"]["moderation_state"]
+          acted_at?: string
+          acted_by?: string | null
+          restored_at?: string | null
+          restored_by?: string | null
+          note?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "takedown_action_acted_by_fkey"
+            columns: ["acted_by"]
+            isOneToOne: false
+            referencedRelation: "profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "takedown_action_film_id_fkey"
+            columns: ["film_id"]
+            isOneToOne: true
+            referencedRelation: "film"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "takedown_action_notice_id_fkey"
+            columns: ["notice_id"]
+            isOneToOne: false
+            referencedRelation: "takedown_notice"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "takedown_action_record_id_fkey"
+            columns: ["record_id"]
+            isOneToOne: true
+            referencedRelation: "viewing_record"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "takedown_action_restored_by_fkey"
+            columns: ["restored_by"]
+            isOneToOne: false
+            referencedRelation: "profile"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       takedown_notice: {
         Row: {
           id: number
@@ -688,6 +769,7 @@ export interface Database {
           actioned_at: string | null
           handled_by: string | null
           note: string | null
+          notified_user_at: string | null
         }
         Insert: {
           id?: number
@@ -704,6 +786,7 @@ export interface Database {
           actioned_at?: string | null
           handled_by?: string | null
           note?: string | null
+          notified_user_at?: string | null
         }
         Update: {
           id?: number
@@ -720,6 +803,7 @@ export interface Database {
           actioned_at?: string | null
           handled_by?: string | null
           note?: string | null
+          notified_user_at?: string | null
         }
         Relationships: [
           {
@@ -1058,6 +1142,30 @@ export interface Database {
           uid: string
         }
         Returns: boolean
+      }
+      admin_add_strike: {
+        Args: {
+          p_profile_id: string
+          p_notice_id: number
+          p_note: string
+        }
+        Returns: number
+      }
+      admin_restore: {
+        Args: {
+          p_notice_id: number
+          p_note: string
+        }
+        Returns: number
+      }
+      admin_takedown: {
+        Args: {
+          p_notice_id: number
+          p_film_id: string
+          p_record_id: string
+          p_note: string
+        }
+        Returns: number
       }
       apply_tmdb_snapshot: {
         Args: {

@@ -54,6 +54,15 @@ end $$;
 grant select on public.profile_private, public.film_merge_log, public.import_run,
   public.takedown_notice, public.counter_notice, public.copyright_strike,
   public.data_report, public.legal_acceptance to authenticated;
+
+-- 0006 的取下動作紀錄。RLS 是 staff-only，這裡只是表級大門。
+do $$ begin
+  if to_regclass('public.takedown_action') is not null then
+    grant select on public.takedown_action to authenticated;
+  else
+    raise notice 'takedown_action 尚不存在（0006 未套用），略過其 grant';
+  end if;
+end $$;
 grant insert, update, delete on public.viewing_record, public.viewing_record_cost to authenticated;
 grant insert, update on public.film to authenticated;
 grant update on public.profile to authenticated;
@@ -84,6 +93,15 @@ grant execute on function public.is_staff(), public.is_admin(),
 grant execute on function public.rename_username(text),
   public.export_my_data() to authenticated;
 
+-- ★ trigger 裡呼叫的 helper 也需要對「觸發它的那個人」開 EXECUTE。
+--   `counter_notice_deadlines`（0001）是 SECURITY INVOKER 的 trigger，它呼叫
+--   `business_days_after()` 來算 §90-9 的兩個法定期限。本檔第 2 節的 blanket
+--   revoke 會把那支收掉 ⇒ **一般使用者提出回復通知時會拿到 42501**，而這件事
+--   只有在真的有人被取下、又真的要主張未侵權時才會發生——也就是它最不能壞的時候。
+--   實測 2026-09-06（Step 8 驗收）才發現。
+--   函式本身是 IMMUTABLE 的純日期運算、不碰任何資料表，開給 authenticated 不外洩東西。
+grant execute on function public.business_days_after(timestamptz, integer) to authenticated;
+
 -- 0003 的年度統計。公開個人頁未登入也要看得到，故對 anon 開放。
 -- 安全性不靠這道 grant，而靠函式本身是 SECURITY INVOKER：呼叫者看不到的紀錄
 -- 進不了聚合。因此它也必須列進第 3 節的白名單，否則自我檢查會擋下整份 migration。
@@ -96,6 +114,19 @@ do $$ begin
 end $$;
 grant execute on function public.merge_films(uuid, uuid, text),
   public.approve_film(uuid, boolean) to authenticated, service_role;
+
+-- 0006 的取下／三振／回復。對 authenticated 開放，實際把關在函式內的
+-- is_staff()——與 merge_films / approve_film 同一個模式：一般登入者呼叫會拿到
+-- 42501，而不是靠「沒有 grant」擋（那會變成沒有上下文的 404）。
+do $$ begin
+  if to_regprocedure('public.admin_takedown(bigint, uuid, uuid, text)') is not null then
+    grant execute on function public.admin_takedown(bigint, uuid, uuid, text),
+      public.admin_add_strike(uuid, bigint, text),
+      public.admin_restore(bigint, text) to authenticated, service_role;
+  else
+    raise notice '0006 的三支 admin RPC 尚不存在，略過其 grant';
+  end if;
+end $$;
 grant execute on function public.link_film_to_tmdb(uuid, integer),
   public.apply_tmdb_snapshot(uuid), public.purge_expired_tmdb_cache(),
   public.seed_films(jsonb) to service_role;
@@ -138,7 +169,8 @@ begin
     from information_schema.role_table_grants
    where table_schema = 'public' and grantee = 'anon'
      and table_name in ('profile_private','import_run','film_merge_log','legal_acceptance',
-                        'counter_notice','copyright_strike','data_report','tmdb_refresh_due');
+                        'counter_notice','copyright_strike','data_report','tmdb_refresh_due',
+                        'takedown_action');
   if bad is not null then raise exception 'anon 對非公開表仍有 grant：%', bad; end if;
 
   -- user_year_stats 一旦被改成 SECURITY DEFINER，RLS 就整個讓開，而它對 anon

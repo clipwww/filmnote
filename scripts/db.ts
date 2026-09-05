@@ -41,6 +41,16 @@ async function main() {
     ssl: { rejectUnauthorized: false },
     statement_timeout: 300_000,
   })
+  // ★ 沒有這一段，`raise notice` 全部靜默消失。代價比看起來大：
+  //   - migration 裡的冒煙測試印「通過」也沒人看得到，等於沒印
+  //   - 9999_grants.sql 的「xxx 尚不存在，略過其 grant」會**無聲跳過授權**，
+  //     前端拿到的是沒有上下文的 401，而套用 migration 的人以為一切正常
+  //   PostgreSQL 的 notice 走的是獨立通道，不會出現在查詢結果裡。
+  client.on('notice', (msg) => {
+    if (msg.message)
+      console.log(`[${(msg.severity ?? 'NOTICE').toLowerCase()}] ${msg.message}`)
+  })
+
   await client.connect()
   try {
     const res = await client.query(sql)
