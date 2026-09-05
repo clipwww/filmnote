@@ -1,0 +1,31 @@
+{
+  "name": "filmnote",
+  "type": "module",
+  "private": true,
+  "description": "影記 — 台灣在地觀影紀錄",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "oxlint src tests && eslint .",
+    "lint:fix": "oxlint --fix src tests && eslint . --fix",
+    "typecheck": "tsc --noEmit",
+    "ingest:rating": "tsx src/pipeline/ingest-rating.ts",
+    "ingest:cinema": "tsx src/pipeline/ingest-cinema.ts"
+  },
+  "dependencies": {
+    "csv-parse": "^7.0.2"
+  },
+  "devDependencies": {
+    "@antfu/eslint-config": "^9.5.1",
+    "@types/node": "^26.4.1",
+    "eslint": "^10.10.0",
+    "eslint-plugin-oxlint": "^1.81.0",
+    "oxlint": "^1.81.0",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.0"
+  }
+}
