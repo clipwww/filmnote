@@ -1,7 +1,7 @@
 # 影記 / filmnote — 產品規格
 
 > 台灣在地的觀影紀錄 SaaS。
-> 本規格由 2026-09-05 的資料來源調研（`../log/logs/MOVIE_DIARY_SAAS_DATA_SOURCES.md`）與技術選型調研（`../log/logs/SAAS_STACK_RESEARCH.md`）推導而來，兩份文件中的實測數據為本規格的事實基礎。
+> 本規格由 2026-09-05 的資料來源調研（`docs/research/DATA_SOURCES.md`）與技術選型調研（`docs/research/STACK.md`）推導而來，兩份文件中的實測數據為本規格的事實基礎。
 
 ---
 
@@ -430,5 +430,5 @@ viewing_record（觀影紀錄）
 
 ### 相關文件
 
-- `../log/logs/MOVIE_DIARY_SAAS_DATA_SOURCES.md` — 資料來源可行性調研（含全部條款原文引用、實測數據、法律分析）
-- `../log/logs/SAAS_STACK_RESEARCH.md` — 技術選型調研（含 oxlint/Vue 支援現況、部署平台商業使用條款、BaaS 免費額度）
+- `docs/research/DATA_SOURCES.md` — 資料來源可行性調研（含全部條款原文引用、實測數據、法律分析）
+- `docs/research/STACK.md` — 技術選型調研（含 oxlint/Vue 支援現況、部署平台商業使用條款、BaaS 免費額度）
