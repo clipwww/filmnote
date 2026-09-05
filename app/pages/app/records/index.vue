@@ -35,6 +35,7 @@ const { data, refresh, status } = await useAsyncData('my-records', async () => {
 }, { server: false, watch: [user] })
 
 const records = computed(() => data.value ?? [])
+const { formatLabel } = useScreeningFormats()
 
 async function remove(id: string) {
   const { error } = await supabase.from('viewing_record').delete().eq('id', id)
@@ -75,10 +76,13 @@ async function remove(id: string) {
             </UBadge>
           </p>
           <p class="mt-0.5 text-sm text-muted">
-            {{ r.watched_on }}<span v-if="r.watched_time"> {{ r.watched_time.slice(0, 5) }}</span>
-            <span v-if="r.venue"> · {{ r.venue.name }}</span>
-            <span v-if="r.hall_label"> · {{ r.hall_label }}</span>
-            <span v-if="r.cost != null"> · NT$ {{ Number(r.cost).toLocaleString('zh-Hant-TW') }}</span>
+            {{ metaLine(
+              dateTimeText(r.watched_on, r.watched_time),
+              r.venue?.name,
+              r.hall_label,
+              formatLabel(r.format_code),
+              r.cost != null ? `NT$ ${Number(r.cost).toLocaleString('zh-Hant-TW')}` : null,
+            ) }}
           </p>
           <p v-if="r.memo" class="mt-1 text-sm">
             {{ r.memo }}

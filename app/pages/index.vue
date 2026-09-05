@@ -1,6 +1,9 @@
 <script setup lang="ts">
+// ★ 這裡刻意不設 title：app.vue 的 titleTemplate 是
+//   title => title ? `${title} — 影記` : '影記 filmnote'
+//   首頁若再給一個含站名的 title，就會變成「影記 filmnote — 影記」。
+//   不設值時 template 會走 fallback，得到乾淨的「影記 filmnote」。
 useSeoMeta({
-  title: '影記 filmnote',
   description: '台灣在地的觀影紀錄工具：記得住台灣的片名、你在哪看的、以及你花了多少。',
 })
 </script>
