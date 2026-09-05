@@ -11,7 +11,15 @@
 
 import { readFile } from 'node:fs/promises'
 import process from 'node:process'
-import { Client } from 'pg'
+import { Client, types as pgTypes } from 'pg'
+
+// node-postgres 預設把 date / timestamp 解析成 JS Date，console.table 再以
+// ISO（UTC）印出來——一個存著 2026-09-05 的 date 欄位會顯示成
+// 2026-09-04T16:00:00.000Z，看起來像是被時區轉換過。本專案刻意用
+// date + time 避開時區問題，斷言時被這個顯示層誤導會得出完全相反的結論。
+// 一律保留資料庫給的字串。
+for (const oid of [1082 /* date */, 1114 /* timestamp */, 1184 /* timestamptz */, 1083])
+  pgTypes.setTypeParser(oid, v => v)
 
 async function main() {
   const url = process.env.DATABASE_URL
