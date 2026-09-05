@@ -156,7 +156,10 @@ const grouped = computed(() => {
                     formatLabel(r.formatCode),
                   ) }}
                 </p>
-                <p v-if="r.memo" class="mt-1 text-sm leading-relaxed">
+                <p
+                  v-if="r.memo"
+                  class="mt-1.5 border-l-2 border-default pl-2 text-sm leading-relaxed whitespace-pre-line"
+                >
                   {{ r.memo }}
                 </p>
               </div>

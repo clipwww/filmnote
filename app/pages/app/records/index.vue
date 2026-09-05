@@ -84,7 +84,10 @@ async function remove(id: string) {
               r.cost != null ? `NT$ ${Number(r.cost).toLocaleString('zh-Hant-TW')}` : null,
             ) }}
           </p>
-          <p v-if="r.memo" class="mt-1 text-sm">
+          <p
+            v-if="r.memo"
+            class="mt-1.5 border-l-2 border-default pl-2 text-sm leading-relaxed whitespace-pre-line"
+          >
             {{ r.memo }}
           </p>
         </div>
