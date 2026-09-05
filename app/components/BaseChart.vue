@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { EChartsOption } from 'echarts'
-import { BarChart, HeatmapChart, LineChart, PieChart } from 'echarts/charts'
+import { BarChart, HeatmapChart, LineChart, ScatterChart } from 'echarts/charts'
 import {
   CalendarComponent,
   GridComponent,
@@ -18,7 +18,14 @@ const props = withDefaults(defineProps<{
   /** CSS 長度。給定值以 inline style 套用，繞過 cascade layer 的優先權反轉。 */
   height?: string
   label?: string
+  /** 內容比容器寬時（整年出席圖固定 742px）給的固定寬度，外層自己捲。 */
+  width?: string
 }>(), { height: '320px', label: '圖表' })
+
+const emit = defineEmits<{
+  /** ECharts 的點擊事件原樣往上丟。`params.data` 是那一格的資料。 */
+  pick: [params: { data?: unknown, value?: unknown, seriesIndex?: number }]
+}>()
 
 /**
  * 所有圖表的外殼。直接用 vue-echarts，不裝 nuxt-echarts——
@@ -42,13 +49,20 @@ const props = withDefaults(defineProps<{
  *    側邊欄收合時 window 尺寸沒變，window.resize 不會觸發。vue-echarts 的
  *    autoresize 走 ResizeObserver（踩雷 #59）。
  *
+ * ④ 不用 ECharts 內建的 'dark' theme
+ *    我們的每一個顏色都在 option 裡顯式指定（§5.4b 的對帳表就是照這個寫的），
+ *    而內建 dark theme 會塞一個 backgroundColor: '#100c2a' 的深紫底進來，
+ *    跟暖 kraft 完全不同調。這裡改成 backgroundColor: 'transparent' 由卡片
+ *    的 bg-default 透出來。深淺切換靠 :key 重建——§5.3-10 說 setTheme() 不會
+ *    重算 visualMap.pieces 與顯式的 itemStyle.color，本來就得整份 option 重來。
+ *
  * 色彩一律由 ~/utils/chart-theme 提供的 hex 進來，絕不從 CSS 讀 oklch。
  */
 use([
   CanvasRenderer,
   BarChart,
   LineChart,
-  PieChart,
+  ScatterChart,
   HeatmapChart,
   GridComponent,
   TooltipComponent,
@@ -67,15 +81,15 @@ const chartKey = computed(() => (isDark.value ? 'dark' : 'light'))
 </script>
 
 <template>
-  <div :style="{ height: props.height }" class="w-full">
+  <div :style="{ height: props.height, width: props.width }" class="w-full">
     <ClientOnly>
       <VChart
         :key="chartKey"
         :option="props.option"
-        :theme="isDark ? 'dark' : undefined"
         autoresize
         :aria-label="props.label"
         class="size-full"
+        @click="emit('pick', $event)"
       />
       <template #fallback>
         <!-- 與圖表等高的骨架，避免 hydration 前後跳動 -->
