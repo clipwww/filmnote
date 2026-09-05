@@ -6,7 +6,9 @@ export default antfu(
     type: 'lib',
     typescript: true,
     vue: false,
-    ignores: ['tests/fixtures/**', '.data/**'],
+    // BUILD_PLAN.md 是設計流程的產生物，非手寫原始碼；
+    // 用 markdown 規則去挑它的格式只會製造雜訊。
+    ignores: ['tests/fixtures/**', '.data/**', 'BUILD_PLAN.md'],
   },
   {
     // CLI 進入點：console 輸出與 top-level await 是它們的本職，

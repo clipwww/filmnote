@@ -1,10 +1,16 @@
 /**
  * TMDB API 客戶端。
  *
- * 實測發現免費 key 會**累積節流**：同樣 8 執行緒的設定下，先跑的 709 筆
- * 耗時 259 秒，後跑的 868 筆耗時 1,669 秒（約 6 倍）。因此本客戶端內建
- * 併發上限與指數退避，並且不假設任何一次呼叫會成功——匯入管線必須能
- * 中斷續跑（見 pipeline/checkpoint.ts）。
+ * 重試與退避是**防禦性設計，非已證實的需求**：110–113 年全量匯入的
+ * 9,076 次請求中，重試 0 次、遭 429 節流 0 次。但那次執行的實際併發
+ * 接近 1（呼叫端當時逐筆等待），所以高併發下的節流行為仍未驗證。
+ *
+ * Python 原型曾在 8 併發下觀察到批次間約 6 倍的速度差異（709 筆/259 秒
+ * vs 868 筆/1,669 秒），原因未確認——未量測 429，可能是網路或上游延遲
+ * 而非節流。提高併發後若出現 429，`stats.throttled` 會記錄下來。
+ *
+ * 無論如何，不假設任何一次呼叫會成功：匯入管線必須能中斷續跑
+ * （見 pipeline/checkpoint.ts）。
  */
 
 import type { TmdbMovieDetail, TmdbSearchResult } from '~/types'
@@ -16,7 +22,7 @@ export const TW_REGION = 'TW'
 
 export interface TmdbClientOptions {
   apiKey: string
-  /** 同時進行的請求數上限。實測 8 併發不會立刻觸發 429，但會累積節流。 */
+  /** 同時進行的請求數上限。8 併發下的節流行為尚未驗證。 */
   concurrency?: number
   /** 單一請求的重試次數上限。 */
   maxRetries?: number
@@ -114,8 +120,7 @@ export class TmdbClient {
         if (response.status === 429)
           this.stats.throttled++
 
-        // 指數退避。429 時額外拉長——TMDB 的節流是累積性的，
-        // 短間隔重試只會讓情況更糟。
+        // 指數退避。429 時額外拉長：被節流時短間隔重試通常只會延長懲罰。
         const base = response.status === 429 ? 2000 : 500
         await this.sleep(base * 2 ** attempt)
       }
