@@ -107,6 +107,9 @@ D+E 的副作用是**提權防線可以少一層**：`profile` 表裡根本沒�
 ## 1.2 完整 migration
 
 > 本節與 `supabase/migrations/0001_init.sql` **逐字相同**（該檔以本節產生）。
+> 「不得漂移」不靠記得——`pnpm exec tsx scripts/sync-schema-docs.ts` 會比對
+> §1.2 / §1.2a / §1.2b 與 `supabase/migrations/**`，不一致就 exit 1；
+> 加 `--write` 直接同步回本文件。
 > 2026-09-05 已在真實 Supabase 專案（PostgreSQL 17.6）套用並通過全部驗收，
 > 對已 seed 的資料重跑亦不損一列。修改任一邊都必須同步另一邊。
 >
@@ -1132,6 +1135,244 @@ end $$;
 ```
 
 
+## 1.2a 後續 migration（`0002`、`0003`）
+
+0001 之後、9999 之前執行。兩支都可重複執行。
+
+**`0002_venue_selectable.sql`** —— 場所能不能出現在「新增紀錄」的選單。
+舊 log 匯入帶進三家不在 2025 年名冊中的影城（兩家已歇業、一家在日本大阪），
+這些是真的去過的地方、必須留在歷史紀錄裡，但沒有人能在已拆除的戲院看新片。
+刻意不沿用 `status='closed'` 表達：心斎橋那家還在正常營業，它不該進選單的理由是
+「不在台灣、超出 SPEC 範圍」，把兩件事塞進同一個 enum 會逼出一個謊。
+**前端一律查 `public.venue_option`，不可直接查 `venue`。**
+
+**`0003_user_year_stats.sql`** —— 年度統計 RPC（Step 6、US-34～43）。
+**SECURITY INVOKER，不可改 DEFINER**：聚合是推論通道（踩雷 #42），
+DEFINER 會讓 RLS 整個讓開，此時一個寫錯的 WHERE 不會回 403，
+而是安靜地把全站資料算進總計倒給呼叫者。代價是總花費對不同觀看者是不同的
+數字，故回傳 `totals.spend_is_partial` 讓前端知道自己拿到的是不是全部。
+9999 的自我檢查會在它被改成 DEFINER 時讓 migration 失敗。
+
+回傳形狀的 TypeScript 契約在 `server/utils/user-year-stats.ts`
+（RPC 宣告 `returns jsonb`，型別產生器只能標成 `Json`，故手寫）。
+
+```sql
+-- =============================================================================
+-- 0002 — 場所是否可出現在「新增紀錄」的下拉選單
+--
+-- 起因：舊 log 匯入（US-56）帶進三家不在 2025 年影視局名冊中的影城——
+-- 台北日新威秀（2020-09-08 歇業）、喜滿客京華影城（2019-11-30 歇業）、
+-- AEON Cinema THEATUS 心斎橋（日本大阪）。這些是真實去過的地方，
+-- 必須保留在歷史紀錄裡（虛化成 virtual:other 會讓影城分佈統計少算），
+-- 但**不可以出現在新增紀錄的選單**——沒有人能在已拆除的戲院看新片。
+--
+-- 為什麼是獨立欄位而不是沿用 status：
+--   status='closed' 只能表達「歇業」。心斎橋那家還在正常營業，
+--   它不該出現在選單的理由是「不在台灣、超出 SPEC 範圍」，不是歇業。
+--   把兩件事塞進同一個 enum 會逼出一個謊。
+--
+-- 可重複執行。
+-- =============================================================================
+
+alter table public.venue
+  add column if not exists selectable boolean not null default true;
+
+comment on column public.venue.selectable is
+  '是否可出現在「新增紀錄」的場所選單。歷史用（已歇業、海外）一律 false，'
+  '既有紀錄仍正常顯示。Step 7 的 UGC 場所審核通過後把此欄改 true 即可放行。';
+
+-- 已歇業或已合併者，在結構上就不該被選。既有資料一次補齊。
+update public.venue set selectable = false
+ where selectable and (status <> 'active' or merged_into_venue_id is not null);
+
+create index if not exists venue_option_idx on public.venue (sort_weight, name)
+  where selectable and status = 'active' and merged_into_venue_id is null;
+
+-- -----------------------------------------------------------------------------
+-- 選單用的唯一入口。
+-- 前端一律查這個 view，不要直接查 venue——直接查就會把歇業與海外影城
+-- 一起撈進選單，而那正是這份 migration 要防的事。
+-- security_invoker：沿用呼叫者的 RLS，與 0001 的其他 view 一致。
+-- -----------------------------------------------------------------------------
+create or replace view public.venue_option with (security_invoker = true) as
+select id, kind, name, city, hall_count, sort_weight
+  from public.venue
+ where selectable
+   and status = 'active'
+   and merged_into_venue_id is null;
+
+comment on view public.venue_option is
+  '新增／編輯觀影紀錄時可選的場所。已歇業、已合併、海外與待審 UGC 場所都不在其中。';
+
+grant select on public.venue_option to anon, authenticated;
+```
+
+```sql
+-- =============================================================================
+-- 0003 — 年度統計 RPC（Step 6、US-34～43）
+--
+-- ★ SECURITY INVOKER，不可改成 DEFINER。
+--
+-- 聚合是推論通道（踩雷 #42）。DEFINER 會讓函式以擁有者身分讀表，RLS 整個
+-- 讓開——此時一個寫錯的 WHERE 不會回 403，而是安靜地把全站資料算進總計倒
+-- 給呼叫者。INVOKER 則讓 RLS 逐列把關：呼叫者看不到的紀錄本來就進不了聚合，
+-- 正確性不必倚賴這支函式的 WHERE 寫對。
+--
+-- 這個選擇有代價：票價要看 viewing_record_cost 的 RLS 臉色，所以總花費對不同
+-- 觀看者會是不同的數字。那不是 bug，是規格——但**前端必須知道自己拿到的是不
+-- 是全部**，否則會把「只算得到一半」顯示成「這就是全部」。故回傳
+-- `totals.spend_is_partial`。
+--
+-- 時區：schema 刻意用 watched_on date + watched_time time 存台北牆上時間
+-- （0001 §8）。所以「星期幾」「幾點」直接從這兩欄取，**不做 at time zone**——
+-- 那會把已經正確的牆上時間再轉一次，得到偏移 8 小時的熱力圖。
+--
+-- 可重複執行。
+-- =============================================================================
+
+create or replace function public.user_year_stats(
+  p_username text,
+  p_year integer default null      -- null = 不分年度，涵蓋全部
+)
+returns jsonb
+language sql
+stable
+security invoker                   -- ★ 見檔頭。改成 definer 會讓 RLS 失效。
+set search_path = ''
+as $$
+with target as (
+  select p.id
+    from public.profile p
+   where p.username = public.resolve_username(p_username)
+),
+-- RLS 在這裡生效：呼叫者看不到的紀錄不會出現，後面所有聚合自動正確。
+rec as (
+  select r.id, r.film_id, r.venue_id, r.watched_on, r.watched_time,
+         coalesce(r.ticket_count, 1) as ticket_count,
+         r.format_code,
+         c.amount as cost
+    from public.viewing_record r
+    join target t on t.id = r.user_id
+    -- left join：票價被 RLS 擋掉時保留紀錄本身，只是 cost 為 NULL。
+    -- inner join 會讓「沒公開票價」連場次都消失，統計直接失真。
+    left join public.viewing_record_cost c on c.record_id = r.id
+   where p_year is null or extract(year from r.watched_on)::integer = p_year
+),
+-- 年份清單不受 p_year 影響——前端要用它畫年度切換器（US-42）。
+years as (
+  select distinct extract(year from r.watched_on)::integer as y
+    from public.viewing_record r join target t on t.id = r.user_id
+),
+totals as (
+  select count(*)::integer                                      as records,
+         count(distinct film_id)::integer                       as films,
+         coalesce(sum(ticket_count), 0)::integer                 as tickets,
+         coalesce(sum(cost), 0)::numeric(12, 2)                  as spend,
+         count(cost)::integer                                    as spend_known_records,
+         (count(*) - count(cost))::integer                       as spend_unknown_records,
+         count(*) filter (where watched_time is null)::integer   as records_without_time
+    from rec
+)
+select case when not exists (select 1 from target) then null else jsonb_build_object(
+  'username', public.resolve_username(p_username),
+  'year', p_year,
+  'is_own', exists (select 1 from target t where t.id = (select auth.uid())),
+  'available_years', coalesce((select jsonb_agg(y order by y desc) from years), '[]'::jsonb),
+
+  'totals', (select jsonb_build_object(
+      'records', t.records,
+      'films', t.films,
+      'tickets', t.tickets,
+      'spend', t.spend,
+      'spend_currency', 'TWD',
+      -- ★ 前端據此決定要顯示總額還是「部分票價未公開」
+      'spend_is_partial', t.spend_unknown_records > 0,
+      'spend_known_records', t.spend_known_records,
+      'spend_unknown_records', t.spend_unknown_records,
+      'records_without_time', t.records_without_time
+    ) from totals t),
+
+  -- 貢獻圖（US-34）。ECharts calendar 吃 [date, value]，這裡給具名欄位，
+  -- 前端自行 map，避免把圖表函式庫的資料格式綁進 API 契約。
+  'daily', coalesce((
+    select jsonb_agg(jsonb_build_object(
+             'date', to_char(watched_on, 'YYYY-MM-DD'),
+             'records', n, 'tickets', tk) order by watched_on)
+      from (select watched_on, count(*)::integer n, sum(ticket_count)::integer tk
+              from rec group by watched_on) d), '[]'::jsonb),
+
+  -- 星期 × 時段熱力圖（US-35）。weekday 用 ISO：1=週一 … 7=週日。
+  -- watched_time 為 NULL 的舊資料進不了這張圖，其筆數見 totals.records_without_time。
+  'weekday_hour', coalesce((
+    select jsonb_agg(jsonb_build_object(
+             'weekday', wd, 'hour', hr, 'records', n) order by wd, hr)
+      from (select extract(isodow from watched_on)::integer wd,
+                   extract(hour from watched_time)::integer hr,
+                   count(*)::integer n
+              from rec where watched_time is not null
+             group by 1, 2) w), '[]'::jsonb),
+
+  -- 月度趨勢（US-36）
+  'monthly', coalesce((
+    select jsonb_agg(jsonb_build_object(
+             'month', m, 'records', n, 'tickets', tk,
+             'spend', sp, 'spend_is_partial', unknown > 0) order by m)
+      from (select extract(month from watched_on)::integer m,
+                   count(*)::integer n, sum(ticket_count)::integer tk,
+                   coalesce(sum(cost), 0)::numeric(12, 2) sp,
+                   (count(*) - count(cost))::integer unknown
+              from rec group by 1) mo), '[]'::jsonb),
+
+  -- 影城分布（US-37）
+  'venues', coalesce((
+    select jsonb_agg(jsonb_build_object(
+             'venue_id', venue_id, 'name', name, 'city', city,
+             'kind', kind, 'records', n) order by n desc, name)
+      from (select r.venue_id, v.name, v.city, v.kind::text as kind, count(*)::integer n
+              from rec r left join public.venue v on v.id = r.venue_id
+             group by 1, 2, 3, 4) vv), '[]'::jsonb),
+
+  -- 國別分布。film 讀不到時（他人的私密 UGC 作品）歸為空字串，前端顯示「未分類」。
+  'countries', coalesce((
+    select jsonb_agg(jsonb_build_object('country', country, 'records', n)
+                     order by n desc, country)
+      from (select coalesce(f.country, '') as country, count(*)::integer n
+              from rec r left join public.film f on f.id = r.film_id
+             group by 1) cc), '[]'::jsonb),
+
+  -- 版本分布
+  'formats', coalesce((
+    select jsonb_agg(jsonb_build_object(
+             'code', code, 'label', label, 'records', n) order by n desc, code)
+      from (select coalesce(r.format_code, 'other') as code,
+                   coalesce(max(s.label), '其他') as label,
+                   count(*)::integer n
+              from rec r
+              left join public.screening_format s on s.code = r.format_code
+             group by 1) ff), '[]'::jsonb),
+
+  -- 多刷排行（US-41）。只列同一年內看過兩次以上的。
+  'repeats', coalesce((
+    select jsonb_agg(jsonb_build_object(
+             'film_id', film_id, 'title_zh', title_zh, 'slug', slug,
+             'poster_path', poster_path, 'records', n) order by n desc, title_zh)
+      from (select r.film_id, f.title_zh, f.slug, s.poster_path, count(*)::integer n
+              from rec r
+              left join public.film f on f.id = r.film_id
+              left join public.film_tmdb_snapshot s on s.film_id = r.film_id
+             group by 1, 2, 3, 4
+            having count(*) > 1) rr), '[]'::jsonb)
+) end
+$$;
+
+comment on function public.user_year_stats(text, integer) is
+  '年度觀影統計。SECURITY INVOKER——聚合結果一律受呼叫者的 RLS 限制，'
+  '故 totals.spend 只涵蓋呼叫者看得到的票價，是否完整見 totals.spend_is_partial。'
+  '星期與時段直接取自 watched_on / watched_time，不做時區轉換。'
+  'p_year 為 null 時涵蓋全部年度。查無此使用者（或帳號不可服務）回傳 NULL。';
+```
+
+
 ## 1.2b 權限 migration（`9999_grants.sql`）
 
 「誰能存取什麼」的**單一真相**，永遠最後執行，且每次新增公開物件後都要重跑。
@@ -1242,6 +1483,17 @@ grant execute on function public.is_staff(), public.is_admin(),
   public.ugc_poster_film(text) to anon, authenticated;
 grant execute on function public.rename_username(text),
   public.export_my_data() to authenticated;
+
+-- 0003 的年度統計。公開個人頁未登入也要看得到，故對 anon 開放。
+-- 安全性不靠這道 grant，而靠函式本身是 SECURITY INVOKER：呼叫者看不到的紀錄
+-- 進不了聚合。因此它也必須列進第 3 節的白名單，否則自我檢查會擋下整份 migration。
+do $$ begin
+  if to_regprocedure('public.user_year_stats(text, integer)') is not null then
+    grant execute on function public.user_year_stats(text, integer) to anon, authenticated;
+  else
+    raise notice 'user_year_stats 尚不存在（0003 未套用），略過其 grant';
+  end if;
+end $$;
 grant execute on function public.merge_films(uuid, uuid, text),
   public.approve_film(uuid, boolean) to authenticated, service_role;
 grant execute on function public.link_film_to_tmdb(uuid, integer),
@@ -1263,7 +1515,10 @@ begin
    where n.nspname = 'public' and p.prokind = 'f'
      and p.proname not in ('is_staff','is_admin','account_is_servable','owner_shows_cost',
                            'record_owner','record_is_public','film_usable_by','resolve_film',
-                           'resolve_username','slugify','ugc_poster_film')
+                           'resolve_username','slugify','ugc_poster_film',
+                           -- ★ SECURITY INVOKER。匿名可執行是刻意的（公開個人頁的統計），
+                           --   RLS 仍逐列把關；改成 DEFINER 會讓這行變成全站資料外洩。
+                           'user_year_stats')
      and (has_function_privilege('anon', p.oid, 'execute')
           or has_function_privilege('public', p.oid, 'execute'));
   if bad is not null then raise exception '函式對 anon/PUBLIC 開放 EXECUTE：%', bad; end if;
@@ -1285,6 +1540,14 @@ begin
      and table_name in ('profile_private','import_run','film_merge_log','legal_acceptance',
                         'counter_notice','copyright_strike','data_report','tmdb_refresh_due');
   if bad is not null then raise exception 'anon 對非公開表仍有 grant：%', bad; end if;
+
+  -- user_year_stats 一旦被改成 SECURITY DEFINER，RLS 就整個讓開，而它對 anon
+  -- 開放 EXECUTE ⇒ 任何人都能把全站觀影紀錄與票價聚合出來。這條讓那個改動
+  -- 在 migration 階段就失敗，而不是等到有人發現總花費多了一個零。
+  if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'public' and p.proname = 'user_year_stats' and p.prosecdef) then
+    raise exception 'user_year_stats 必須是 SECURITY INVOKER（聚合是推論通道，踩雷 #42）';
+  end if;
 end $$;
 ```
 

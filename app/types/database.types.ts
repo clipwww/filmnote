@@ -1175,6 +1175,13 @@ export interface Database {
         }
         Returns: string
       }
+      user_year_stats: {
+        Args: {
+          p_username: string
+          p_year: number
+        }
+        Returns: Json
+      }
     }
     Enums: {
       account_role: "user" | "moderator" | "admin"

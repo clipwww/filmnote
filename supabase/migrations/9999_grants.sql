@@ -83,6 +83,17 @@ grant execute on function public.is_staff(), public.is_admin(),
   public.ugc_poster_film(text) to anon, authenticated;
 grant execute on function public.rename_username(text),
   public.export_my_data() to authenticated;
+
+-- 0003 的年度統計。公開個人頁未登入也要看得到，故對 anon 開放。
+-- 安全性不靠這道 grant，而靠函式本身是 SECURITY INVOKER：呼叫者看不到的紀錄
+-- 進不了聚合。因此它也必須列進第 3 節的白名單，否則自我檢查會擋下整份 migration。
+do $$ begin
+  if to_regprocedure('public.user_year_stats(text, integer)') is not null then
+    grant execute on function public.user_year_stats(text, integer) to anon, authenticated;
+  else
+    raise notice 'user_year_stats 尚不存在（0003 未套用），略過其 grant';
+  end if;
+end $$;
 grant execute on function public.merge_films(uuid, uuid, text),
   public.approve_film(uuid, boolean) to authenticated, service_role;
 grant execute on function public.link_film_to_tmdb(uuid, integer),
@@ -104,7 +115,10 @@ begin
    where n.nspname = 'public' and p.prokind = 'f'
      and p.proname not in ('is_staff','is_admin','account_is_servable','owner_shows_cost',
                            'record_owner','record_is_public','film_usable_by','resolve_film',
-                           'resolve_username','slugify','ugc_poster_film')
+                           'resolve_username','slugify','ugc_poster_film',
+                           -- ★ SECURITY INVOKER。匿名可執行是刻意的（公開個人頁的統計），
+                           --   RLS 仍逐列把關；改成 DEFINER 會讓這行變成全站資料外洩。
+                           'user_year_stats')
      and (has_function_privilege('anon', p.oid, 'execute')
           or has_function_privilege('public', p.oid, 'execute'));
   if bad is not null then raise exception '函式對 anon/PUBLIC 開放 EXECUTE：%', bad; end if;
@@ -126,4 +140,12 @@ begin
      and table_name in ('profile_private','import_run','film_merge_log','legal_acceptance',
                         'counter_notice','copyright_strike','data_report','tmdb_refresh_due');
   if bad is not null then raise exception 'anon 對非公開表仍有 grant：%', bad; end if;
+
+  -- user_year_stats 一旦被改成 SECURITY DEFINER，RLS 就整個讓開，而它對 anon
+  -- 開放 EXECUTE ⇒ 任何人都能把全站觀影紀錄與票價聚合出來。這條讓那個改動
+  -- 在 migration 階段就失敗，而不是等到有人發現總花費多了一個零。
+  if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'public' and p.proname = 'user_year_stats' and p.prosecdef) then
+    raise exception 'user_year_stats 必須是 SECURITY INVOKER（聚合是推論通道，踩雷 #42）';
+  end if;
 end $$;
