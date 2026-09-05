@@ -2336,7 +2336,7 @@ TMDB 上四話各自獨立、沒有連映版條目，而一筆 `viewing_record` 
 | 11 | **`vercel_edge` preset 已 deprecated**，不要為了效能設 `NITRO_PRESET=vercel-edge` | `v2.nitro.build/deploy/providers/vercel` |
 | 12 | **Node 版本要對齊。** `nuxt@4.5.2` engines `^22.19.0 \|\| ^24.11.0 \|\| >=26.0.0`；Vercel 停在 20.x 裝不起來 | npm registry |
 | 79 | **★ `@nuxtjs/supabase` 會把來訪者的 session 寫進 `__NUXT_DATA__`，於是「每一條可快取的 SSR 路由」都在外洩身分——與該頁抓了什麼資料無關。** 詳見下方專節 | 2026-09-05 實測（dev 與 production build 皆重現） |
-| 80 | **★ `package.json` 的 `imports` 別名（`"#pipeline/*": "./src/*"`）在 Nitro 打包時不補副檔名。** `server/**` 若以 `#pipeline/tmdb/client` 做**值**匯入，執行期會 `ENOENT … open '…/src/tmdb/client'`（沒有 `.ts`）。致命的是 `pnpm typecheck`、`pnpm test`、`pnpm lint` **全綠**——tsc 走 tsconfig `paths` 會補副檔名，vitest 有自己的 `resolve.alias`，只有 rollup 不補。⇒ `server/**` → `src/**` 的值匯入一律走相對路徑；型別匯入用 `#pipeline/` 是安全的（編譯期就抹掉，打包器看不到） | 2026-09-06 實測（Step 9，端點 500） |
+| 80 | **★ `package.json` 的 `imports` 別名（`"#pipeline/*": "./src/*"`）在 Nitro 打包時不補副檔名。** `server/**` 若以 `#pipeline/tmdb/client` 做**值**匯入，執行期會 `ENOENT … open '…/src/tmdb/client'`（沒有 `.ts`）。致命的是 `pnpm typecheck`、`pnpm test`、`pnpm lint` **全綠**——tsc 走 tsconfig `paths` 會補副檔名，vitest 有自己的 `resolve.alias`，只有 rollup 與 vue-tsc 的 Nuxt 子專案不補。⇒ **解法是 `nuxt.config.ts` 的 `alias: { '#pipeline': … }`**（3fdda08 已加），它同時修好打包器與型別檢查兩邊。⚠️ 驗證這一類問題**不能只看 typecheck 綠**，要真的執行到會載入該模組的路徑——本專案同類錯誤已發生三次 | 2026-09-06 實測（Step 9，端點 500 → 加 alias 後以 production build 實跑通過） |
 
 
 ### 踩雷 #79 詳述：為什麼 #1 的理由涵蓋不到這個情況

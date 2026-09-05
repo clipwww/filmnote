@@ -7,13 +7,7 @@
  */
 
 import type { TmdbMovieDetail } from '#pipeline/types'
-// ★ 值匯入必須走相對路徑，不能用 `#pipeline/tmdb/client`。
-//   `package.json` 的 imports 是 `"#pipeline/*": "./src/*"`（無副檔名），而 Nitro
-//   的打包器（rollup）對 subpath imports **不做副檔名補齊** ⇒ 執行期
-//   `ENOENT … open '…/src/tmdb/client'`。tsc 與 vitest 都會補齊，所以
-//   `pnpm typecheck` 和 `pnpm test` 全綠而端點 500。詳見 BUILD_PLAN §7 #80。
-//   型別匯入留 `#pipeline/` 是安全的——它在編譯期就被抹掉，打包器看不到。
-import { taiwanReleaseDate } from '../../src/tmdb/client'
+import { taiwanReleaseDate } from '#pipeline/tmdb/client'
 
 /**
  * TMDB 明細中「快照表要存、但比對器用不到」的欄位。

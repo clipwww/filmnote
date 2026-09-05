@@ -1,8 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { TmdbDetailForSnapshot } from './tmdb-snapshot'
 import type { Database, Json } from '~/types/database.types'
-// 相對路徑而非 `#pipeline/`：見 tmdb-snapshot.ts 的說明（BUILD_PLAN §7 #80）。
-import { TmdbClient, TmdbError } from '../../src/tmdb/client'
+import { TmdbClient, TmdbError } from '#pipeline/tmdb/client'
 import { failurePatch, outcomeForError, snapshotFromDetail } from './tmdb-snapshot'
 
 /**
