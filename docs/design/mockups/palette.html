@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>影記 — 色票驗證（溫暖收藏感）</title>
+<style>
+/* 這一條沒補，任何用 hidden 切換的元件都是壞的而且 console 零錯誤 */
+[hidden] { display: none !important; }
+
+:root {
+  --paper-25:  #FDF9F1;  --paper-50:  #F8EDDC;  --paper-100: #EADDCA;  --paper-200: #DACCB9;
+  --paper-300: #C5B5A3;  --paper-400: #948777;  --paper-500: #776A5D;  --paper-600: #5F5348;
+  --paper-700: #4A4036;  --paper-800: #3D332C;  --paper-900: #29211A;  --paper-950: #1D1610;
+  --color-amber-50:  #FFF1C2;  --color-amber-100: #F9E4A4;  --color-amber-200: #F0D481;
+  --color-amber-300: #DFBC4F;  --color-amber-400: #C9A62B;  --color-amber-500: #A8850E;
+  --color-amber-600: #866500;  --color-amber-700: #6F5101;  --color-amber-800: #573E03;
+  --color-amber-900: #422D04;  --color-amber-950: #2D1D02;
+
+  --bg: var(--paper-50); --surface: var(--paper-25); --sunken: var(--paper-100);
+  --line: var(--paper-200); --line-strong: var(--paper-300);
+  --text-0: var(--paper-900); --text-1: var(--paper-700); --text-2: var(--paper-500); --text-3: var(--paper-400);
+  --accent: var(--color-amber-600); --accent-soft: var(--color-amber-50);
+  --accent-soft-2: var(--color-amber-100); --accent-on: var(--paper-25);
+  --heat-0:#EADDCA; --heat-1:#CEC4B7; --heat-2:#B1A392; --heat-3:#91816F;
+  --heat-4:#685946; --heat-5:#413525; --heat-6:#1A1209;
+
+  --font-sans: 'Inter','PingFang TC','Noto Sans CJK TC','Noto Sans TC','Microsoft JhengHei','Source Han Sans TC',sans-serif;
+  line-break: strict;
+}
+:root.dark {
+  --bg: var(--paper-950); --surface: var(--paper-900); --sunken: var(--paper-800);
+  --line: var(--paper-800); --line-strong: var(--paper-700);
+  --text-0: var(--paper-50); --text-1: var(--paper-200); --text-2: var(--paper-400); --text-3: var(--paper-500);
+  --accent: var(--color-amber-400); --accent-soft: var(--color-amber-950);
+  --accent-soft-2: var(--color-amber-900); --accent-on: var(--paper-900);
+  --heat-0:#392F24; --heat-1:#4C3E30; --heat-2:#685949; --heat-3:#857565;
+  --heat-4:#A59788; --heat-5:#CEC4B9; --heat-6:#F6F1EB;
+}
+
+* { box-sizing: border-box; }
+body { margin:0; background: var(--bg); color: var(--text-1);
+  font-family: var(--font-sans); font-size:16px; line-height:1.75;
+  font-variant-numeric: tabular-nums; }
+main { max-width: 1120px; margin:0 auto; padding: 32px 24px 96px; }
+h1 { font-size:28px; line-height:1.35; color: var(--text-0); margin:0 0 4px; font-feature-settings:'palt' 1; }
+h2 { font-size:20px; line-height:1.4; color: var(--text-0); margin:48px 0 4px;
+     padding-bottom:8px; border-bottom:1px solid var(--line); }
+p.note { font-size:13px; line-height:1.5; color: var(--text-2); margin:4px 0 16px; max-width:60ch; }
+code { font-family: var(--font-sans); color: var(--text-0); }
+
+/* 卡片＝票根紙，貼在冊頁台紙上。沒有陰影。 */
+.card { background: var(--surface); border:1px solid var(--line); border-radius:4px; padding:16px; }
+.grid { display:grid; gap:12px; }
+.row { display:flex; flex-wrap:wrap; gap:8px; align-items:stretch; }
+
+.sw { border-radius:2px; border:1px solid var(--line); padding:8px 10px; min-width:132px; flex:1 1 132px; }
+.sw b { display:block; font-size:13px; font-weight:600; line-height:1.4; }
+.sw span { display:block; font-size:12px; line-height:1.5; opacity:.85; }
+
+.ramp { display:flex; gap:2px; }
+.ramp i { flex:1; height:44px; border-radius:2px; display:flex; align-items:flex-end;
+  justify-content:center; font-size:11px; padding-bottom:2px; font-style:normal; }
+
+.cells { display:flex; gap:2px; flex-wrap:wrap; }
+.cells i { width:15px; height:15px; border-radius:1px; display:block; }
+
+.seal { display:inline-flex; align-items:center; justify-content:center;
+  width:44px; height:44px; border-radius:2px; font-size:13px; font-weight:700; line-height:1; }
+
+.btn { border:0; border-radius:4px; padding:8px 16px; font:inherit; font-size:15px; font-weight:600;
+  background: var(--accent); color: var(--accent-on); cursor:pointer; }
+.btn.ghost { background: transparent; color: var(--accent); border:1px solid var(--accent); }
+.link { color: var(--accent); text-decoration: underline; text-underline-offset:3px; }
+.focus { outline:2px solid var(--accent); outline-offset:2px; }
+
+/* 選取態：染色面 + 2px 起始邊。ΔE 最緊只有 0.033，不准只靠染色。 */
+.pick { background: var(--accent-soft); border-inline-start:2px solid var(--accent);
+  border-radius:0 2px 2px 0; padding:8px 12px; color: var(--text-0); }
+
+/* 票根卡：左窄帶是日期，不畫齒孔、不畫虛線 */
+.ticket { display:grid; grid-template-columns:46px 1fr; background:var(--surface);
+  border:1px solid var(--line); border-radius:4px; overflow:hidden; }
+.ticket .d { background: var(--accent-soft); border-inline-end:1px solid var(--line);
+  padding:10px 6px; text-align:center; line-height:1.15; }
+.ticket .d b { display:block; font-size:20px; font-weight:700; color:var(--text-0); }
+.ticket .d span { display:block; font-size:12px; color:var(--text-2); }
+.ticket .m { padding:10px 14px; min-width:0; }
+.ticket .t { font-size:16px; line-height:1.45; color:var(--text-0); font-weight:600; }
+.ticket .o { font-family:'Inter','PingFang TC','Hiragino Sans','Noto Sans JP',sans-serif;
+  font-size:13px; line-height:1.5; color:var(--text-2); }
+.ticket .f { font-size:13px; line-height:1.5; color:var(--text-1); margin-top:2px; }
+
+.bad { color:#B3261E; font-weight:600; }
+.note.bad, .note.ok { font-weight:600; }
+.ok  { color: var(--accent); font-weight:600; }
+:root.dark .bad { color:#F2B8B5; }
+
+table { border-collapse:collapse; width:100%; font-size:13px; line-height:1.6; }
+th,td { text-align:left; padding:6px 10px; border-bottom:1px solid var(--line); }
+th { color:var(--text-2); font-weight:600; }
+.wide { overflow-x:auto; }
+</style>
+</head>
+<body>
+<main>
+  <h1>色票驗證 — 更重的溫暖收藏感</h1>
+  <p class="note">
+    這一頁不是畫面稿，是<strong>用來看的</strong>。<code>DESIGN_SYSTEM §1</code> 的每個數字都算得出來，
+    但「取哪幾階」錯了算不出來——只有看得見。截圖亮暗兩版，逐節對照。<br>
+    ⚠️ 截圖時 headless Chrome 的 <code>prefers-color-scheme</code> <strong>預設是 dark</strong>：
+    要拍亮色版必須在 <code>&lt;html&gt;</code> 上明確加 <code>class="light"</code>，否則你拍到的是兩張暗色。
+  </p>
+
+  <h2>1. 兩張紙：冊頁台紙 vs 票根紙</h2>
+  <p class="note">
+    整頁底色是台紙（亮 <code>#F8EDDC</code>／暗 <code>#1D1610</code>），卡片是票根紙
+    （亮 <code>#FDF9F1</code>／暗 <code>#29211A</code>）。對比只有 1.10:1／1.13:1，<strong>刻意的低對比</strong>。
+    <strong>要看的是：這兩張紙在截圖上分得出來嗎？分不出來就是整個調性沒落地。</strong>沒有陰影，深度只靠這一層色差。
+  </p>
+  <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))">
+    <div class="ticket">
+      <div class="d"><b>26</b><span>7 月</span><span>週六</span></div>
+      <div class="m">
+        <div class="t">劇場版 吉伊卡哇 人魚島的秘密</div>
+        <div class="o">ちいかわ</div>
+        <div class="f">林口威秀 (7廳) 2D 16:00 2張 NT$520</div>
+      </div>
+    </div>
+    <div class="ticket">
+      <div class="d"><b>03</b><span>3 月</span><span>週一</span></div>
+      <div class="m">
+        <div class="t">鬼媽媽的假期</div>
+        <div class="o">Our Season</div>
+        <div class="f">信義威秀 (IMAX) 19:30 1張 免費</div>
+      </div>
+    </div>
+  </div>
+
+  <h2>2. 中性軸 paper（一條軸供應兩個模式）</h2>
+  <p class="note">下面每一格的文字色是它在該模式下實際被指派的角色。<strong>看得清楚才算過。</strong></p>
+  <div class="row">
+    <div class="sw" style="background:var(--paper-25);color:#29211A"><b>paper-25 票根紙</b><span>--ui-bg</span></div>
+    <div class="sw" style="background:var(--paper-50);color:#29211A"><b>paper-50 台紙</b><span>body / bg-muted</span></div>
+    <div class="sw" style="background:var(--paper-100);color:#29211A"><b>paper-100</b><span>bg-elevated</span></div>
+    <div class="sw" style="background:var(--paper-200);color:#29211A"><b>paper-200</b><span>border</span></div>
+    <div class="sw" style="background:var(--paper-300);color:#29211A"><b>paper-300</b><span>border-accented</span></div>
+    <div class="sw" style="background:var(--paper-800);color:#F8EDDC"><b>paper-800</b><span>暗 bg-elevated</span></div>
+    <div class="sw" style="background:var(--paper-900);color:#F8EDDC"><b>paper-900 暗票根</b><span>暗 --ui-bg</span></div>
+    <div class="sw" style="background:var(--paper-950);color:#F8EDDC"><b>paper-950 暗台紙</b><span>暗 body</span></div>
+  </div>
+  <div class="card" style="margin-top:12px">
+    <div style="color:var(--text-0)">text-highlighted — 主文字，片名與數字用這個（15.07:1／13.67:1）</div>
+    <div style="color:var(--text-1)">text-default — 內文，備註與說明用這個（9.62:1／10.04:1）</div>
+    <div style="color:var(--text-2)">text-muted — 輔助，原文片名與量詞用這個（4.99:1／4.52:1）</div>
+    <div style="color:var(--text-3)">text-dimmed — 佔位與停用（3.34:1／3.02:1，整條軸最緊的一階）</div>
+  </div>
+  <p class="note" style="margin-top:8px">同一段落放在裸台紙上（沒有卡片），對比各降約 0.4：</p>
+  <div style="color:var(--text-2)">text-muted 在台紙上（4.53:1）</div>
+  <div style="color:var(--text-3)">text-dimmed 在台紙上（3.03:1，只剩 0.03 餘裕）</div>
+
+  <h2>3. 琥珀承載表面 — 它跟暖中性分得出來嗎</h2>
+  <p class="note">
+    這是這個調性最大的技術風險：在冷灰底上「一塊淡黃＝被選取」是白送的，在米色台紙上不是。
+    最緊的兩組只有 ΔE 0.033–0.039。<strong>所以選取態一律是「染色面 + 2px 起始邊」，不准只靠染色。</strong>
+    下面刻意把兩者並排——左邊有邊、右邊沒有，比較看看沒有邊的那個你認不認得出來。
+  </p>
+  <div class="row" style="gap:16px">
+    <div style="flex:1 1 260px">
+      <p class="note" style="margin:0 0 6px">在台紙上（ΔE 0.039／0.051）</p>
+      <div class="pick">2026 年 · 有邊，看得出被選取</div>
+      <div style="background:var(--accent-soft);padding:8px 12px;border-radius:2px;margin-top:6px;color:var(--text-0)">2025 年 · 沒邊，只靠染色</div>
+    </div>
+    <div style="flex:1 1 260px" class="card">
+      <p class="note" style="margin:0 0 6px">在票根紙上（ΔE 0.057／0.033）</p>
+      <div class="pick">林口威秀 · 有邊</div>
+      <div style="background:var(--accent-soft);padding:8px 12px;border-radius:2px;margin-top:6px;color:var(--text-0)">信義威秀 · 沒邊</div>
+    </div>
+  </div>
+  <div class="row" style="margin-top:16px;align-items:center;gap:16px">
+    <button class="btn">記下來</button>
+    <button class="btn ghost">刪掉這筆</button>
+    <button class="btn ghost focus">focus ring（在台紙上）</button>
+    <a class="link" href="#">找不到這部片？自己新增</a>
+  </div>
+  <div class="card" style="margin-top:12px" >
+    <div class="row" style="align-items:center;gap:16px">
+      <button class="btn">記下來</button>
+      <button class="btn ghost focus">focus ring（在票根紙上）</button>
+      <span style="background:var(--sunken);padding:8px 12px;border-radius:2px" class="focus">focus ring（在凹陷面上，最低 4.05:1）</span>
+    </div>
+  </div>
+  <div class="row" style="margin-top:12px">
+    <div class="sw" style="background:var(--color-amber-50)"><b style="color:#29211A">amber-50</b><span style="color:#29211A">選取面</span></div>
+    <div class="sw" style="background:var(--color-amber-100)"><b style="color:#29211A">amber-100</b><span style="color:#29211A">hover</span></div>
+    <div class="sw" style="background:var(--color-amber-400)"><b style="color:#29211A">amber-400</b><span style="color:#29211A">暗色重點</span></div>
+    <div class="sw" style="background:var(--color-amber-600)"><b style="color:#FDF9F1">amber-600</b><span style="color:#FDF9F1">亮色重點</span></div>
+    <div class="sw" style="background:var(--color-amber-900)"><b style="color:#F8EDDC">amber-900</b><span style="color:#F8EDDC">暗 hover</span></div>
+    <div class="sw" style="background:var(--color-amber-950)"><b style="color:#F8EDDC">amber-950</b><span style="color:#F8EDDC">暗選取面</span></div>
+  </div>
+
+  <h2>4. 墨階七階（資料永遠是墨，不是琥珀）</h2>
+  <div class="ramp">
+    <i style="background:var(--heat-0);color:var(--text-1)">0</i>
+    <i style="background:var(--heat-1);color:var(--text-1)">1</i>
+    <i style="background:var(--heat-2);color:var(--text-1)">2</i>
+    <i style="background:var(--heat-3);color:var(--surface)">3</i>
+    <i style="background:var(--heat-4);color:var(--surface)">4</i>
+    <i style="background:var(--heat-5);color:var(--surface)">5</i>
+    <i style="background:var(--heat-6);color:var(--surface)">6</i>
+  </div>
+
+  <h2>5. 三階出席圖：相鄰階 vs 拉開取值</h2>
+  <p class="note">
+    左邊是<strong>錯的</strong>（<code>heat-0/2/4</code>，相鄰階，關鍵區分只有 1.84:1／1.94:1），
+    右邊是對的（<code>heat-0/4/6</code>，5.05:1／4.60:1）。
+    <strong>兩邊每一階本身都合規——算對比數字抓不到這個錯，只有這樣並排看才抓得到。</strong>
+  </p>
+  <div class="row" style="gap:32px">
+    <div>
+      <p class="note bad" style="margin:0 0 6px">相鄰階 0/2/4 ❌ 關鍵區分 1.84:1／1.94:1</p>
+      <div class="cells">
+        <i style="background:var(--heat-0)"></i><i style="background:var(--heat-2)"></i><i style="background:var(--heat-0)"></i>
+        <i style="background:var(--heat-0)"></i><i style="background:var(--heat-2)"></i><i style="background:var(--heat-4)"></i>
+        <i style="background:var(--heat-0)"></i><i style="background:var(--heat-0)"></i><i style="background:var(--heat-2)"></i>
+        <i style="background:var(--heat-2)"></i><i style="background:var(--heat-0)"></i><i style="background:var(--heat-0)"></i>
+      </div>
+    </div>
+    <div>
+      <p class="note ok" style="margin:0 0 6px">拉開 0/4/6 ✅ 關鍵區分 5.05:1／4.60:1</p>
+      <div class="cells">
+        <i style="background:var(--heat-0)"></i><i style="background:var(--heat-4)"></i><i style="background:var(--heat-0)"></i>
+        <i style="background:var(--heat-0)"></i><i style="background:var(--heat-4)"></i><i style="background:var(--heat-6)"></i>
+        <i style="background:var(--heat-0)"></i><i style="background:var(--heat-0)"></i><i style="background:var(--heat-4)"></i>
+        <i style="background:var(--heat-4)"></i><i style="background:var(--heat-0)"></i><i style="background:var(--heat-0)"></i>
+      </div>
+    </div>
+    <div>
+      <p class="note" style="margin:0 0 6px">「2 場」加一個點（1.4.1）</p>
+      <div class="cells">
+        <i style="background:var(--heat-0)"></i><i style="background:var(--heat-4)"></i><i style="background:var(--heat-0)"></i>
+        <i style="background:var(--heat-0)"></i><i style="background:var(--heat-4)"></i>
+        <i style="background:var(--heat-6);position:relative">
+          <svg width="15" height="15" style="display:block"><circle cx="7.5" cy="7.5" r="2" fill="var(--surface)"/></svg>
+        </i>
+        <i style="background:var(--heat-0)"></i><i style="background:var(--heat-0)"></i><i style="background:var(--heat-4)"></i>
+        <i style="background:var(--heat-4)"></i><i style="background:var(--heat-0)"></i><i style="background:var(--heat-0)"></i>
+      </div>
+    </div>
+  </div>
+  <p class="note" style="margin-top:12px">
+    零格（<code>heat-0</code>）對卡面只有 1.21–1.27:1——<strong>看得出是一個格子、但明確是空的</strong>。
+    這一項也只有看截圖能驗。格與格之間的縫是卡片底色（ECharts 用 <code>itemStyle.borderColor</code>）。
+  </p>
+
+  <h2>6. 分級章：章內文字色逐級不同</h2>
+  <p class="note">
+    這一版換成 <code>paper-950</code>（<code>#1D1610</code>）不是 <code>paper-900</code>——
+    輔15 配 <code>paper-900</code> 只有 4.40:1 不及格。<strong>限制級是全站唯一用白字的地方。</strong>
+  </p>
+  <div class="row">
+    <span class="seal" style="background:#5CB731;color:#1D1610">普</span>
+    <span class="seal" style="background:#00A2ED;color:#1D1610">護</span>
+    <span class="seal" style="background:#FFD300;color:#1D1610">輔12</span>
+    <span class="seal" style="background:#D66800;color:#1D1610">輔15</span>
+    <span class="seal" style="background:#E30009;color:#FFFFFF">限</span>
+    <span class="seal" style="background:#D66800;color:#29211A">輔15</span>
+    <span style="align-self:center;font-size:13px;color:var(--text-2)">← 最後一個刻意用 paper-900（4.40:1，不及格），跟左邊第四個 paper-950（4.97:1）並排對照</span>
+  </div>
+
+  <h2>7. 圓角：Nuxt UI 預設會直接違反硬約束</h2>
+  <p class="note">
+    <code>--ui-radius</code> 預設 <code>0.25rem</code> → <code>rounded-md</code> 6px（實測用了 59 處）、
+    <code>rounded-lg</code> 8px（26 處）。在台灣，圓角 SaaS 卡片＝影城訂票網站。
+  </p>
+  <div class="row">
+    <div class="card" style="border-radius:8px;flex:1 1 200px"><b class="bad">8px</b> Nuxt UI 預設 rounded-lg</div>
+    <div class="card" style="border-radius:6px;flex:1 1 200px"><b class="bad">6px</b> Nuxt UI 預設 rounded-md</div>
+    <div class="card" style="border-radius:4px;flex:1 1 200px"><b class="ok">4px</b> 修正後 rounded-lg ✅</div>
+    <div class="card" style="border-radius:2px;flex:1 1 200px"><b class="ok">2px</b> 修正後 rounded-sm ✅</div>
+  </div>
+
+  <h2>8. 還有沒有純白漏出來</h2>
+  <p class="note">
+    Nuxt UI 有五個 token 硬寫死 <code>#fff</code>。這一頁完全不用 <code>#fff</code>（除了限制級章內文字，
+    那是刻意的）。<strong>下面這條純白參考條放在暗色截圖裡應該非常刺眼——如果畫面上有第二塊這麼白的東西，就是漏了。</strong>
+  </p>
+  <div style="background:#fff;color:#000;padding:8px 12px;border-radius:2px;font-size:13px">#FFFFFF 參考條（唯一一塊純白）</div>
+</main>
+</body>
+</html>
