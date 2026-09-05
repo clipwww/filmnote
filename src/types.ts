@@ -130,3 +130,37 @@ export type MatchRejection
 export type MatchOutcome
   = | { matched: true, tmdbId: number, score: number, signals: MatchSignal[] }
     | { matched: false, reason: MatchRejection, score: number }
+
+/**
+ * 作品。多筆 Certificate 收斂為一部 Film。
+ *
+ * 實測 110–113 年的 3,116 筆核准紀錄收斂為約 2,664 部作品，
+ * 亦即有 14.5% 是同片的重複核准（跨年度重映、國語版／日語版分開送審）。
+ */
+export interface Film {
+  /**
+   * 確定性主鍵。
+   * 命中 TMDB 者為 `tmdb:<id>`，未命中者為 `gov:<正規化中文片名>:<正規化原文片名>`。
+   * 兩種前綴都可重跑而不產生重複。
+   */
+  id: string
+  /** 未命中 TMDB 時為 null。這正是 SPEC 要求可為 NULL 的欄位。 */
+  tmdbId: number | null
+  titleZh: string
+  titleOriginal: string
+  country: string
+  runtimeMinutes: number | null
+  /** 最早出現此作品的民國年度。 */
+  firstSeenRocYear: number
+  /** 收斂進此作品的核准紀錄 id。 */
+  certificateIds: string[]
+  source: 'tmdb' | 'gov'
+}
+
+/** 單筆核准紀錄的比對結果，供 checkpoint 保存與續跑。 */
+export interface MatchRecord {
+  certificateId: string
+  outcome: MatchOutcome
+  /** 比對當下的時間，供資料新鮮度判斷。 */
+  matchedAt: string
+}

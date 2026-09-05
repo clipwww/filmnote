@@ -1,0 +1,110 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1788603625302,
+  "projectRoot": "/Users/david/Documents/Github/filmnote",
+  "techStack": {
+    "languages": [
+      {
+        "name": "JavaScript/TypeScript",
+        "version": ">=22",
+        "confidence": "high",
+        "markers": [
+          "package.json"
+        ]
+      },
+      {
+        "name": "TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "tsconfig.json"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "vitest",
+        "version": "5.0.0",
+        "category": "testing"
+      }
+    ],
+    "packageManager": "npm",
+    "runtime": "Node.js 22"
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": "npm test",
+    "lintCommand": "npm run lint",
+    "devCommand": null,
+    "scripts": {
+      "test": "vitest run",
+      "test:watch": "vitest",
+      "lint": "oxlint src tests && eslint .",
+      "lint:fix": "oxlint --fix src tests && eslint . --fix",
+      "typecheck": "tsc --noEmit",
+      "ingest:rating": "tsx src/pipeline/ingest-rating.ts",
+      "ingest:cinema": "tsx src/pipeline/ingest-cinema.ts"
+    }
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": "*.test.ts",
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "scripts",
+      "src",
+      "tests"
+    ],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 1,
+      "lastAccessed": 1788603625286,
+      "keyFiles": [
+        "verify-parsers.ts"
+      ]
+    },
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 1,
+      "lastAccessed": 1788603625286,
+      "keyFiles": [
+        "types.ts"
+      ]
+    },
+    "tests": {
+      "path": "tests",
+      "purpose": "Test files",
+      "fileCount": 4,
+      "lastAccessed": 1788603625289,
+      "keyFiles": [
+        "gov.test.ts",
+        "matcher.test.ts",
+        "normalize.test.ts",
+        "pipeline.test.ts"
+      ]
+    },
+    "tests/fixtures": {
+      "path": "tests/fixtures",
+      "purpose": "Test fixtures",
+      "fileCount": 2,
+      "lastAccessed": 1788603625290,
+      "keyFiles": [
+        "cinema-2025-sample.csv",
+        "rating-113-sample.csv"
+      ]
+    }
+  },
+  "hotPaths": [],
+  "userDirectives": []
+}
