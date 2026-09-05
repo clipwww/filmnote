@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { StatSegment } from '~/utils/stat-line'
+
 const route = useRoute()
 const username = computed(() => String(route.params.username))
 
@@ -32,6 +34,18 @@ useSeoMeta({
 
 const { formatLabel } = useScreeningFormats()
 
+/** `公開了 174 場、132 部作品，去過 14 個場所`（§4.4，不做成 stat tile） */
+const countSegments = computed<StatSegment[]>(() => {
+  const c = counts.value
+  if (!c)
+    return []
+  return [
+    { prefix: '公開了', value: String(c.records), suffix: '場、' },
+    { value: String(c.films), suffix: '部作品，去過' },
+    { value: String(c.venues), suffix: '個場所' },
+  ]
+})
+
 /**
  * 174 筆全部平鋪會產生一個 17,000px 的頁面——功能對，但沒有人能用。
  * 依年份分組並漸進式載入：先給最近的一批，其餘按需展開。
@@ -46,21 +60,37 @@ watch(username, () => {
   shown.value = PAGE
 })
 
-const visible = computed(() => items.value.slice(0, shown.value))
-const hasMore = computed(() => items.value.length > shown.value)
+/**
+ * API 的形狀 → `TicketCard` 的形狀。四個呼叫端的原始資料長得都不一樣，
+ * 對映一次比讓元件認四種形狀便宜。
+ *
+ * `cost` 恆為 null：公開頁**完全不給金額**（見 `/api/u/[username]` 檔頭——
+ * 聚合是推論通道，不是安全邊界）。金額由 `UserSpendSummary` 帶著觀看者
+ * 自己的 session 在 client 端另外取。
+ */
+const cards = computed(() => items.value.map(r => ({
+  id: r.id ?? '',
+  year: String(r.watchedOn ?? '').slice(0, 4) || '未知',
+  watchedOn: r.watchedOn,
+  watchedTime: r.watchedTime,
+  venueName: r.venue?.name ?? null,
+  hallLabel: r.hallLabel,
+  formatLabel: formatLabel(r.formatCode),
+  ticketCount: r.ticketCount,
+  cost: null,
+  memo: r.memo,
+  film: {
+    slug: r.film?.slug ?? null,
+    titleZh: r.film?.title_zh ?? null,
+    titleOriginal: r.film?.title_original ?? null,
+    tmdbPosterPath: r.film?.tmdb_poster_path ?? null,
+  },
+})))
 
+const visible = computed(() => cards.value.slice(0, shown.value))
+const hasMore = computed(() => cards.value.length > shown.value)
 /** 依年份分組，讓長列表有可掃描的錨點。 */
-const grouped = computed(() => {
-  const groups: { year: string, rows: typeof visible.value }[] = []
-  for (const r of visible.value) {
-    const year = String(r.watchedOn ?? '').slice(0, 4) || '未知'
-    const last = groups.at(-1)
-    if (last?.year === year)
-      last.rows.push(r)
-    else groups.push({ year, rows: [r] })
-  }
-  return groups
-})
+const grouped = computed(() => groupByYear(visible.value))
 </script>
 
 <template>
@@ -81,32 +111,11 @@ const grouped = computed(() => {
       {{ profile.bio }}
     </p>
 
-    <dl v-if="counts" class="mt-8 grid grid-cols-3 gap-4">
-      <div class="rounded-lg border border-default px-4 py-3">
-        <dt class="text-sm text-muted">
-          公開紀錄
-        </dt>
-        <dd class="text-2xl font-semibold tabular-nums">
-          {{ counts.records }}
-        </dd>
-      </div>
-      <div class="rounded-lg border border-default px-4 py-3">
-        <dt class="text-sm text-muted">
-          不同作品
-        </dt>
-        <dd class="text-2xl font-semibold tabular-nums">
-          {{ counts.films }}
-        </dd>
-      </div>
-      <div class="rounded-lg border border-default px-4 py-3">
-        <dt class="text-sm text-muted">
-          去過的場所
-        </dt>
-        <dd class="text-2xl font-semibold tabular-nums">
-          {{ counts.venues }}
-        </dd>
-      </div>
-    </dl>
+    <!--
+      §4.4：數字不做成 stat tile。「大數字 + 小標籤 + 一排補充數據」是儀表板的
+      預設長相，也正是 §0 要避開的東西。排成一行有量詞的句子。
+    -->
+    <StatLine v-if="counts" class="mt-8" :segments="countSegments" />
 
     <!--
       票價一律在 client 端補：SSR 以匿名視角 render，作者本人的票價（以及
@@ -116,7 +125,8 @@ const grouped = computed(() => {
     <ClientOnly>
       <UserSpendSummary :username="profile.username" />
       <template #fallback>
-        <div class="mt-8 h-20 rounded-lg border border-default" />
+        <!-- 只佔位不畫框：畫一個框再換成沒有框的內容會像「載入完就壞掉」 -->
+        <div class="mt-6 h-14" />
       </template>
     </ClientOnly>
 
@@ -132,44 +142,16 @@ const grouped = computed(() => {
           <h3 class="text-sm font-semibold text-muted tabular-nums">
             {{ g.year }} 年
           </h3>
-          <ul class="mt-2 divide-y divide-default rounded-lg border border-default">
-            <li v-for="r in g.rows" :key="r.id ?? ''" class="flex gap-4 px-4 py-3">
-              <div class="w-14 shrink-0">
-                <FilmPoster
-                  :title-zh="r.film?.title_zh"
-                  :title-original="r.film?.title_original"
-                  :tmdb-poster-path="r.film?.tmdb_poster_path"
-                  variant="monogram"
-                  size="w185"
-                />
-              </div>
-              <div class="min-w-0 flex-1">
-                <NuxtLink v-if="r.film?.slug" :to="`/film/${r.film.slug}`" class="font-medium hover:underline underline-offset-4">
-                  {{ r.film.title_zh || r.film.title_original }}
-                </NuxtLink>
-                <span v-else class="font-medium text-muted">（作品待審核）</span>
-                <p class="mt-0.5 text-sm text-muted">
-                  {{ metaLine(
-                    dateTimeText(r.watchedOn, r.watchedTime),
-                    r.venue?.name,
-                    r.hallLabel,
-                    formatLabel(r.formatCode),
-                  ) }}
-                </p>
-                <p
-                  v-if="r.memo"
-                  class="mt-1.5 border-l-2 border-default pl-2 text-sm leading-relaxed whitespace-pre-line"
-                >
-                  {{ r.memo }}
-                </p>
-              </div>
+          <ul class="mt-2 space-y-2">
+            <li v-for="r in g.rows" :key="r.id">
+              <TicketCard :record="r" />
             </li>
           </ul>
         </div>
 
         <div v-if="hasMore" class="mt-6 flex justify-center">
           <UButton variant="soft" color="neutral" @click="shown += PAGE">
-            再顯示 {{ Math.min(PAGE, items.length - shown) }} 筆（共 {{ items.length }} 筆）
+            再顯示 {{ Math.min(PAGE, cards.length - shown) }} 筆（共 {{ cards.length }} 筆）
           </UButton>
         </div>
       </template>

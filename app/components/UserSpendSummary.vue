@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { StatSegment } from '~/utils/stat-line'
+
 /**
  * 票價摘要。**只在 client 端執行**（呼叫端以 <ClientOnly> 包住）。
  *
@@ -57,18 +59,42 @@ const { data } = await useAsyncData(
 
 const partial = computed(() =>
   !!data.value && data.value.countedRecords < data.value.visibleRecords)
+
+/**
+ * `花了 NT$5x,xxx`（§4.4：數字不做成 stat tile，排成一行有量詞的句子）。
+ *
+ * 幣別目前資料庫裡全是 TWD。台灣人讀的是 `NT$`，所以 TWD 走 `costText()`
+ * 的寫法；真的出現別的幣別時退回 `<code> <金額>`，不要硬套 NT$。
+ */
+const segments = computed<StatSegment[]>(() => {
+  const d = data.value
+  if (!d)
+    return []
+  const amount = d.currency === 'TWD'
+    ? costText(d.total) ?? ''
+    : `${d.currency} ${d.total.toLocaleString('zh-Hant-TW')}`
+  return [{ prefix: '花了', value: amount }]
+})
 </script>
 
 <template>
-  <section v-if="data && data.countedRecords > 0" class="mt-8 rounded-lg border border-default px-4 py-3">
-    <p class="text-sm text-muted">
-      票價合計<span v-if="data.isOwner">（僅你看得到）</span>
+  <section v-if="data && data.countedRecords > 0" class="mt-6">
+    <StatLine :segments="segments" />
+    <!--
+      「涵蓋不完整」對本人與對路人是兩件不同的事，文案不能共用一句：
+      本人看得到全部的票價列，缺的那幾筆是**根本沒記**；
+      路人缺的那幾筆是**沒有公開**。混講會讓本人以為自己的資料被藏起來了。
+    -->
+    <p v-if="partial" class="mt-1 text-sm text-dimmed">
+      <template v-if="data.isOwner">
+        其中 {{ data.visibleRecords - data.countedRecords }} 筆沒有記票價，這不是全部的花費。只有你看得到這個數字。
+      </template>
+      <template v-else>
+        部分票價未公開，此金額只涵蓋 {{ data.countedRecords }} / {{ data.visibleRecords }} 筆紀錄。
+      </template>
     </p>
-    <p class="text-2xl font-semibold tabular-nums">
-      {{ data.currency }} {{ data.total.toLocaleString('zh-Hant-TW') }}
-    </p>
-    <p v-if="partial" class="mt-1 text-xs text-muted">
-      部分票價未公開，此金額只涵蓋 {{ data.countedRecords }} / {{ data.visibleRecords }} 筆紀錄。
+    <p v-else-if="data.isOwner" class="mt-1 text-sm text-dimmed">
+      只有你看得到這個數字。
     </p>
   </section>
 </template>
