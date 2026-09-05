@@ -379,22 +379,24 @@ WCAG 1.4.11 對「承載意義的圖形物件」要求 3:1。最重要的區分�
                'Microsoft JhengHei', 'Source Han Sans TC', sans-serif;
   --font-sans--font-feature-settings: 'cv05', 'ss01';
 
-  /* ── 圓角：Nuxt UI 預設 0.25rem 會讓 rounded-md/lg 變成 6px/8px ──
-     實測 .nuxt/ui/*.ts：rounded-md 59 處、rounded-lg 26 處。
-     設 0.125rem 之後 sm=2 md=3 lg=4，守住「圓角 ≤4px」。 */
-  --ui-radius: 0.125rem;
 }
 
 /* ══ 以下區塊必須「不在任何 @layer 裡」════════════════════════
    Nuxt UI 的 token 定義在 @layer theme，而未分層的樣式在串聯上
    永遠贏過任何 @layer。把這些搬進 @layer base 會靜默失效。 */
 
-/* ⚠️ 這六行不能省——Nuxt UI 把它們硬寫死成 #fff 或錯階，
+/* ⚠️ 這九行不能省——Nuxt UI 把它們硬寫死成 #fff 或派生錯階，
    只改 app.config.ts 的 neutral 只會暖化文字與邊框，底色仍是純白。 */
 :root {
   --ui-bg: var(--color-paper-25);            /* 原 #fff */
   --ui-text-inverted: var(--color-paper-25); /* 原 #fff */
   --ui-primary: var(--color-amber-600);      /* 原派生自 500，只有 3.16:1 */
+
+  /* 圓角：預設 0.25rem 會讓 rounded-md/lg 變成 6px/8px（實測 59 + 26 處），
+     直接違反「圓角 ≤4px」。設 0.125rem 之後 sm=2 md=3 lg=4。
+     ⚠️ 放這裡不要放 @theme——Tailwind v4 的 @theme 會 tree-shake 沒被
+     utility 用到的變數，而這個變數只被 Nuxt UI 自己讀，沒有對應的 utility。 */
+  --ui-radius: 0.125rem;
 }
 /* ⚠️ .dark 必須排在 :root 之後：兩者特異性相同（皆 0,1,0），由順序決勝。 */
 .dark {
