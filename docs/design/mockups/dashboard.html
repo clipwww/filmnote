@@ -3,9 +3,6 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<!-- ⚠️ 2026-09-06：這份 mockup 仍是舊調性（冷結構＋暖火花）的色票。
-     David 已拍板改成「更重的溫暖收藏感」，新色票見 DESIGN_SYSTEM.md §1.6 與
-     mockups/palette.html、mockups/profile.html。這份尚未重繪，版面規格仍有效，色彩不要照抄。 -->
 <title>影記 統計</title>
 
 <script>
@@ -27,48 +24,52 @@
 :root {
   color-scheme: light;
 
-  /* 中性：紙 */
-  --paper-0: #FCFBF8;
-  --paper-1: #F6F4EE;
-  --paper-2: #EDEAE3;
-  --paper-3: #DEDACF;
+  /* 中性：暖 kraft 軸（§1.1）。2026-09-06 換調性：更重的溫暖收藏感 */
+  --paper-25:  #FDF9F1;  /* 票根紙 = --ui-bg，圖表印在這張紙上 */
+  --paper-50:  #F8EDDC;  /* 冊頁台紙 = body */
+  --paper-100: #EADDCA;
+  --paper-200: #DACCB9;
+  --paper-300: #C5B5A3;
+  --paper-400: #948777;
+  --paper-500: #776A5D;
+  --paper-600: #5F5348;
+  --paper-700: #4A4036;
+  --paper-800: #3D332C;
+  --paper-900: #29211A;
+  --paper-950: #1D1610;
 
-  /* 中性：墨 */
-  --ink-0: #171512;
-  --ink-1: #4A453D;
-  --ink-2: #6E675C;
-  --ink-3: #8C8477;
+  /* 語意別名。⚠️ 頁面是台紙、紙面比頁面亮——這是這一版的核心位移（§1.0） */
+  --bg:        var(--paper-50);
+  --surface:   var(--paper-25);
+  --sunken:    var(--paper-100);
+  --line:      var(--paper-300);
+  --line-soft: var(--paper-200);
+  --text-0:    var(--paper-900);
+  --text-1:    var(--paper-700);
+  --text-2:    var(--paper-500);
+  --text-3:    var(--paper-400);
 
-  /* 語意別名 */
-  --bg:        var(--paper-0);
-  --surface:   var(--paper-1);
-  --sunken:    var(--paper-2);
-  --line:      var(--paper-3);
-  --line-soft: var(--paper-2);
-  --text-0:      var(--ink-0);
-  --text-1:    var(--ink-1);
-  --text-2:    var(--ink-2);
-  --text-3:    var(--ink-3);
+  /* 重點色：琥珀（§1.2）。亮色用 amber-600，對票根紙 5.16:1 */
+  --accent:      #866500;
+  --accent-on:   #FDF9F1;
+  --accent-soft: #FFF1C2;
+  --scrim: rgba(29, 22, 16, 0.46);
 
-  /* 重點色：琥珀（§1.2）。亮色用 amber-600，對 paper-0 5.00:1 */
-  --accent:      #8A6800;
-  --accent-on:   #FFFFFF;
-  --accent-soft: #FBF6E4;
-  --scrim: rgba(23, 21, 18, 0.44);
+  /* 序列色階：墨階（§1.3）。零值是中性的 paper-100，不屬於色階 */
+  --heat-0: #EADDCA;
+  --heat-1: #CEC4B7;
+  --heat-2: #B1A392;
+  --heat-3: #91816F;
+  --heat-4: #685946;
+  --heat-5: #413525;
+  --heat-6: #1A1209;
 
-  /* 序列色階：墨階（§1.3）。零值是中性的 paper-2，不屬於色階 */
-  --heat-0: #EDEAE3;
-  --heat-1: #D6D0C4;
-  --heat-2: #B3AB9B;
-  --heat-3: #8C8477;
-  --heat-4: #615B50;
-  --heat-5: #3A362F;
-  --heat-6: #171512;
-
-  /* 出席圖三階（§5.4） */
-  --att-0: #EDEAE3;
-  --att-1: #B3AB9B;
-  --att-2: #171512;
+  /* 出席圖三階（§5.4）＝ heat-0/4/6，拉開取值。
+     ⚠️ 這三個值必須跟 JS 的 PALETTE.light.att 一模一樣，
+     否則圖例的色塊會跟圖上的格子不同色（舊版就是這樣壞的） */
+  --att-0: #EADDCA;
+  --att-1: #685946;
+  --att-2: #1A1209;
 
   /* §3 形狀 */
   --radius-chip: 2px;
@@ -88,61 +89,63 @@
 
   /* §2.5 中文排版基準 */
   line-break: strict;
-  --week-start: 0; /* 0 = 週日起始（台灣慣例，§5.4） */
+  --week-start: 1; /* 1 = 週一起始（design session 2026-09-06 裁定，§5.4） */
 }
 
 /* 暗色是「放映廳」，不是亮色反相（§7） */
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
     color-scheme: dark;
-    --paper-0: #12110F;
-    --paper-1: #1C1A17;
-    --paper-2: #2A2621;
-    --paper-3: #3D3830;
-    --ink-0: #F2EFE8;
-    --ink-1: #C4BDB0;
-    --ink-2: #A8A196;
-    --ink-3: #787164;
+    --bg:        var(--paper-950);
+    --surface:   var(--paper-900);
+    --sunken:    var(--paper-800);
+    --line:      var(--paper-700);
+    --line-soft: var(--paper-800);
+    --text-0:    var(--paper-50);
+    --text-1:    var(--paper-200);
+    --text-2:    var(--paper-400);
+    --text-3:    var(--paper-500);
     --accent: #C9A62B;
-    --accent-on: #171512;
-    --accent-soft: #2A1F05;
+    --accent-on: #29211A;
+    --accent-soft: #2D1D02;
     --scrim: rgba(0, 0, 0, 0.62);
-    --heat-0: #1F1D19;
-    --heat-1: #2E2B25;
-    --heat-2: #454037;
-    --heat-3: #615B50;
-    --heat-4: #8C8477;
-    --heat-5: #B3AB9B;
-    --heat-6: #E4DFD4;
-    --att-0: #1F1D19;
-    --att-1: #615B50;
-    --att-2: #E4DFD4;
+    --heat-0: #392F24;
+    --heat-1: #4C3E30;
+    --heat-2: #685949;
+    --heat-3: #857565;
+    --heat-4: #A59788;
+    --heat-5: #CEC4B9;
+    --heat-6: #F6F1EB;
+    --att-0: #392F24;
+    --att-1: #A59788;
+    --att-2: #F6F1EB;
   }
 }
 :root.dark {
   color-scheme: dark;
-  --paper-0: #12110F;
-  --paper-1: #1C1A17;
-  --paper-2: #2A2621;
-  --paper-3: #3D3830;
-  --ink-0: #F2EFE8;
-  --ink-1: #C4BDB0;
-  --ink-2: #A8A196;
-  --ink-3: #787164;
+  --bg:        var(--paper-950);
+  --surface:   var(--paper-900);
+  --sunken:    var(--paper-800);
+  --line:      var(--paper-700);
+  --line-soft: var(--paper-800);
+  --text-0:    var(--paper-50);
+  --text-1:    var(--paper-200);
+  --text-2:    var(--paper-400);
+  --text-3:    var(--paper-500);
   --accent: #C9A62B;
-  --accent-on: #171512;
-  --accent-soft: #2A1F05;
+  --accent-on: #29211A;
+  --accent-soft: #2D1D02;
   --scrim: rgba(0, 0, 0, 0.62);
-  --heat-0: #1F1D19;
-  --heat-1: #2E2B25;
-  --heat-2: #454037;
-  --heat-3: #615B50;
-  --heat-4: #8C8477;
-  --heat-5: #B3AB9B;
-  --heat-6: #E4DFD4;
-  --att-0: #1F1D19;
-  --att-1: #615B50;
-  --att-2: #E4DFD4;
+  --heat-0: #392F24;
+  --heat-1: #4C3E30;
+  --heat-2: #685949;
+  --heat-3: #857565;
+  --heat-4: #A59788;
+  --heat-5: #CEC4B9;
+  --heat-6: #F6F1EB;
+  --att-0: #392F24;
+  --att-1: #A59788;
+  --att-2: #F6F1EB;
 }
 
 /* ══════════════════════════════════════════════════════════════════════
@@ -350,7 +353,14 @@ a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset:
   max-width: 52ch;
 }
 
-.chart { width: 100%; }
+/* 圖表印在「票根紙」上，不是直接印在冊頁台紙上。
+   理由是零格的對比：亮色放台紙上只有 1.16:1，放票根紙上是 1.27:1（DS §1.3）。
+   沒有邊框、沒有陰影——它是一張紙，不是一張 stat tile（§4.4）。 */
+.chart {
+  width: 100%;
+  background: var(--surface);
+  border-radius: var(--radius-card);
+}
 
 /* 圖例（舊專案沒有，§5.5 補上） */
 .legend {
@@ -1252,16 +1262,20 @@ const CATALOGUE = {
    ══════════════════════════════════════════════════════════════════════ */
 const PALETTE = {
   light: {
-    bg: '#FCFBF8', surface: '#F6F4EE', sunken: '#EDEAE3', line: '#DEDACF',
-    text0: '#171512', text1: '#4A453D', text2: '#6E675C', text3: '#8C8477',
-    heat: ['#EDEAE3', '#D6D0C4', '#B3AB9B', '#8C8477', '#615B50', '#3A362F', '#171512'],
-    att: ['#EDEAE3', '#615B50', '#171512']
+    /* bg 是冊頁台紙、sheet 是圖表印在上面的票根紙。
+       ⚠️ 格子縫隙的顏色要用 sheet 不是 bg——圖表不是直接畫在頁面上（§1.3） */
+    bg: '#F8EDDC', sheet: '#FDF9F1', sunken: '#EADDCA', line: '#C5B5A3',
+    text0: '#29211A', text1: '#4A4036', text2: '#776A5D', text3: '#948777',
+    accent: '#866500',
+    heat: ['#EADDCA', '#CEC4B7', '#B1A392', '#91816F', '#685946', '#413525', '#1A1209'],
+    att: ['#EADDCA', '#685946', '#1A1209']            /* heat-0 / 4 / 6，拉開取值 */
   },
   dark: {
-    bg: '#12110F', surface: '#1C1A17', sunken: '#2A2621', line: '#3D3830',
-    text0: '#F2EFE8', text1: '#C4BDB0', text2: '#A8A196', text3: '#787164',
-    heat: ['#1F1D19', '#2E2B25', '#454037', '#615B50', '#8C8477', '#B3AB9B', '#E4DFD4'],
-    att: ['#1F1D19', '#8C8477', '#E4DFD4']
+    bg: '#1D1610', sheet: '#29211A', sunken: '#3D332C', line: '#4A4036',
+    text0: '#F8EDDC', text1: '#DACCB9', text2: '#948777', text3: '#776A5D',
+    accent: '#C9A62B',
+    heat: ['#392F24', '#4C3E30', '#685949', '#857565', '#A59788', '#CEC4B9', '#F6F1EB'],
+    att: ['#392F24', '#A59788', '#F6F1EB']
   }
 };
 const FONT = "Inter, 'PingFang TC', 'Noto Sans CJK TC', 'Noto Sans TC', 'Microsoft JhengHei', sans-serif";
@@ -1277,7 +1291,11 @@ function T() { return isDark() ? PALETTE.dark : PALETTE.light; }
 /* ══════════════════════════════════════════════════════════════════════
    小工具
    ══════════════════════════════════════════════════════════════════════ */
-const WD_ZH = ['日', '一', '二', '三', '四', '五', '六'];
+const WD_ZH = ['日', '一', '二', '三', '四', '五', '六'];   /* 用 getUTCDay() 查名字，順序不能動 */
+/* 週一起始的「軸順序」是另一件事（§5.4）。axisIdx = (getUTCDay() + 6) % 7 */
+const WD_AXIS = ['一', '二', '三', '四', '五', '六', '日'];
+const toAxis = d => (d + 6) % 7;        /* getUTCDay() → 軸位置 */
+const fromAxis = i => (i + 1) % 7;      /* 軸位置 → getUTCDay() */
 const pad = n => String(n).padStart(2, '0');
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const nf = n => n.toLocaleString('en-US');
@@ -1288,7 +1306,8 @@ function weekIndex(dstr) {
   const [y, m, d] = dstr.split('-').map(Number);
   const jan1 = Date.UTC(y, 0, 1);
   const doy = Math.round((Date.UTC(y, m - 1, d) - jan1) / 86400000);
-  return Math.floor((doy + new Date(jan1).getUTCDay()) / 7); /* 週日起始，--week-start: 0 */
+  /* --week-start: 1（週一起始，§5.4）。(getUTCDay()+6)%7 把週日的 0 挪到尾端 6 */
+  return Math.floor((doy + (new Date(jan1).getUTCDay() + 6) % 7) / 7);
 }
 function weekdayOf(dstr) {
   const [y, m, d] = dstr.split('-').map(Number);
@@ -1481,12 +1500,16 @@ function mount(id, build, opts) {
 }
 function repaintAll() { charts.forEach(c => c.inst.setOption(c.build(), true)); }
 
+/* ⚠️ 每一項都要顯式給值。ECharts 的預設 tooltip 是白底 #333 字，
+   漏掉任何一個都會在暗色模式露出純白，而且 tooltip 要 hover 才看得到，
+   截圖驗證抓不到——舊版這裡的 T().text 根本不存在（只有 text0..text3），
+   於是文字色一路吃 ECharts 預設。 */
 const baseTooltip = () => ({
-  backgroundColor: T().surface,
+  backgroundColor: T().sheet,
   borderColor: T().line,
   borderWidth: 1,
   padding: [6, 10],
-  textStyle: { color: T().text, fontSize: 13, lineHeight: 20, fontFamily: FONT },
+  textStyle: { color: T().text0, fontSize: 13, lineHeight: 20, fontFamily: FONT },
   extraCssText: 'border-radius:4px;box-shadow:none;'
 });
 
@@ -1513,10 +1536,13 @@ function calendarOption() {
     visualMap: {
       type: 'piecewise',
       show: false,
+      /* ⚠️ gt / lte，不要 min / max——理由見 hourPieces() 上面那段。
+         舊版的 { min:1, max:1 } 接 { min:2 } 會讓「剛好 2 場」的日子整格消失，
+         而那 4 天正是雙片連映，是這張圖唯一想讓人看見的東西。 */
       pieces: [
         { value: 0, color: t.att[0], label: '沒去' },
-        { min: 1, max: 1, color: t.att[1], label: '1 場' },
-        { min: 2, color: t.att[2], label: '2 場以上' }
+        { gt: 0, lte: 1, color: t.att[1], label: '1 場' },
+        { gt: 1, color: t.att[2], label: '2 場以上' }
       ]
     },
     calendar: {
@@ -1529,12 +1555,12 @@ function calendarOption() {
       splitLine: { show: false },
       /* 日曆格子間距沒有專屬選項，由 itemStyle.borderWidth 控制，
          borderColor 設成卡片底色才會讀成縫隙（§5.3-2） */
-      itemStyle: { color: t.att[0], borderWidth: 3, borderColor: t.bg },
+      itemStyle: { color: t.att[0], borderWidth: 3, borderColor: t.sheet },
       yearLabel: { show: false },
       /* firstDay 顯式寫出來，不靠預設（§5.4）。
          nameMap 用明確陣列：v5 只吃 'en'/'cn'，v6 才吃 'ZH' 這種 locale 字串 */
       dayLabel: {
-        firstDay: 0,
+        firstDay: 1,
         nameMap: WD_ZH,
         color: t.text2, fontSize: 11, fontFamily: FONT
       },
@@ -1547,22 +1573,28 @@ function calendarOption() {
       type: 'heatmap',
       coordinateSystem: 'calendar',
       data,
-      itemStyle: { borderWidth: 3, borderColor: t.bg }
+      itemStyle: { borderWidth: 3, borderColor: t.sheet }
     }]
   };
 }
 
 /* ── band 3：時段熱點圖 ─────────────────────────────────────────────── */
+/* ⚠️ 用 gt / lte，不要用 min / max。
+   舊版寫 { min:6, max:7 } 接 { min:8 }，值剛好等於 8 的那一格「靜默不畫」——
+   露出底紙，看起來像渲染破洞。9 會畫、8 不會，因為 ECharts 把 pieces 當
+   連續區間處理，(7, 8) 這段沒人認領，邊界值就掉進去了。
+   實測：週五 22:00 共 8 場，整格消失，console 零錯誤。
+   gt/lte 是明確的開閉界，區間首尾相接、不留縫，就不會有邊界值無主。 */
 function hourPieces() {
   const h = T().heat;
   return [
     { value: 0, color: h[0], label: '0' },
-    { min: 1, max: 1, color: h[1], label: '1' },
-    { min: 2, max: 2, color: h[2], label: '2' },
-    { min: 3, max: 3, color: h[3], label: '3' },
-    { min: 4, max: 5, color: h[4], label: '4–5' },
-    { min: 6, max: 7, color: h[5], label: '6–7' },
-    { min: 8, color: h[6], label: '8 以上' }
+    { gt: 0, lte: 1, color: h[1], label: '1' },
+    { gt: 1, lte: 2, color: h[2], label: '2' },
+    { gt: 2, lte: 3, color: h[3], label: '3' },
+    { gt: 3, lte: 5, color: h[4], label: '4–5' },
+    { gt: 5, lte: 7, color: h[5], label: '6–7' },
+    { gt: 7, color: h[6], label: '8 以上' }
   ];
 }
 function hourOption() {
@@ -1571,14 +1603,14 @@ function hourOption() {
   /* 7×16 全格明確餵值，包含 0。cartesian2d heatmap 完全不畫空格（§5.3-6） */
   for (let w = 0; w < 7; w++)
     for (let h = 0; h < HOUR_ROWS.length; h++)
-      data.push([w, h, matrix[w][h]]);
+      data.push([toAxis(w), h, matrix[w][h]]);   /* matrix 用 getUTCDay() 索引，軸位置要換算 */
   return {
     animation: false,
     grid: { left: 52, right: 8, top: 30, bottom: 6, containLabel: false },
     tooltip: Object.assign(baseTooltip(), {
       formatter: p => {
-        const [w, h, v] = p.data;
-        return slotLabel(w, h) + '<br>' + (v === 0 ? '從來沒有' : v + ' 場');
+        const [ax, h, v] = p.data;
+        return slotLabel(fromAxis(ax), h) + '<br>' + (v === 0 ? '從來沒有' : v + ' 場');
       }
     }),
     /* 兩軸都必須 type:'category' 且 boundaryGap:true，違反會直接 throw（§5.3-7） */
@@ -1586,11 +1618,11 @@ function hourOption() {
       type: 'category',
       boundaryGap: true,
       position: 'top',
-      data: WD_ZH,
+      data: WD_AXIS,
       axisLine: { show: false },
       axisTick: { show: false },
       splitLine: { show: false },
-      /* 週日起始讓週末被拆到頭尾（日在頭、五六在尾），所以用字重讓週五六日成組（§5.4）。
+      /* 週一起始讓五六日在尾端相鄰成一組（§5.4），再用字重把那一組框出來。
          axisLabel.fontWeight 不吃 callback，得走 rich text。 */
       axisLabel: {
         formatter: v => (['五', '六', '日'].indexOf(v) >= 0 ? '{w|' + v + '}' : '{d|' + v + '}'),
@@ -1614,7 +1646,7 @@ function hourOption() {
     series: [{
       type: 'heatmap',
       data,
-      itemStyle: { borderWidth: 2, borderColor: t.bg },
+      itemStyle: { borderWidth: 2, borderColor: t.sheet },
       emphasis: { itemStyle: { borderColor: t.text0, borderWidth: 2 } }
     }]
   };
@@ -1860,10 +1892,11 @@ function renderTables() {
 
   const hrows = HOUR_ROWS.map((label, h) => {
     const row = [label];
-    for (let w = 0; w < 7; w++) row.push(matrix[w][h]);
+    for (let i = 0; i < 7; i++) row.push(matrix[fromAxis(i)][h]);   /* 軸順序，不是 getUTCDay 順序 */
     return row;
   });
-  document.getElementById('b3-table').innerHTML = cell(['時段'].concat(WD_ZH.map(w => '週' + w)), hrows);
+  /* 表格欄序必須跟圖一致（週一起始，§5.4），否則螢幕閱讀器讀到的順序跟看到的不同 */
+  document.getElementById('b3-table').innerHTML = cell(['時段'].concat(WD_AXIS.map(w => '週' + w)), hrows);
 
   const cur = new Array(12).fill(0);
   byYear[selectedYear].forEach(r => cur[+r.d.slice(5, 7) - 1]++);
