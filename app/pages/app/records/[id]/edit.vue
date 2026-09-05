@@ -1,5 +1,8 @@
 <script setup lang="ts">
+import type { FormSubmitEvent } from '@nuxt/ui'
+import type { RecordEditForm } from '~/schemas/record'
 import type { Database } from '~/types/database.types'
+import { recordEditSchema, toRecordRow } from '~/schemas/record'
 
 useSeoMeta({ title: '編輯紀錄' })
 
@@ -9,22 +12,37 @@ const supabase = useSupabaseClient<Database>()
 const toast = useToast()
 const { venues } = useVenueOptions()
 
-const watchedOn = ref('')
-const watchedTime = ref('')
-const venueId = ref<string | undefined>()
-const ticketCount = ref<number | null>(null)
-const cost = ref<number | null>(null)
-const hallLabel = ref('')
-const memo = ref('')
-const isPublic = ref(true)
-const saving = ref(false)
+const state = reactive<{
+  watchedOn: string
+  watchedTime: string
+  venueId: string | undefined
+  ticketCount: number | null
+  cost: number | null
+  hallLabel: string
+  formatCode: string | undefined
+  memo: string
+  isPublic: boolean
+}>({
+  watchedOn: '',
+  watchedTime: '',
+  venueId: undefined,
+  ticketCount: null,
+  cost: null,
+  hallLabel: '',
+  formatCode: undefined,
+  memo: '',
+  isPublic: true,
+})
+
 const filmTitle = ref('')
+const saving = ref(false)
+/** 載入時原本就有票價列，才需要在清空時去刪它。 */
 const hadCost = ref(false)
 
 const { status } = await useAsyncData(`record-${id}`, async () => {
   const { data, error } = await supabase
     .from('viewing_record')
-    .select('watched_on,watched_time,venue_id,ticket_count,hall_label,memo,visibility,film_id')
+    .select('watched_on,watched_time,venue_id,ticket_count,hall_label,format_code,memo,visibility,film_id')
     .eq('id', id)
     .maybeSingle()
   if (error)
@@ -32,13 +50,14 @@ const { status } = await useAsyncData(`record-${id}`, async () => {
   if (!data)
     throw createError({ statusCode: 404, statusMessage: '找不到這筆紀錄', fatal: true })
 
-  watchedOn.value = data.watched_on
-  watchedTime.value = data.watched_time?.slice(0, 5) ?? ''
-  venueId.value = data.venue_id
-  ticketCount.value = data.ticket_count
-  hallLabel.value = data.hall_label ?? ''
-  memo.value = data.memo ?? ''
-  isPublic.value = data.visibility === 'public'
+  state.watchedOn = data.watched_on
+  state.watchedTime = data.watched_time?.slice(0, 5) ?? ''
+  state.venueId = data.venue_id
+  state.ticketCount = data.ticket_count
+  state.hallLabel = data.hall_label ?? ''
+  state.formatCode = data.format_code ?? undefined
+  state.memo = data.memo ?? ''
+  state.isPublic = data.visibility === 'public'
 
   const [{ data: film }, { data: c }] = await Promise.all([
     supabase.from('film').select('title_zh,title_original').eq('id', data.film_id).maybeSingle(),
@@ -46,40 +65,37 @@ const { status } = await useAsyncData(`record-${id}`, async () => {
   ])
   filmTitle.value = film?.title_zh || film?.title_original || '（作品不明）'
   if (c) {
-    cost.value = Number(c.amount)
+    state.cost = Number(c.amount)
     hadCost.value = true
   }
   return true
 }, { server: false })
 
-async function save() {
+async function onSubmit(event: FormSubmitEvent<RecordEditForm>) {
+  const form = event.data
   saving.value = true
   try {
-    const { error } = await supabase
-      .from('viewing_record')
-      .update({
-        watched_on: watchedOn.value,
-        watched_time: watchedTime.value || null,
-        venue_id: venueId.value!,
-        ticket_count: ticketCount.value,
-        hall_label: hallLabel.value || null,
-        memo: memo.value || null,
-        visibility: isPublic.value ? 'public' : 'private',
-      })
-      .eq('id', id)
+    const { error } = await supabase.from('viewing_record').update(toRecordRow(form)).eq('id', id)
     if (error)
       throw error
 
-    // 票價在另一張表，要分開處理三種情況：新增、更新、清空
-    if (cost.value == null && hadCost.value) {
-      await supabase.from('viewing_record_cost').delete().eq('record_id', id)
+    // 票價在另一張表，三種情況要分開處理。
+    // ★ null 是「刪掉這筆票價」，0 是「真的沒花錢」——不可混為一談。
+    if (form.cost === null) {
+      if (hadCost.value) {
+        const { error: de } = await supabase.from('viewing_record_cost').delete().eq('record_id', id)
+        if (de)
+          throw de
+        hadCost.value = false
+      }
     }
-    else if (cost.value != null) {
+    else {
       const { error: ce } = await supabase
         .from('viewing_record_cost')
-        .upsert({ record_id: id, amount: cost.value }, { onConflict: 'record_id' })
+        .upsert({ record_id: id, amount: form.cost }, { onConflict: 'record_id' })
       if (ce)
         throw ce
+      hadCost.value = true
     }
 
     toast.add({ title: '已更新', color: 'success' })
@@ -106,34 +122,34 @@ async function save() {
       <p class="mt-1 text-muted">
         {{ filmTitle }}
       </p>
-      <form class="mt-6 space-y-5" @submit.prevent="save">
+      <UForm :schema="recordEditSchema" :state="state" class="mt-6 space-y-5" @submit="onSubmit">
         <div class="grid grid-cols-2 gap-4">
-          <UFormField label="哪天看的" required>
-            <UInput v-model="watchedOn" type="date" class="w-full" />
+          <UFormField label="哪天看的" name="watchedOn" required>
+            <UInput v-model="state.watchedOn" type="date" class="w-full" />
           </UFormField>
-          <UFormField label="幾點">
-            <UInput v-model="watchedTime" type="time" class="w-full" />
+          <UFormField label="幾點" name="watchedTime">
+            <UInput v-model="state.watchedTime" type="time" class="w-full" />
           </UFormField>
         </div>
-        <UFormField label="在哪看的" required>
-          <USelectMenu v-model="venueId" :items="venues" value-key="id" label-key="name" class="w-full" />
+        <UFormField label="在哪看的" name="venueId" required>
+          <USelectMenu v-model="state.venueId" :items="venues" value-key="id" label-key="name" class="w-full" />
         </UFormField>
         <div class="grid grid-cols-2 gap-4">
-          <UFormField label="票數">
-            <UInputNumber v-model="ticketCount" :min="1" :max="99" class="w-full" />
+          <UFormField label="票數" name="ticketCount">
+            <UInputNumber v-model="state.ticketCount" :min="1" :max="99" class="w-full" />
           </UFormField>
-          <UFormField label="票價" hint="清空即刪除">
-            <UInputNumber v-model="cost" :min="0" class="w-full" />
+          <UFormField label="票價" name="cost" hint="留空＝刪除票價；0＝招待票">
+            <UInputNumber v-model="state.cost" :min="0" class="w-full" />
           </UFormField>
         </div>
-        <UFormField label="影廳">
-          <UInput v-model="hallLabel" class="w-full" />
+        <UFormField label="影廳" name="hallLabel">
+          <UInput v-model="state.hallLabel" class="w-full" />
         </UFormField>
-        <UFormField label="備註">
-          <UTextarea v-model="memo" :rows="3" :maxlength="2000" class="w-full" />
+        <UFormField label="備註" name="memo">
+          <UTextarea v-model="state.memo" :rows="3" :maxlength="2000" class="w-full" />
         </UFormField>
         <UFormField>
-          <USwitch v-model="isPublic" label="公開這筆紀錄" />
+          <USwitch v-model="state.isPublic" label="公開這筆紀錄" />
         </UFormField>
         <div class="flex gap-3">
           <UButton type="submit" :loading="saving">
@@ -143,7 +159,7 @@ async function save() {
             取消
           </UButton>
         </div>
-      </form>
+      </UForm>
     </template>
   </div>
 </template>

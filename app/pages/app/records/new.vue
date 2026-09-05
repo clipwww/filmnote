@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import type { FormSubmitEvent } from '@nuxt/ui'
 import type { FilmOption } from '~/composables/useFilmSearch'
 import type { VenueOption } from '~/composables/useRecordOptions'
+import type { RecordForm } from '~/schemas/record'
 import type { Database } from '~/types/database.types'
+import { recordSchema, toRecordRow } from '~/schemas/record'
 
 definePageMeta({ layout: 'default' })
 useSeoMeta({ title: '記一筆' })
@@ -14,25 +17,50 @@ const { venues } = useVenueOptions()
 const { read: readLastVenue, write: writeLastVenue } = useLastVenue()
 const { term: filmTerm, items: filmItems, loading: filmLoading } = useFilmSearch()
 
-// USelectMenu 的 v-model 型別是 T | undefined（不是 null），三個選單欄位一律用 undefined
-const film = ref<FilmOption | undefined>()
-const venueId = ref<string | undefined>()
-// US-5：日期預設今天。最常見的情境是「剛看完就記」，不該需要任何額外操作。
-const watchedOn = ref(todayInTaipei())
-const watchedTime = ref('')
-// 以下全部選填（US-8）
-const ticketCount = ref<number | null>(null)
-const cost = ref<number | null>(null)
-const hallLabel = ref('')
-const formatCode = ref<string | undefined>()
-const memo = ref('')
-const isPublic = ref(true)
+/**
+ * 「今天」是使用者所在地的今天。
+ *
+ * watched_on 存的是台北牆上時間的日期（schema 用 date + time 刻意避開時區），
+ * 所以取本地日期即可——**不要**經過 toISOString()，那會轉成 UTC，
+ * 台灣時間早上 8 點前記的紀錄會被記成前一天。
+ */
+function todayLocal(): string {
+  const d = new Date()
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+// UForm 的 state 是單一 reactive 物件，欄位名要與 zod schema 的 key 一致，
+// UFormField 的 name 才對得上錯誤訊息。
+const state = reactive<{
+  film: FilmOption | undefined
+  watchedOn: string
+  watchedTime: string
+  venueId: string | undefined
+  ticketCount: number | null
+  cost: number | null
+  hallLabel: string
+  formatCode: string | undefined
+  memo: string
+  isPublic: boolean
+}>({
+  film: undefined,
+  watchedOn: todayLocal(), // US-5：預設今天
+  watchedTime: '',
+  venueId: undefined,
+  ticketCount: null,
+  cost: null,
+  hallLabel: '',
+  formatCode: undefined,
+  memo: '',
+  isPublic: true,
+})
 
 const formats = ref<{ code: string, label: string }[]>([])
 const saving = ref(false)
 
 onMounted(async () => {
-  venueId.value = readLastVenue() ?? undefined
+  state.venueId = readLastVenue() ?? undefined // US-6：記住上次選的影城
   const { data } = await supabase
     .from('screening_format')
     .select('code,label')
@@ -41,61 +69,34 @@ onMounted(async () => {
   formats.value = data ?? []
 })
 
-/**
- * 「今天」是使用者所在地的今天。
- *
- * 這個欄位存的是台北牆上時間的日期（schema 用 watched_on date +
- * watched_time time，刻意避開 timestamptz），所以取本地日期即可，
- * 不要經過 toISOString()——那會轉成 UTC，台灣時間早上 8 點前記的紀錄
- * 會被記成前一天。
- */
-function todayInTaipei(): string {
-  const d = new Date()
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
-}
-
-const canSave = computed(() => !!film.value && !!venueId.value && !!watchedOn.value)
-
-async function save() {
-  if (!canSave.value || !user.value?.sub)
+async function onSubmit(event: FormSubmitEvent<RecordForm>) {
+  if (!user.value?.sub)
     return
+  const form = event.data
   saving.value = true
   try {
-    // 票價寫進獨立的 viewing_record_cost 表，不是 viewing_record 的欄位。
-    // RLS 只能遮「列」不能有條件地遮「欄」，show_cost 這條規則因此必須靠
-    // 結構來強制，而不是靠每支 API 記得把欄位拿掉。
+    // 票價寫進獨立的 viewing_record_cost 表，不是 viewing_record 的欄位——
+    // RLS 只能遮「列」不能有條件地遮「欄」，show_cost 這條規則必須靠結構強制。
     const { data: inserted, error } = await supabase
       .from('viewing_record')
-      .insert({
-        user_id: user.value.sub,
-        film_id: film.value!.id,
-        venue_id: venueId.value!,
-        watched_on: watchedOn.value,
-        watched_time: watchedTime.value || null,
-        ticket_count: ticketCount.value,
-        hall_label: hallLabel.value || null,
-        format_code: formatCode.value ?? null,
-        memo: memo.value || null,
-        visibility: isPublic.value ? 'public' : 'private',
-      })
+      .insert({ ...toRecordRow(form), user_id: user.value.sub, film_id: form.film.id })
       .select('id')
       .single()
     if (error)
       throw error
 
-    if (cost.value != null && cost.value >= 0) {
+    // null 代表「沒有票價資料」，0 代表「真的沒花錢」——只有前者不寫入。
+    if (form.cost !== null) {
       const { error: costError } = await supabase
         .from('viewing_record_cost')
-        .insert({ record_id: inserted.id, amount: cost.value })
+        .insert({ record_id: inserted.id, amount: form.cost })
       if (costError) {
-        // 紀錄已經建立了，票價沒寫進去不該讓整筆消失——明說哪一半失敗，
-        // 使用者可以到編輯頁補。
+        // 紀錄已經建立，票價沒寫進去不該讓整筆消失。明說哪一半失敗即可。
         toast.add({ title: '紀錄已建立，但票價沒存成功', description: costError.message, color: 'warning' })
       }
     }
 
-    writeLastVenue(venueId.value ?? null)
+    writeLastVenue(form.venueId)
     toast.add({ title: '記下來了', color: 'success' })
     await navigateTo('/app/records')
   }
@@ -117,15 +118,15 @@ async function save() {
       片名、日期、場所填完就能存，其餘都可以之後再補。
     </p>
 
-    <form class="mt-8 space-y-5" @submit.prevent="save">
-      <UFormField label="看了什麼" required>
+    <UForm :schema="recordSchema" :state="state" class="mt-8 space-y-5" @submit="onSubmit">
+      <UFormField label="看了什麼" name="film" required>
         <!--
           ignore-filter：過濾交給 Postgres，不要讓 reka-ui 對 2,669 筆做子字串比對。
           v-model:search-term 把輸入接到 useFilmSearch。
           value-key 未設 ⇒ v-model 綁的是整個物件（踩雷 #51），這裡正是想要的。
         -->
         <USelectMenu
-          v-model="film"
+          v-model="state.film"
           v-model:search-term="filmTerm"
           :items="filmItems"
           :loading="filmLoading"
@@ -155,17 +156,17 @@ async function save() {
       </UFormField>
 
       <div class="grid grid-cols-2 gap-4">
-        <UFormField label="哪天看的" required>
-          <UInput v-model="watchedOn" type="date" class="w-full" size="lg" />
+        <UFormField label="哪天看的" name="watchedOn" required>
+          <UInput v-model="state.watchedOn" type="date" class="w-full" size="lg" />
         </UFormField>
-        <UFormField label="幾點" hint="選填">
-          <UInput v-model="watchedTime" type="time" class="w-full" size="lg" />
+        <UFormField label="幾點" name="watchedTime" hint="選填">
+          <UInput v-model="state.watchedTime" type="time" class="w-full" size="lg" />
         </UFormField>
       </div>
 
-      <UFormField label="在哪看的" required>
+      <UFormField label="在哪看的" name="venueId" required>
         <USelectMenu
-          v-model="venueId"
+          v-model="state.venueId"
           :items="venues"
           value-key="id"
           label-key="name"
@@ -187,20 +188,22 @@ async function save() {
         <template #content>
           <div class="space-y-5 pt-4">
             <div class="grid grid-cols-2 gap-4">
-              <UFormField label="票數">
-                <UInputNumber v-model="ticketCount" :min="1" :max="99" class="w-full" />
+              <UFormField label="票數" name="ticketCount">
+                <UInputNumber v-model="state.ticketCount" :min="1" :max="99" class="w-full" />
               </UFormField>
-              <UFormField label="票價" hint="預設不公開">
-                <UInputNumber v-model="cost" :min="0" class="w-full" />
+              <UFormField label="票價" name="cost" hint="留空＝沒記錄；0＝招待票">
+                <template #default>
+                  <UInputNumber v-model="state.cost" :min="0" class="w-full" />
+                </template>
               </UFormField>
             </div>
             <div class="grid grid-cols-2 gap-4">
-              <UFormField label="影廳">
-                <UInput v-model="hallLabel" placeholder="如 IMAX 廳" class="w-full" />
+              <UFormField label="影廳" name="hallLabel">
+                <UInput v-model="state.hallLabel" placeholder="如 IMAX 廳" class="w-full" />
               </UFormField>
-              <UFormField label="版本">
+              <UFormField label="版本" name="formatCode">
                 <USelectMenu
-                  v-model="formatCode"
+                  v-model="state.formatCode"
                   :items="formats"
                   value-key="code"
                   label-key="label"
@@ -209,19 +212,23 @@ async function save() {
                 />
               </UFormField>
             </div>
-            <UFormField label="備註">
-              <UTextarea v-model="memo" :rows="3" :maxlength="2000" class="w-full" />
+            <UFormField label="備註" name="memo">
+              <UTextarea v-model="state.memo" :rows="3" :maxlength="2000" class="w-full" />
             </UFormField>
             <UFormField>
-              <USwitch v-model="isPublic" label="公開這筆紀錄" :description="isPublic ? '會出現在你的個人頁' : '只有你看得到'" />
+              <USwitch
+                v-model="state.isPublic"
+                label="公開這筆紀錄"
+                :description="state.isPublic ? '會出現在你的個人頁' : '只有你看得到'"
+              />
             </UFormField>
           </div>
         </template>
       </UCollapsible>
 
-      <UButton type="submit" size="lg" block :loading="saving" :disabled="!canSave">
+      <UButton type="submit" size="lg" block :loading="saving">
         存起來
       </UButton>
-    </form>
+    </UForm>
   </div>
 </template>
