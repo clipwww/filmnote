@@ -2156,9 +2156,9 @@ curl -s -X POST "$URL/storage/v1/object/list/ugc-poster-pending" \
 - 未登入者可提交侵權通知、但讀不到：
 
 ```bash
-curl -X POST "$URL/rest/v1/dmca_notice" -H "apikey: $ANON" \
+curl -X POST "$URL/rest/v1/takedown_notice" -H "apikey: $ANON" \
      -H "Prefer: return=minimal" -H 'Content-Type: application/json' -d '{...}'   # 201
-curl -s "$URL/rest/v1/dmca_notice?select=*" -H "apikey: $ANON"                    # [] / 401
+curl -s "$URL/rest/v1/takedown_notice?select=*" -H "apikey: $ANON"                    # [] / 401
 ```
 
 不帶 `Prefer: return=minimal` 會失敗，這是刻意的——沒有 SELECT policy 就拿不到 RETURNING，確保這張表在 API 層是單向的。
@@ -2166,7 +2166,7 @@ curl -s "$URL/rest/v1/dmca_notice?select=*" -H "apikey: $ANON"                  
 - `admin_takedown` 後：該紀錄／作品在公開頁**立即**消失（US-52），**且引用該作品的其他人的公開紀錄與票價也一併消失**（這是提案 1 漏掉的 join，必須實測）。
 - `admin_add_strike` 第三次後 `profile.service_status = 'terminated'`，該使用者個人頁與全部公開紀錄立即不可讀。
 - `admin_restore` 後內容回復、`visibility` 一併還原、該次三振被作廢（不是沉默的半回復）。
-- `dmca_counter_notice` 填 `forwarded_at` → `litigation_proof_due_at`（+10 工作日）與 `restore_due_at`（+14 工作日）自動算出。
+- `counter_notice` 填 `forwarded_at` → `litigation_proof_due_at`（+10 工作日）與 `restore_due_at`（+14 工作日）自動算出。
 
 ---
 
@@ -2300,7 +2300,7 @@ TMDB 上四話各自獨立、沒有連映版條目，而一筆 `viewing_record` 
 | **① 服務條款告知著作權保護措施，並確實履行** | `app/pages/legal/terms.vue`（prerender）<br>`public.legal_document`（kind='terms'）<br>`public.legal_acceptance` | 條款正文含「著作權保護措施」專章。**版本與 `content_sha256` 寫進 `legal_document`**；使用者首次登入後在 `/app` 顯示一次性同意，寫入 `legal_acceptance`。沒有這兩張表，日後無從舉證「已於侵權發生時告知」。 |
 | **② 三振條款（三次侵權終止服務）** | `app/pages/legal/terms.vue` 明文條列<br>`public.copyright_strike` + `admin_add_strike()` + `profile.service_status`<br>`app/pages/app/notices.vue` | 條款須明白寫出「三次涉有侵權情事應終止全部或部分服務」。技術落點：第 2 次 `limited`、第 3 次 `terminated`。停權後 `profile_select` 與 `viewing_record_select` 都檢查 `service_status`，公開內容**立即**消失，不需另一支批次工作。 |
 | **③ 公告接收侵權通知的聯繫窗口** | `app/pages/legal/copyright.vue`（prerender）<br>`app/layouts/default.vue` 頁尾常駐連結 | 頁面載明窗口電子郵件 `copyright@filmnote.tw`、聯絡地址、受理程序、所需記載事項（§90-6 及施行辦法）。**必須全站每一頁都能到達。** |
-| **④ 通知／取下／回復通知流程** | 通知：`app/pages/legal/copyright/notice.vue` + `server/api/legal/notice.post.ts` → `public.dmca_notice`<br>取下：`admin_takedown()` 設 `moderation_state='removed'`<br>告知使用者：`dmca_notice.notified_user_at` + `/app/notices`<br>回復通知：`app/pages/legal/copyright/counter/[id].vue` → `public.dmca_counter_notice`<br>期限：`business_days_after()` trigger<br>回復：`admin_restore()` | **取下一律是狀態不是 DELETE** —— 刪掉就永遠無法履行 §90-9 的回復義務，這是事後補不回來的 schema 決定。`forwarded_at` 一填，trigger 自動算出 `litigation_proof_due_at`（+10 工作日）與 `restore_due_at`（+14 工作日），各處實作不會漂移。 |
+| **④ 通知／取下／回復通知流程** | 通知：`app/pages/legal/copyright/notice.vue` + `server/api/legal/notice.post.ts` → `public.takedown_notice`<br>取下：`admin_takedown()` 設 `moderation_state='removed'`<br>告知使用者：`takedown_notice.notified_user_at` + `/app/notices`<br>回復通知：`app/pages/legal/copyright/counter/[id].vue` → `public.counter_notice`<br>期限：`business_days_after()` trigger<br>回復：`admin_restore()` | **取下一律是狀態不是 DELETE** —— 刪掉就永遠無法履行 §90-9 的回復義務，這是事後補不回來的 schema 決定。`forwarded_at` 一填，trigger 自動算出 `litigation_proof_due_at`（+10 工作日）與 `restore_due_at`（+14 工作日），各處實作不會漂移。 |
 
 ## 6.2 其他法遵落點
 
@@ -2312,12 +2312,27 @@ TMDB 上四話各自獨立、沒有連映版條目，而一筆 `viewing_record` 
 | **TMDB attribution** | 同頁尾：TMDB logo（**須 less prominent than 本站標誌**）＋「This product uses the TMDB API but is not endorsed or certified by TMDB.」 |
 | **TMDB 快取 ≤ 6 個月** | `film_tmdb_snapshot.expires_at` 預設 180 天；`film_public` view 讀取時 `case when expires_at > now()` 把關；`purge_expired_tmdb_cache()` 為第二道防線。 |
 | **Vercel Hobby 商業使用禁令** | 站上**不得**宣傳未來收費、不得放贊助／捐款管道（Hobby 的定義涵蓋此兩者）。收費時同步升級 Vercel Pro + TMDB 商業訂閱。 |
-| **DMCA 表單防濫發** | `server/api/legal/notice.post.ts` 必須加 Turnstile 或 rate limit —— `anon` 可 INSERT `dmca_notice` 是法定義務，但**資料庫層完全沒有防護**。 |
+| **DMCA 表單防濫發** | `server/api/legal/notice.post.ts` 必須加 Turnstile 或 rate limit —— `anon` 可 INSERT `takedown_notice` 是法定義務，但**資料庫層完全沒有防護**。 |
 | **`memo` 為使用者自由文字且預設公開** | schema 只做長度限制（2000 字），內容審核不在資料庫層，靠 §90-4 的通知／取下流程處理。 |
 
 ---
 
 # 7. 已知踩雷點
+
+> **編號規則（2026-09-06 起）。** 本節由多個並行 session 共同維護，而它們看不到彼此。
+> 先前大家各自「取尾端的下一號」，實測撞號了——frontend 與 backend 同時寫成 #82。
+> 編號一旦發出就會被其他文件引用（如「踩雷 #79」），事後renumber的代價很高，
+> 所以改成**由主 session 分配號段**，各自在自己的號段內遞增：
+>
+> | 號段 | 擁有者 |
+> |---|---|
+> | #1–#84 | 已發出（歷史，不重新編號） |
+> | #85–#99 | frontend |
+> | #100–#114 | backend |
+> | #115–#129 | design |
+> | #130+ | 主 session |
+>
+> **號段內有跳號是正常的，不要為了連號而重排。** 號段用完就跟主 session 要下一段。
 
 ## 7.1 Nuxt / 算繪
 
@@ -2541,7 +2556,7 @@ diff /tmp/a /tmp/b                     # 除了 SSR 時戳外必須完全相同
 29. **TMDB 的 runtime / release_year 回填進 `film` 本體，而本體不受 6 個月 TTL 管制。** 片長與年份屬事實性資料，實務上應無問題，但嚴格解讀 TMDB 條款時是灰色地帶，建議與付費牆法律意見一併確認。
 30. **UGC 私有作品被公開紀錄引用時，該紀錄對外整筆不可見。** 使用者會看到「我設了公開卻沒人看得到」，schema 層無法解釋，**必須靠 UI 明示「待審核通過後才會公開」**。
 31. **多刷排行以 `film_id` 分組。** 管理者合併重複作品後歷史統計會改變（技術上正確，但「我去年的多刷排行怎麼變了」是真實的使用者困惑）。
-32. **`dmca_notice` 開放 anon INSERT 是垃圾訊息的靶。** 必須在 Nitro/Edge 端加 Turnstile 或速率限制；資料庫層沒有防護。
+32. **`takedown_notice` 開放 anon INSERT 是垃圾訊息的靶。** 必須在 Nitro/Edge 端加 Turnstile 或速率限制；資料庫層沒有防護。
 33. **`certificate.raw` 永久保留原始 JSON 會放大 DB 體積。** 3,116 列估計數 MB，應無問題，但 **Supabase 免費專案 500MB 上限**需實測確認。
 
 ---
