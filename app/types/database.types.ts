@@ -798,6 +798,7 @@ export interface Database {
           last_seen_at: string
           created_at: string
           updated_at: string
+          selectable: boolean
         }
         Insert: {
           id: string
@@ -819,6 +820,7 @@ export interface Database {
           last_seen_at?: string
           created_at?: string
           updated_at?: string
+          selectable?: boolean
         }
         Update: {
           id?: string
@@ -840,6 +842,7 @@ export interface Database {
           last_seen_at?: string
           created_at?: string
           updated_at?: string
+          selectable?: boolean
         }
         Relationships: [
           {
@@ -1013,6 +1016,17 @@ export interface Database {
           attempts: number | null
           expires_at: string | null
           next_refresh_at: string | null
+        }
+        Relationships: []
+      }
+      venue_option: {
+        Row: {
+          id: string | null
+          kind: Database["public"]["Enums"]["venue_kind"] | null
+          name: string | null
+          city: string | null
+          hall_count: number | null
+          sort_weight: number | null
         }
         Relationships: []
       }
