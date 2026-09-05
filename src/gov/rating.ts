@@ -8,11 +8,11 @@
  * 因 CSV 引號損壞而多出一欄，若用 `columns: true` 會靜默錯位。
  */
 
-import type { Certificate, RowDefect } from '~/types'
+import type { Certificate, RowDefect } from '#pipeline/types'
 import { parse } from 'csv-parse/sync'
-import { inspectOriginalTitle } from '~/normalize/defensive'
-import { parseRuntimeMinutes } from '~/normalize/runtime'
-import { extractVersionNote, normalizeTitle } from '~/normalize/title'
+import { hasSuspectQuestionMark, inspectOriginalTitle } from '#pipeline/normalize/defensive'
+import { parseRuntimeMinutes } from '#pipeline/normalize/runtime'
+import { extractVersionNote, normalizeTitle } from '#pipeline/normalize/title'
 
 /** 110 年起的欄位，順序即為 CSV 的欄序。 */
 const COLUMNS = [
@@ -111,6 +111,8 @@ function toCertificate({ cells, defects: rowDefects }: AlignedRow): Certificate 
   const titleZhRaw = at(3)
   if (!titleZhRaw)
     defects.push('title-zh-missing')
+  else if (hasSuspectQuestionMark(titleZhRaw))
+    defects.push('title-zh-suspect-encoding')
 
   const originalRaw = at(ORIGINAL_TITLE_INDEX)
   const original = inspectOriginalTitle(originalRaw)

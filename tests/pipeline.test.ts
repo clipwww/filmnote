@@ -1,12 +1,12 @@
-import type { ConsolidateInput } from '~/pipeline/consolidate'
-import type { Certificate, MatchOutcome, TmdbMovieDetail } from '~/types'
+import type { ConsolidateInput } from '#pipeline/pipeline/consolidate'
+import type { Certificate, MatchOutcome, TmdbMovieDetail } from '#pipeline/types'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { runResumable } from '~/pipeline/checkpoint'
-import { consolidate, summarize, unmatchedFilmKey } from '~/pipeline/consolidate'
-import { taiwanReleaseDate, TmdbClient, TmdbError } from '~/tmdb/client'
+import { runResumable } from '#pipeline/pipeline/checkpoint'
+import { consolidate, summarize, unmatchedFilmKey } from '#pipeline/pipeline/consolidate'
+import { taiwanReleaseDate, TmdbClient, TmdbError } from '#pipeline/tmdb/client'
 
 function cert(partial: Partial<Certificate>): Certificate {
   return {
@@ -250,6 +250,59 @@ describe('核准紀錄收斂為作品', () => {
     }])
 
     expect(films[0]!.titleOriginal).toBe('福田村事件')
+  })
+
+  it('中文片名編碼損毀且有 TMDB 標題時，改採 TMDB', () => {
+    // 實測案例：政府資料把「坂本龍一」的坂寫成 ASCII 問號。
+    // 因 title_zh_source='gov'，若不在此處理，這個錯字會永久顯示。
+    const films = consolidate([{
+      certificate: cert({
+        id: 'a',
+        titleZh: '?本龍一：終章',
+        titleOriginal: 'Ryuichi Sakamoto: CODA',
+        defects: ['title-zh-suspect-encoding'],
+      }),
+      outcome: matched(473888),
+      tmdb: { titleZh: '坂本龍一：終章', titleOriginal: 'Ryuichi Sakamoto: CODA', runtimeMinutes: 102 },
+    }])
+
+    expect(films[0]!.titleZh).toBe('坂本龍一：終章')
+  })
+
+  it('中文片名損毀但 TMDB 沒有中文標題時，保留原值進 UGC 佇列', () => {
+    const films = consolidate([{
+      certificate: cert({
+        id: 'a',
+        titleZh: '動物感傷?清晨',
+        defects: ['title-zh-suspect-encoding'],
+      }),
+      outcome: matched(1),
+      tmdb: { titleZh: 'In the Morning of La Petite Mort', titleOriginal: '', runtimeMinutes: 90 },
+    }])
+
+    // 不能拿英文標題蓋掉中文片名
+    expect(films[0]!.titleZh).toBe('動物感傷?清晨')
+  })
+
+  it('沒有損毀標記時，一律以政府核准名為準', () => {
+    const films = consolidate([{
+      certificate: cert({ id: 'a', titleZh: '紅豬', defects: [] }),
+      outcome: matched(11621),
+      tmdb: { titleZh: '紅豬（TMDB 版本）', titleOriginal: '紅の豚', runtimeMinutes: 93 },
+    }])
+
+    expect(films[0]!.titleZh).toBe('紅豬')
+  })
+
+  it('tMDB 回傳片長 0 視為缺值，不當成片長 0 分鐘', () => {
+    // TMDB 對「無片長資料」回傳 0 而非 null
+    const films = consolidate([{
+      certificate: cert({ id: 'a', titleZh: '一直一直都很喜歡你', runtimeMinutes: null }),
+      outcome: matched(1022830),
+      tmdb: { titleZh: '一直一直都很喜歡你', titleOriginal: '', runtimeMinutes: 0 },
+    }])
+
+    expect(films[0]!.runtimeMinutes).toBeNull()
   })
 
   it('統計反映收斂消去的重複量', () => {

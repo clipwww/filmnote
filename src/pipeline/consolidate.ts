@@ -3,12 +3,19 @@
  *
  * 這是 SPEC 中「兩層模型」的實作。同一部片會因跨年度重映、國語版與
  * 日語版分開送審而擁有多張證明書；若不收斂，「今年看了幾部片」這類
- * 統計會失真。實測 110–113 年的 3,116 筆收斂為約 2,664 部，
- * 亦即有 14.5% 是重複的。
+ * 統計會失真。實測 110–113 年的 3,116 筆收斂為 2,669 部，
+ * 亦即有 14.3%（447 筆）是重複的。
  */
 
-import type { Certificate, Film, MatchOutcome } from '~/types'
-import { normalizeTitle } from '~/normalize/title'
+import type { Certificate, Film, MatchOutcome } from '#pipeline/types'
+import { normalizeTitle } from '#pipeline/normalize/title'
+
+const CJK = /[\u4E00-\u9FFF\u3400-\u4DBF]/
+
+/** TMDB 以 0 表示「無片長資料」，轉成 null 以免被當成片長 0 分鐘。 */
+function nonZero(value: number | null | undefined): number | null {
+  return value || null
+}
 
 export interface ConsolidateInput {
   certificate: Certificate
@@ -53,21 +60,31 @@ export function consolidate(inputs: ConsolidateInput[]): Film[] {
       existing.firstSeenRocYear = Math.min(existing.firstSeenRocYear, certificate.rocYear)
       // 先前缺的欄位，由後續的證明書補上。
       existing.runtimeMinutes ??= certificate.runtimeMinutes
+      if (existing.runtimeMinutes === 0)
+        existing.runtimeMinutes = null
       existing.country ||= certificate.country
       continue
     }
 
+    // 中文片名一般以政府核准名為準（實測 TMDB 的中文標題只有 83.2% 與
+    // 官方一致，政府資料正是為了校正這一點而匯入）。但來源若有編碼損毀，
+    // 政府那份反而是壞的——實測 15 筆含 ASCII 問號的片名中，4 筆有 TMDB
+    // 配對者全是真損毀（「?本龍一：終章」的坂、「-EPISODE ?-」的凪），
+    // 而 TMDB 的標題正確。此時採用 TMDB，否則錯字會永久顯示給使用者。
+    const zhSuspect = certificate.defects.includes('title-zh-suspect-encoding')
+    const tmdbZh = tmdb?.titleZh?.trim()
+    const preferTmdbZh = zhSuspect && !!tmdbZh && CJK.test(tmdbZh)
+
     films.set(id, {
       id,
       tmdbId: outcome.matched ? outcome.tmdbId : null,
-      // 中文片名以政府核准名為準——實測 TMDB 的中文標題只有 83.2%
-      // 與官方一致，政府資料正是為了校正這一點而匯入的。
-      titleZh: certificate.titleZh || tmdb?.titleZh || '',
+      titleZh: (preferTmdbZh ? tmdbZh : certificate.titleZh) || tmdbZh || '',
       // 原文片名反過來以 TMDB 為準：政府欄位有 Excel 日期誤判、
       // 編碼損毀與拼寫錯誤，而 TMDB 的 original_title 是母語正名。
       titleOriginal: tmdb?.titleOriginal || certificate.titleOriginal || '',
       country: certificate.country,
-      runtimeMinutes: certificate.runtimeMinutes ?? tmdb?.runtimeMinutes ?? null,
+      // TMDB 對「無片長資料」回傳 0 而非 null，原樣帶下來會變成「片長 0 分鐘」。
+      runtimeMinutes: certificate.runtimeMinutes ?? nonZero(tmdb?.runtimeMinutes) ?? null,
       firstSeenRocYear: certificate.rocYear,
       certificateIds: [certificate.id],
       source: outcome.matched ? 'tmdb' : 'gov',

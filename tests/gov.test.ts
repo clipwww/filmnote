@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { assertTaxIdUsableAsKey, parseCinemaCsv } from '~/gov/cinema'
-import { parseRelatedFiles, stripBom } from '~/gov/datasets'
-import { alignRow, parseRatingCsv, rocToGregorian } from '~/gov/rating'
+import { assertTaxIdUsableAsKey, parseCinemaCsv } from '#pipeline/gov/cinema'
+import { parseRelatedFiles, stripBom } from '#pipeline/gov/datasets'
+import { alignRow, parseRatingCsv, rocToGregorian } from '#pipeline/gov/rating'
 
 /**
  * fixture 皆自 110–113 年與 2025 年的真實 CSV 節錄，未經修改。
@@ -166,6 +166,23 @@ describe('分級 CSV 解析（真實資料節錄）', () => {
     const spy = certs.filter(c => c.titleZh === 'SPY x FAMILY CODE: White')
     expect(spy.length).toBeGreaterThan(1)
     expect(new Set(spy.map(c => c.permitNo)).size).toBe(spy.length)
+  })
+
+  it('中文片名含 ASCII 問號時標記為疑似編碼損毀', () => {
+    const { parseRatingCsv: parse } = { parseRatingCsv }
+    const csv = [
+      '年度,分級證明字號,級別,中文片名,原文片名,國別,語言,出品公司,映演時間',
+      '112,第112199號,普,?本龍一：終章,Ryuichi Sakamoto: CODA,日本,日語,X,1 時 42 分 0 秒',
+      '112,第112039號,普,"孩子， 你好嗎 ? 鴕鳥騎士",Dear Child,中華民國,國語,Y,1 時 30 分 0 秒',
+      '113,局影外第113001號,普,鬼媽媽的假期,OUR SEASON,韓國,韓語,Z,1 時 45 分 30 秒',
+    ].join('\n')
+    const parsed = parse(csv)
+
+    // 兩種都標記——字串層面無法可靠區分真問號與損毀，交由 consolidate 判斷
+    expect(parsed[0]!.defects).toContain('title-zh-suspect-encoding')
+    expect(parsed[1]!.defects).toContain('title-zh-suspect-encoding')
+    // 正常片名不誤標
+    expect(parsed[2]!.defects).toEqual([])
   })
 
   it('代理主鍵唯一，而分級證明字號不保證唯一', () => {
