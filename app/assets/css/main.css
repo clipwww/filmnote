@@ -1,2 +1,109 @@
 @import 'tailwindcss';
 @import '@nuxt/ui';
+
+@theme {
+  /* ── 中性：暖 kraft 軸（台紙與票根）────────────────────────
+     25 是票根紙（--ui-bg），50 是冊頁台紙（body 底）。
+     Nuxt UI 的 neutral 只讀 50–950，25 是我們自己用的。 */
+  --color-paper-25: #fdf9f1;
+  --color-paper-50: #f8eddc;
+  --color-paper-100: #eaddca;
+  --color-paper-200: #daccb9;
+  --color-paper-300: #c5b5a3;
+  --color-paper-400: #948777;
+  --color-paper-500: #776a5d;
+  --color-paper-600: #5f5348;
+  --color-paper-700: #4a4036;
+  --color-paper-800: #3d332c;
+  --color-paper-900: #29211a;
+  --color-paper-950: #1d1610;
+
+  /* ── 重點：琥珀 ──────────────────────────────────────── */
+  --color-amber-50: #fff1c2;
+  --color-amber-100: #f9e4a4;
+  --color-amber-200: #f0d481;
+  --color-amber-300: #dfbc4f;
+  --color-amber-400: #c9a62b;
+  --color-amber-500: #a8850e;
+  --color-amber-600: #866500;
+  --color-amber-700: #6f5101;
+  --color-amber-800: #573e03;
+  --color-amber-900: #422d04;
+  --color-amber-950: #2d1d02;
+
+  /* ── 字型：拉丁在前、CJK 交給平台（見 §2）──────────────────
+     Inter 排第一是刻意的：Noto Sans TC 的 GSUB 沒有 tnum，
+     tabular-nums 必須由拉丁字型供應，換掉會靜默壞掉。 */
+  --font-sans:
+    'Inter', 'PingFang TC', 'Noto Sans CJK TC', 'Noto Sans TC', 'Microsoft JhengHei', 'Source Han Sans TC', sans-serif;
+  --font-sans--font-feature-settings: 'cv05', 'ss01';
+}
+
+/* ══ 以下區塊必須「不在任何 @layer 裡」════════════════════════
+   Nuxt UI 的 token 定義在 @layer theme，而未分層的樣式在串聯上
+   永遠贏過任何 @layer。把這些搬進 @layer base 會靜默失效。 */
+
+/* ⚠️ 這九行不能省——Nuxt UI 把它們硬寫死成 #fff 或派生錯階，
+   只改 app.config.ts 的 neutral 只會暖化文字與邊框，底色仍是純白。 */
+:root {
+  --ui-bg: var(--color-paper-25); /* 原 #fff */
+  --ui-text-inverted: var(--color-paper-25); /* 原 #fff */
+  --ui-primary: var(--color-amber-600); /* 原派生自 500，只有 3.16:1 */
+
+  /* 圓角：預設 0.25rem 會讓 rounded-md/lg 變成 6px/8px（實測 59 + 26 處），
+     直接違反「圓角 ≤4px」。設 0.125rem 之後 sm=2 md=3 lg=4。
+     ⚠️ 放這裡不要放 @theme——Tailwind v4 的 @theme 會 tree-shake 沒被
+     utility 用到的變數，而這個變數只被 Nuxt UI 自己讀，沒有對應的 utility。 */
+  --ui-radius: 0.125rem;
+}
+/* ⚠️ .dark 必須排在 :root 之後：兩者特異性相同（皆 0,1,0），由順序決勝。 */
+.dark {
+  --ui-bg: var(--color-paper-900); /* 卡片＝暗票根 */
+  --ui-text-highlighted: var(--color-paper-50); /* 原 #fff */
+  --ui-bg-inverted: var(--color-paper-50); /* 原 #fff（UCalendar 選取日等） */
+  --ui-border-inverted: var(--color-paper-50); /* 原 #fff（UCheckbox/URadioGroup） */
+  --ui-primary: var(--color-amber-400);
+
+  /* ⚠️ frontend 補：§1.6 的交付稿漏了這一行，實測是暗色模式的 P1 破口。
+     `--ui-text-inverted` 被放在 `:root`，而 `:root` 在暗色模式一樣命中
+     `<html class="dark">`；Nuxt UI 自己的 `.dark{--ui-text-inverted:neutral-900}`
+     在 `@layer theme` 裡，輸給任何未分層的規則。於是暗色模式下實心元件的字
+     還是紙色，貼在紙色／琥珀底上：
+       neutral solid  紙字 on paper-50   1.10:1  ← 幾乎看不見
+       primary solid  紙字 on amber-400  2.23:1  ← 「記一筆」就是這顆
+       badge          同上               2.23:1
+     補上之後量到 13.6:1 與 6.69:1。（2026-09-06 實測 Chrome 152） */
+  --ui-text-inverted: var(--color-paper-900);
+}
+
+/* ── 冊頁台紙：body 是「台紙」，卡片是「票根」──────────────────
+   Nuxt UI 在 @layer base 對 body 下了 bg-default（＝--ui-bg）。
+   這一條未分層，會贏過它。這就是整個「收藏冊」調性的落點。 */
+body {
+  background-color: var(--color-paper-50);
+  line-height: 1.75; /* 中文需要比拉丁鬆；絕不用 normal，見 §2.4 */
+}
+.dark body {
+  background-color: var(--color-paper-950);
+}
+
+/* ── 這一條沒補，任何用 hidden 切換的元件都是壞的，而且 console 零錯誤 ──
+   hidden 只是 UA 樣式的 display:none，特異性最低，
+   任何作者端的 .drawer{display:flex} 都會蓋掉它。 */
+[hidden] {
+  display: none !important;
+}
+
+/* ── 中文排版基準（見 §2.5）────────────────────────────── */
+:root {
+  line-break: strict; /* 避免「。、」跑到行首 */
+  --week-start: 1; /* 1 = 週一起始。見 §5.4 的取捨與理由 */
+
+  /* ⚠️ frontend 實測補上（2026-09-06，Chrome 152）：§2.5 第 4 條說
+     「text-autospace 初始值就是 normal，Chrome 140 起是預設行為」——**不成立**。
+     Chrome 152 的 computed value 是 no-autospace，量到同一串
+     `2026年看了8場，花了NT$3,130` 是 231.1px；顯式寫 normal 才變成 239.1px。
+     不寫的話所有中英交界（`花了NT$3,130`、`林口MITSUI OUTLET PARK威秀影城`）
+     都是黏在一起的，而 §2.5 又禁止在 HTML 裡手打空格補間距。 */
+  text-autospace: normal;
+}

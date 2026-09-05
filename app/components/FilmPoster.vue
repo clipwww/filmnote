@@ -59,7 +59,7 @@ const tint = computed(() => {
 </script>
 
 <template>
-  <div class="relative aspect-[2/3] overflow-hidden rounded-lg bg-elevated">
+  <div class="relative aspect-[2/3] overflow-hidden rounded-[3px] bg-elevated">
     <img
       v-if="src"
       :src="src"

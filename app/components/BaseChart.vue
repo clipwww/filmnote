@@ -80,7 +80,7 @@ const chartKey = computed(() => (isDark.value ? 'dark' : 'light'))
       <template #fallback>
         <!-- 與圖表等高的骨架，避免 hydration 前後跳動 -->
         <div
-          class="size-full animate-pulse rounded-lg bg-elevated"
+          class="size-full animate-pulse rounded-sm bg-elevated"
           role="img"
           :aria-label="`${props.label}（載入中）`"
         />

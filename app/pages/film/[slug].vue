@@ -111,7 +111,7 @@ function formatRuntime(mins: number | null | undefined) {
       <p class="mt-1 text-sm text-muted">
         同一部片可能因跨年度重映或不同語言版本而有多張證明書，共 {{ certificates.length }} 張。
       </p>
-      <ul class="mt-4 divide-y divide-default rounded-lg border border-default">
+      <ul class="mt-4 divide-y divide-default rounded-sm border border-default">
         <li v-for="c in certificates" :key="c.id" class="flex flex-wrap items-baseline gap-x-4 gap-y-1 px-4 py-3 text-sm">
           <span class="font-mono text-muted">{{ c.roc_year }} 年</span>
           <span class="font-mono">{{ c.permit_no }}</span>
@@ -132,7 +132,7 @@ function formatRuntime(mins: number | null | undefined) {
         <li v-for="w in watchers" :key="w.id ?? w.username ?? ''">
           <NuxtLink
             :to="`/u/${w.username}`"
-            class="inline-flex items-center gap-2 rounded-full border border-default px-3 py-1 text-sm hover:bg-elevated"
+            class="inline-flex items-center gap-2 rounded-sm border border-default px-3 py-1 text-sm hover:bg-elevated"
           >
             <span>{{ w.username }}</span>
             <span class="text-muted">{{ w.watched_on }}</span>

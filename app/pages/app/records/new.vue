@@ -92,7 +92,9 @@ async function onSubmit(event: FormSubmitEvent<RecordForm>) {
         .insert({ record_id: inserted.id, amount: form.cost })
       if (costError) {
         // 紀錄已經建立，票價沒寫進去不該讓整筆消失。明說哪一半失敗即可。
-        toast.add({ title: '紀錄已建立，但票價沒存成功', description: costError.message, color: 'warning' })
+        // ★ 不用 color: 'warning'——Nuxt UI 的 warning 預設就是 Tailwind amber，
+        //   跟我們的 primary 同色會撞（DESIGN_SYSTEM §1.5）。用 error + 明確文案。
+        toast.add({ title: '紀錄存好了，票價沒存成功', description: costError.message, color: 'error' })
       }
     }
 
