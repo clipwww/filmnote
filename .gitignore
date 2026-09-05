@@ -8,3 +8,10 @@ node_modules/
 .nuxt/
 .output/
 .vercel/
+
+# OMC：專案記憶（.omc/project-memory.json）刻意留在版控裡，
+# 但 session 執行期狀態每跑一次就變，不是專案知識。
+.omc/state/
+.omc/sessions/
+# 在子目錄下誤生的 OMC 狀態目錄
+**/.omc/state/

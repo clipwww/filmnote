@@ -32,10 +32,10 @@
     "runtime": "Node.js 22"
   },
   "build": {
-    "buildCommand": null,
-    "testCommand": "npm test",
-    "lintCommand": "npm run lint",
-    "devCommand": null,
+    "buildCommand": "cd /Users/david/Documents/Github/filmnote\nnode -e '\nconst fs = require(\"fs\");\nconst p = \".omc/project-memory.json\";\nconst j = JSON.parse(fs.readFileSync(p, \"utf8\"));\nj.build.buildCommand = \"pnpm run build\";\nj.build.testCommand = \"pnpm test\";\nj.build.lintCommand = \"pnpm run lint\";\nj.build.devCommand = \"pnpm run dev\";\nfs.writeFileSync(p, JSON.stringify(j, null, 2) + \"\\n\");\nconsole.log(\"修正後：\", JSON.stringify(j.build.buildCommand), JSON.stringify(j.build.testCommand), JSON.stringify(j.build.lintCommand), JSON.stringify(j.build.devCommand));\n'",
+    "testCommand": "cd /Users/david/Documents/Github/filmnote\nnode -e '\nconst fs = require(\"fs\");\nconst p = \".omc/project-memory.json\";\nconst j = JSON.parse(fs.readFileSync(p, \"utf8\"));\nj.build.buildCommand = \"pnpm run build\";\nj.build.testCommand = \"pnpm test\";\nj.build.lintCommand = \"pnpm run lint\";\nj.build.devCommand = \"pnpm run dev\";\nfs.writeFileSync(p, JSON.stringify(j, null, 2) + \"\\n\");\nconsole.log(\"修正後：\", JSON.stringify(j.build.buildCommand), JSON.stringify(j.build.testCommand), JSON.stringify(j.build.lintCommand), JSON.stringify(j.build.devCommand));\n'",
+    "lintCommand": "pnpm run lint",
+    "devCommand": "pnpm run dev",
     "scripts": {
       "test": "vitest run",
       "test:watch": "vitest",
@@ -105,6 +105,109 @@
       ]
     }
   },
-  "hotPaths": [],
+  "hotPaths": [
+    {
+      "path": "docs/design/mockups/profile.html",
+      "accessCount": 25,
+      "lastAccessed": 1788619092369,
+      "type": "file"
+    },
+    {
+      "path": "docs/design/DESIGN_SYSTEM.md",
+      "accessCount": 10,
+      "lastAccessed": 1788620770885,
+      "type": "file"
+    },
+    {
+      "path": "scripts/import-mylog.ts",
+      "accessCount": 4,
+      "lastAccessed": 1788614983855,
+      "type": "file"
+    },
+    {
+      "path": "src/import/mylog.ts",
+      "accessCount": 3,
+      "lastAccessed": 1788614077958,
+      "type": "file"
+    },
+    {
+      "path": "tests/import.test.ts",
+      "accessCount": 1,
+      "lastAccessed": 1788614161163,
+      "type": "file"
+    },
+    {
+      "path": "src/import/venue-aliases.ts",
+      "accessCount": 1,
+      "lastAccessed": 1788614328450,
+      "type": "file"
+    },
+    {
+      "path": "supabase/migrations/0002_venue_selectable.sql",
+      "accessCount": 1,
+      "lastAccessed": 1788615513703,
+      "type": "file"
+    },
+    {
+      "path": "src/import/tmdb-overrides.ts",
+      "accessCount": 1,
+      "lastAccessed": 1788615576720,
+      "type": "file"
+    },
+    {
+      "path": "docs/design/SCREENS.md",
+      "accessCount": 1,
+      "lastAccessed": 1788616818881,
+      "type": "file"
+    },
+    {
+      "path": "src/import/double-features.ts",
+      "accessCount": 1,
+      "lastAccessed": 1788617138735,
+      "type": "file"
+    },
+    {
+      "path": "docs/design/mockups/record.html",
+      "accessCount": 1,
+      "lastAccessed": 1788617593801,
+      "type": "file"
+    },
+    {
+      "path": "docs/design/mockups/dashboard.html",
+      "accessCount": 1,
+      "lastAccessed": 1788617888248,
+      "type": "file"
+    },
+    {
+      "path": "supabase/migrations/0003_user_year_stats.sql",
+      "accessCount": 1,
+      "lastAccessed": 1788618500571,
+      "type": "file"
+    },
+    {
+      "path": "server/utils/user-year-stats.ts",
+      "accessCount": 1,
+      "lastAccessed": 1788618629144,
+      "type": "file"
+    },
+    {
+      "path": "scripts/sync-schema-docs.ts",
+      "accessCount": 1,
+      "lastAccessed": 1788618730622,
+      "type": "file"
+    },
+    {
+      "path": "docs/handoff/backend.md",
+      "accessCount": 1,
+      "lastAccessed": 1788621385362,
+      "type": "file"
+    },
+    {
+      "path": "docs/handoff/design.md",
+      "accessCount": 1,
+      "lastAccessed": 1788621407439,
+      "type": "file"
+    }
+  ],
   "userDirectives": []
 }
