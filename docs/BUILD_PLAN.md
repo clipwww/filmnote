@@ -1815,6 +1815,10 @@ export default antfu(
 
 # 3. 路由結構
 
+> **這張表是計畫，不是現況。** 表中多數路由尚未建立。哪些畫面已經是真的、
+> 哪些還是骨架，看 `docs/handoff/frontend.md §1`——那裡是唯一的現況真值，
+> 不要在本節另外維護一份狀態欄，兩份一定會不同步。
+
 | 路徑 | 算繪 | 需登入 | 說明 |
 |---|---|---|---|
 | `/` | SSR + ISR 300 | 否 | 站台介紹 + 近期公開紀錄。ISR 安全的前提是 SSR 期間只讀公開資料（見下方注意）。 |
@@ -1824,10 +1828,12 @@ export default antfu(
 | `/u/[username]/[year]` | SSR，不快取 | 否 | 年度回顧（US-42）。 |
 | `/u/[username]/records/[id]` | SSR，不快取 | 否 | 單筆紀錄的 OG 分享頁（US-32）。 |
 | `/film/[slug]` | SSR + ISR 3600 | 否 | 作品頁（US-27/33）。 |
+| `/film` | 302 → `/search` | 否 | **不建瀏覽索引頁**：索引頁是新功能且要等設計定案，移除死路的成本是一行。`/search` 與「找不到片」流程都連得到這裡。 |
+| `/search` | SSR，**不快取** | 否 | 雙欄片名搜尋（US-1~3）。結果依 query 而異，`allowQuery` 一開就是快取爆炸（踩雷 #8），故 `no-store`。⚠️ 用 `UInput` + 結果格線，**不是** Step 3 寫的 `USelectMenu`——那是公開頁面不是表單欄位；`USelectMenu` + `ignore-filter` 的規範用在 `/app/records/new` 的片名選擇。 |
 | `/venue/[id]` | SSR + ISR 3600 | 否 | 影城頁。 |
 | `/legal/terms`｜`/legal/privacy`｜`/legal/copyright`｜`/legal/dmca` | **prerender** | 否 | §90-4 的四要件頁面，建置期靜態產生。 |
 | `/app` | SPA | **是** | 儀表板：貢獻圖、時段熱力圖、月度趨勢、影城／版本／國別分布（US-34~43）。 |
-| `/app/new` | SPA | 是 | 三十秒記錄流程（US-4~9）。 |
+| `/app/records/new` | SPA | 是 | 三十秒記錄流程（US-4~9）。**本節先前寫 `/app/new`，與實作不符**，以實作為準。 |
 | `/app/records`｜`/app/records/[id]/edit` | SPA | 是 | 列表與編輯（US-11）。 |
 | `/app/films/new` | SPA | 是 | 手動新增作品 + 海報上傳（US-13~15）。 |
 | `/app/settings` | SPA | 是 | username 改名、`show_cost` 開關、匯出、刪除帳號（US-24/30/46/47）。 |
