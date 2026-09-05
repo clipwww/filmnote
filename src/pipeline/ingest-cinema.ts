@@ -10,8 +10,8 @@
 
 import { mkdir, writeFile } from 'node:fs/promises'
 import process from 'node:process'
-import { assertTaxIdUsableAsKey, parseCinemaCsv } from '~/gov/cinema'
-import { fetchDatasetFile, listDatasetFiles } from '~/gov/datasets'
+import { assertTaxIdUsableAsKey, parseCinemaCsv } from '#pipeline/gov/cinema'
+import { fetchDatasetFile, listDatasetFiles } from '#pipeline/gov/datasets'
 
 const OUT_DIR = '.data'
 

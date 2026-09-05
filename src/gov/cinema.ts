@@ -6,9 +6,9 @@
  * 合併多個年度只會製造麻煩。
  */
 
-import type { Cinema, RawCinemaRow } from '~/types'
+import type { Cinema, RawCinemaRow } from '#pipeline/types'
 import { parse } from 'csv-parse/sync'
-import { extractCity } from '~/normalize/city'
+import { extractCity } from '#pipeline/normalize/city'
 
 /** 2025 年的欄位。 */
 const EXPECTED_COLUMNS = ['事業名稱', '公司名稱', '統一編號', '廳數', '地址', '電話'] as const

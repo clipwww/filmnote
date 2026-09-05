@@ -1,6 +1,6 @@
-import type { Certificate, TmdbSearchResult } from '~/types'
+import type { Certificate, TmdbSearchResult } from '#pipeline/types'
 import { describe, expect, it } from 'vitest'
-import { matchCertificate, scoreCandidate } from '~/match/matcher'
+import { matchCertificate, scoreCandidate } from '#pipeline/match/matcher'
 
 /**
  * 本檔案的每個案例都來自 110–113 年 3,116 筆的實測結果。

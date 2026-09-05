@@ -11,8 +11,8 @@ import type {
   MatchOutcome,
   MatchSignal,
   TmdbSearchResult,
-} from '~/types'
-import { normalizeTitle } from '~/normalize/title'
+} from '#pipeline/types'
+import { normalizeTitle } from '#pipeline/normalize/title'
 
 /** 低於此分數視為未命中，寧可進 UGC 佇列也不硬猜。 */
 const SCORE_THRESHOLD = 3

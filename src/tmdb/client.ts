@@ -13,7 +13,7 @@
  * （見 pipeline/checkpoint.ts）。
  */
 
-import type { TmdbMovieDetail, TmdbSearchResult } from '~/types'
+import type { TmdbMovieDetail, TmdbSearchResult } from '#pipeline/types'
 
 const BASE_URL = 'https://api.themoviedb.org/3'
 

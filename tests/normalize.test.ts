@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { extractCity, unifyTaiwanChar } from '~/normalize/city'
-import { inspectOriginalTitle, isCorruptedEncoding, isExcelDateArtifact } from '~/normalize/defensive'
-import { parseRuntimeMinutes } from '~/normalize/runtime'
-import { extractVersionNote, normalizeTitle } from '~/normalize/title'
+import { extractCity, unifyTaiwanChar } from '#pipeline/normalize/city'
+import { inspectOriginalTitle, isCorruptedEncoding, isExcelDateArtifact } from '#pipeline/normalize/defensive'
+import { parseRuntimeMinutes } from '#pipeline/normalize/runtime'
+import { extractVersionNote, normalizeTitle } from '#pipeline/normalize/title'
 
 describe('版本標註剝除', () => {
   it.each([

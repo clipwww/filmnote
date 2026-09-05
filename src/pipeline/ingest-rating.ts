@@ -8,14 +8,14 @@
  * 中斷後重跑會自動跳過已比對的核准紀錄（見 checkpoint.ts）。
  */
 
+import type { Certificate, MatchOutcome, TmdbMovieDetail } from '#pipeline/types'
 import type { ConsolidateInput } from './consolidate'
-import type { Certificate, MatchOutcome, TmdbMovieDetail } from '~/types'
 import { mkdir, writeFile } from 'node:fs/promises'
 import process from 'node:process'
-import { fetchDatasetFile, listDatasetFiles } from '~/gov/datasets'
-import { parseRatingCsv } from '~/gov/rating'
-import { matchCertificate } from '~/match/matcher'
-import { TmdbClient } from '~/tmdb/client'
+import { fetchDatasetFile, listDatasetFiles } from '#pipeline/gov/datasets'
+import { parseRatingCsv } from '#pipeline/gov/rating'
+import { matchCertificate } from '#pipeline/match/matcher'
+import { TmdbClient } from '#pipeline/tmdb/client'
 import { runResumable } from './checkpoint'
 import { consolidate, summarize } from './consolidate'
 
