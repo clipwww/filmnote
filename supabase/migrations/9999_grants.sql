@@ -55,6 +55,16 @@ grant select on public.profile_private, public.film_merge_log, public.import_run
   public.takedown_notice, public.counter_notice, public.copyright_strike,
   public.data_report, public.legal_acceptance to authenticated;
 
+-- 0007 的條款竄改偵測 view。security_invoker ⇒ 沿用 legal_acceptance 的 RLS
+-- （本人或 staff），所以一般使用者只看得到自己那幾筆有沒有對不上。
+do $$ begin
+  if to_regclass('public.legal_acceptance_drift') is not null then
+    grant select on public.legal_acceptance_drift to authenticated;
+  else
+    raise notice 'legal_acceptance_drift 尚不存在（0007 未套用），略過其 grant';
+  end if;
+end $$;
+
 -- 0006 的取下動作紀錄。RLS 是 staff-only，這裡只是表級大門。
 do $$ begin
   if to_regclass('public.takedown_action') is not null then

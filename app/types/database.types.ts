@@ -517,16 +517,19 @@ export interface Database {
           profile_id: string
           document_id: number
           accepted_at: string
+          content_sha256: string | null
         }
         Insert: {
           profile_id: string
           document_id: number
           accepted_at?: string
+          content_sha256?: string | null
         }
         Update: {
           profile_id?: string
           document_id?: number
           accepted_at?: string
+          content_sha256?: string | null
         }
         Relationships: [
           {
@@ -552,6 +555,7 @@ export interface Database {
           version: string
           effective_at: string
           body_md: string
+          content_sha256: string | null
         }
         Insert: {
           id?: number
@@ -559,6 +563,7 @@ export interface Database {
           version: string
           effective_at?: string
           body_md: string
+          content_sha256?: string | null
         }
         Update: {
           id?: number
@@ -566,6 +571,7 @@ export interface Database {
           version?: string
           effective_at?: string
           body_md?: string
+          content_sha256?: string | null
         }
         Relationships: []
       }
@@ -1092,6 +1098,18 @@ export interface Database {
         }
         Relationships: []
       }
+      legal_acceptance_drift: {
+        Row: {
+          profile_id: string | null
+          document_id: number | null
+          kind: Database["public"]["Enums"]["legal_doc_kind"] | null
+          version: string | null
+          accepted_sha256: string | null
+          current_sha256: string | null
+          accepted_at: string | null
+        }
+        Relationships: []
+      }
       tmdb_refresh_due: {
         Row: {
           film_id: string | null
@@ -1270,6 +1288,12 @@ export interface Database {
           p_films: Json
         }
         Returns: number
+      }
+      sha256_utf8: {
+        Args: {
+          p_text: string
+        }
+        Returns: string
       }
       slugify: {
         Args: {
