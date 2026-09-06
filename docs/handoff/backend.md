@@ -31,7 +31,11 @@ pnpm tsx --env-file=.env scripts/verify-all.ts
 | Step 8 DMCA 資料層與兩支 API | ✅ 0006 + `/api/legal/{notice,counter-notice}` |
 | Step 7 管理端點 | ✅ `/api/admin/films/[id]/approve`、`/api/admin/films/merge` |
 | `legal_document.content_sha256` | ✅ 0007，三層機制（見第 4 節） |
-| 驗收入口 | ✅ `scripts/verify-all.ts` |
+| 驗收入口 | ✅ `scripts/verify-all.ts`（`pnpm verify:all`，16 條全綠） |
+| 編碼損毀守門員 | ✅ `inspectTitleZh()` + `src/import/title-corrections.ts` |
+| 作者刪除自建 UGC 作品 | ✅ 0008，三條件同時成立才放行 |
+| `country` 空字串正規化 | ✅ 0008，35 列 → NULL，並加 check 讓它長不回來 |
+| `/u/[username]` 的 UGC 海報 | ✅ 批次 `createSignedUrls` |
 
 **沒做**：`/legal/**` 與 `/admin` 頁面（frontend）、條款正文（主 session 與 David）、
 Turnstile（需 David 的站台金鑰，上線前項目）。
@@ -110,6 +114,16 @@ Big5→Unicode 轉換失敗的殘留，**已經在公開頁上顯示了不知道
 （改正文雜湊跟著變，永遠一致），所以是三層：文件雜湊由 DB 算 ＋ `legal_acceptance`
 存下同意當刻的快照 ＋ 已被同意的文件禁止再改正文。缺任何一層都只是看起來有做。
 
+**作者只能刪「自己建的 + 仍 pending + 沒有任何 viewing_record 引用」的 UGC 作品。**
+第三個條件是硬的，而且不能只靠 FK 的 `on delete restrict`：靠 FK 擋，使用者拿到的是
+一句沒有上下文的 23503，而且是送出去之後才失敗；寫進 policy 則是這一列從一開始就
+不在可刪除的集合裡，UI 可以據此不顯示刪除鍵。更重要的是**引用它的紀錄可能是別人的**
+——UGC 作品一經核准就對所有人可見，那時刪除就不是收回自己的東西，是破壞別人的資料。
+
+**`country` 用 NULL 表示「沒有資料」，不用空字串。** 0008 一併拿掉 `default ''`
+並加 check，否則只跑一次 UPDATE 是那種「修好了但會自己長回來」的修法；`seed_films`
+的 `coalesce(…,'')` 也改成 `nullif`，不然重跑 seed 就把成果洗掉還會撞上新的 check。
+
 **取下時拍下 `(visibility, moderation_state)` 快照**（`takedown_action`）。回復必須
 「原樣寫回」而不是寫死成 public/visible：一部 `private` 的待審 UGC 作品若一律回復成
 public，那不是半回復，是把從未公開過的作品 publish 出去。
@@ -138,6 +152,9 @@ public，那不是半回復，是把從未公開過的作品 publish 出去。
   anon 也讀得到，但那個欄位仍是 null ⇒ `film_public.ugc_poster_path` 是 null ⇒
   畫面退回文字卡片，**海報明明公開可讀卻不會顯示**。這是 frontend 的整合缺口。
 - **`user_year_stats` 的效能仍未量測**（母體只有 174 筆，量不出東西）。先量再優化。
+- **`/u/[username]` 的 UGC 海報 signed URL 只簽 1 小時，且未在真實瀏覽器看過。**
+  用的是匿名 client，所以未審核作品的海報**簽不出來**——那是刻意的（這支端點的輸出
+  對所有人相同），簽不出來就當作沒有海報。
 - **`title_zh = ''` 的顯示層未處理。** `displayTitle('')` 回空字串，而目前 DB 裡沒有
   任何一列是空的，所以還沒壞。上面那條「損毀就寫空」的規則一旦真的觸發，畫面會出現
   空標題——顯示層應該退回 `title_original`。已回報 frontend。

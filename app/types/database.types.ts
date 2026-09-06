@@ -221,7 +221,7 @@ export interface Database {
           title_zh_source: Database["public"]["Enums"]["source_authority"]
           title_original: string
           title_original_source: Database["public"]["Enums"]["source_authority"]
-          country: string
+          country: string | null
           language: string | null
           runtime_minutes: number | null
           release_year: number | null
@@ -247,7 +247,7 @@ export interface Database {
           title_zh_source?: Database["public"]["Enums"]["source_authority"]
           title_original?: string
           title_original_source?: Database["public"]["Enums"]["source_authority"]
-          country?: string
+          country?: string | null
           language?: string | null
           runtime_minutes?: number | null
           release_year?: number | null
@@ -272,7 +272,7 @@ export interface Database {
           title_zh_source?: Database["public"]["Enums"]["source_authority"]
           title_original?: string
           title_original_source?: Database["public"]["Enums"]["source_authority"]
-          country?: string
+          country?: string | null
           language?: string | null
           runtime_minutes?: number | null
           release_year?: number | null
@@ -1208,6 +1208,12 @@ export interface Database {
       export_my_data: {
         Args: Record<PropertyKey, never>
         Returns: Json
+      }
+      film_has_records: {
+        Args: {
+          p_film: string
+        }
+        Returns: boolean
       }
       film_usable_by: {
         Args: {

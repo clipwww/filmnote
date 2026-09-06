@@ -75,6 +75,9 @@ do $$ begin
 end $$;
 grant insert, update, delete on public.viewing_record, public.viewing_record_cost to authenticated;
 grant insert, update on public.film to authenticated;
+-- 0008：作者刪除自建 UGC 作品。哪些列可刪由 film_delete_own_ugc policy 決定
+-- （自己建的 + 仍 pending + 沒有任何 viewing_record 引用）。
+grant delete on public.film to authenticated;
 grant update on public.profile to authenticated;
 grant insert on public.legal_acceptance, public.data_report, public.counter_notice to authenticated;
 grant insert on public.takedown_notice to anon, authenticated;
@@ -102,6 +105,18 @@ grant execute on function public.is_staff(), public.is_admin(),
   public.ugc_poster_film(text) to anon, authenticated;
 grant execute on function public.rename_username(text),
   public.export_my_data() to authenticated;
+
+-- 0008 的 film_delete_own_ugc policy 用到的 helper。它是 DEFINER（否則 policy
+-- 會遞迴，見 0008 的註解），而 policy 由 authenticated 觸發 ⇒ 必須對它開 EXECUTE，
+-- 否則刪除會變成一句沒有上下文的 42501（踩雷 #84 的同一個家族）。
+-- 不開給 anon：anon 沒有 DELETE 權限，也不該能探測哪些作品有紀錄。
+do $$ begin
+  if to_regprocedure('public.film_has_records(uuid)') is not null then
+    grant execute on function public.film_has_records(uuid) to authenticated;
+  else
+    raise notice 'film_has_records 尚不存在（0008 未套用），略過其 grant';
+  end if;
+end $$;
 
 -- ★ trigger 裡呼叫的 helper 也需要對「觸發它的那個人」開 EXECUTE。
 --   `counter_notice_deadlines`（0001）是 SECURITY INVOKER 的 trigger，它呼叫

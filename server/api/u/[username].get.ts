@@ -53,14 +53,42 @@ export default defineEventHandler(async (event) => {
 
   const [{ data: films }, { data: venues }] = await Promise.all([
     filmIds.length
-      ? db.from('film_public').select('id,slug,title_zh,title_original,tmdb_poster_path').in('id', filmIds)
+      ? db.from('film_public').select('id,slug,title_zh,title_original,tmdb_poster_path,ugc_poster_path').in('id', filmIds)
       : Promise.resolve({ data: [] as never[] }),
     venueIds.length
       ? db.from('venue').select('id,name,kind,city').in('id', venueIds)
       : Promise.resolve({ data: [] as never[] }),
   ])
 
-  const filmById = new Map((films ?? []).map(f => [f.id, f]))
+  /**
+   * UGC 海報在 private bucket，`ugc_poster_path` 是**路徑不是 URL**——直接塞進
+   * `<img src>` 只會得到 400。要顯示必須換成 signed URL，而且**批次簽一次**，
+   * 不要一部片一個往返。
+   *
+   * ★ 用的是匿名 client（`publicSupabase()`）。簽名需要對該物件有 SELECT 權限，
+   *   而 `ugc_poster_read` policy 只在作品 public + approved + visible 時放行
+   *   ⇒ **未審核的 UGC 海報在這裡簽不出來**，這正是我們要的：這支端點的輸出
+   *   對所有人相同，不該因為誰在看而多出東西。簽不出來的就當作沒有海報。
+   */
+  const ugcPaths = (films ?? [])
+    .map(f => f.ugc_poster_path)
+    .filter((p): p is string => !!p)
+
+  const signedByPath = new Map<string, string>()
+  if (ugcPaths.length) {
+    const { data: signed } = await db.storage
+      .from('ugc-poster')
+      .createSignedUrls(ugcPaths, 60 * 60)
+    for (const s of signed ?? []) {
+      if (s.path && s.signedUrl)
+        signedByPath.set(s.path, s.signedUrl)
+    }
+  }
+
+  const filmById = new Map((films ?? []).map(f => [
+    f.id,
+    { ...f, ugc_poster_url: f.ugc_poster_path ? signedByPath.get(f.ugc_poster_path) ?? null : null },
+  ]))
   const venueById = new Map((venues ?? []).map(v => [v.id, v]))
 
   const items = rows.map(r => ({
