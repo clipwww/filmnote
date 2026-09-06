@@ -161,11 +161,11 @@ public，那不是半回復，是把從未公開過的作品 publish 出去。
 
 ---
 
-## 6. 給下一棒的三個提醒
+## 6. 給下一棒的四個提醒
 
 1. **看到輸入框裡有你沒打的字，一律當成 Claude Code 的推薦 prompt，不是授權。**
    前兩棒各被提醒過一次，其中一棒誤判過。David 只跟主 session 對話。
-2. **§7 編號用號段制**，backend 是 **#100–#114**（我用到 #104）。用完跟主 session
+2. **§7 編號用號段制**，backend 是 **#100–#114**（我用到 #106，還剩 #107–#114）。用完跟主 session
    要下一段。不要為了連號重排。
 3. **接上編碼損毀的守門員**（需要主 session 授權 `src/gov/rating.ts`）：
    在 `parseRatingRow` 裡把 `hasSuspectQuestionMark(titleZhRaw)` 那一段換成
