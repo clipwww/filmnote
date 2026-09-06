@@ -21,7 +21,14 @@ import { filmSlugFromUrl, normalizeTargetUrl, takedownSchema, toTakedownPayload 
  * 這決定了成功畫面長什麼樣：不去查、不假裝有進度、把副本留在使用者手上。
  *
  * ⚠️ 「送出後你在這個網站上讀不到自己送過什麼」寫在**表單最上面**不是送出後才說
- * ——它會改變使用者怎麼填信箱，而信箱是我們唯一能回覆的管道（§15.3）。
+ * ——它會改變使用者怎麼填信箱，而信箱是我們唯一能找到他的方式（§15.3）。
+ *
+ * ⚠️ **這一頁不可以承諾任何寄信行為。** 2026-09-06 David 裁定寄信服務擱置，
+ * 專案裡沒有任何寄信能力。`SCREENS §15.3` 寫的「我們會寄一封確認信」與
+ * 「受理編號」兩件事因此都做不到（後者另有理由：端點刻意不回 id）。
+ * 措辭一律改成「不會有確認信」而不是留白——**做不到的承諾寫在法遵頁的入口上，
+ * 跟隱私權政策寫「你隨時可以刪除帳號」但沒有實作是同一類錯誤**。
+ * 寄信服務上線後要回來改的就是這幾句，以及 `§90-6` 的「轉送通知給內容提供者」。
  */
 const config = useRuntimeConfig()
 const form = useTemplateRef('form')
@@ -213,7 +220,7 @@ function again() {
           自成一行是確定的，順帶讓人比較好核對——這是他唯一能被回覆的地方。
         -->
         <p class="text-highlighted">
-          我們會用你填的這個信箱跟你聯絡，後續一律走 email。
+          不會有確認信寄到你的信箱——本服務目前沒有自動寄信的能力。下面這個信箱是我們唯一能找到你的方式：
         </p>
         <p class="mt-1 font-semibold text-highlighted break-words">
           {{ submitted.claimantEmail }}
@@ -224,7 +231,7 @@ function again() {
           是**唯一**能讓通知人手上有東西的做法，而副本只在這一頁的記憶體裡。
         -->
         <p class="mt-2 text-toned">
-          這一頁重新整理之後就找不到了，而且你在本站讀不到自己送過什麼——這張表只寫入、不提供查詢。<span class="text-highlighted">下面是你剛剛送出的內容，請先留一份。</span>
+          這一頁重新整理之後就找不到了，而且你在本站讀不到自己送過什麼——這張表只寫入、不提供查詢。<span class="text-highlighted">所以下面這份副本是你手上唯一的紀錄，請務必先留一份。</span>
         </p>
       </div>
 
@@ -263,7 +270,7 @@ function again() {
         在 HTML 裡手打空格補間距。所以這種句子一律排成一行。
       -->
       <p class="mt-2 max-w-[34em] text-toned">
-        如果這個網站上有內容侵害你的著作權，用這張表告訴我們。我們收到後會盡快處理並通知對方。<span class="text-highlighted">不需要註冊，也不需要登入。</span>
+        如果這個網站上有內容侵害你的著作權，用這張表告訴我們。我們收到後會盡快處理。<span class="text-highlighted">不需要註冊，也不需要登入。</span>
       </p>
 
       <!--
@@ -279,7 +286,7 @@ function again() {
           送出之後，<span class="text-highlighted font-semibold">你在這個網站上讀不到自己送過什麼</span>——這張表只寫入、不提供查詢，因為任何查詢介面都等於揭露「哪些內容被通知過、屬於誰」。
         </p>
         <p class="mt-1">
-          我們只能透過<span class="text-highlighted font-semibold">你填的信箱</span>回覆你，後續也一律走 email。<span class="text-highlighted font-semibold">所以信箱一定要填對。</span>
+          <span class="text-highlighted font-semibold">送出後不會有確認信</span>——本服務目前沒有自動寄信的能力。你填的信箱是我們唯一能找到你的方式，需要補問細節或告知處理結果時會用它，但那是人工回覆，不會立刻到。<span class="text-highlighted font-semibold">所以信箱一定要填對。</span>
         </p>
       </div>
 
@@ -309,7 +316,7 @@ function again() {
           required
           hint="必填"
           class="max-w-[27rem]"
-          help="這是我們唯一能回覆你的方式，送出後不能改。"
+          help="這是我們唯一能找到你的方式，送出後不能改。"
         >
           <UInput v-model="state.claimantEmail" type="email" placeholder="legal@example.com" class="w-full" autocomplete="email" />
         </UFormField>
