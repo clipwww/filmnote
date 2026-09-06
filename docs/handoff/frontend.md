@@ -15,7 +15,8 @@
 **我的**：
 `app/layouts/**`、`app/assets/**`、`app/schemas/**`、`app/composables/**`（除下列）、
 `app/components/**`（**除圖表那一批**）、
-`app/pages/{legal,search,film,u? 不}/**`、`app/pages/app/{records,settings.vue,films}/**`
+`app/pages/legal/**`、`app/pages/search.vue`、`app/pages/film/**`、
+`app/pages/app/records/**`、`app/pages/app/settings.vue`、`app/pages/app/films/**`
 
 **不是我的**（動了會互相覆蓋）：
 - **圖表整批 → adminui**：`app/components/{BaseChart,ChartBand,AttendanceCalendar,HourHeatmap,MonthlyTrend,DistributionBars,YearStrip}.vue`、`app/utils/{chart-theme,stats}.ts`、`app/composables/useYearStats.ts`、**`app/pages/app/index.vue`**
