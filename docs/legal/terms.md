@@ -4,8 +4,6 @@
 > 版本號與生效日以頁面標題下方顯示者為準——那是 `legal_document` 的欄位。
 > **正文不重複版本號**：寫在兩個地方保證會漂移，而使用者同意的是某一個版本，
 > 畫面上兩個數字打架時那筆同意就變成不可查證的。
-> 本文由主 session 依 `docs/SPEC.md` 的法遵要件與實際 schema 起草，
-> 每一條都對應系統裡真的存在的機制（見各節末的「技術落點」註記）。
 > 條文若與實作不符，**以修正實作為優先**——著作權法第 90 條之 4 要求的是
 > 「確實履行」，寫了做不到比沒寫更糟。
 
@@ -25,7 +23,9 @@
 首次登入時，系統會以你的電子郵件地址前綴自動產生一個使用者名稱，作為你公開個人頁的網址。
 你隨時可以修改它。修改後，舊網址仍會轉向到你的新網址，你先前分享出去的連結不會失效。
 
+<!--INTERNAL
 **技術落點**：`profile.username`、`username`（含 `kind='historical'` 的歷史名稱）。
+INTERNAL-->
 
 ## 3. 你的內容
 
@@ -41,8 +41,10 @@
 
 你隨時可以匯出你的全部紀錄，也隨時可以刪除你的帳號與所有資料。
 
+<!--INTERNAL
 **技術落點**：`viewing_record.visibility`、`profile.show_cost`、`film.visibility` 與
 `film.review_state`。
+INTERNAL-->
 
 ## 4. 著作權保護措施
 
@@ -73,8 +75,10 @@
 
 回復時，內容的公開狀態會**還原成取下前的樣子**，而不是一律設為公開。
 
+<!--INTERNAL
 **技術落點**：`takedown_notice`、`takedown_action`（含取下前的 `(visibility,
 moderation_state)` 快照）、`counter_notice`、`business_days_after()`。
+INTERNAL-->
 
 ## 6. 三振條款
 
@@ -86,8 +90,10 @@ moderation_state)` 快照）、`counter_notice`、`business_days_after()`。
 
 侵權認定經回復通知程序後撤銷者，該次三振一併作廢，服務狀態亦一併回復。
 
+<!--INTERNAL
 **技術落點**：`copyright_strike`、`admin_add_strike()`、`apply_three_strikes()`、
 `profile_private.service_status`。
+INTERNAL-->
 
 ## 7. 資料來源與授權
 
@@ -106,8 +112,10 @@ moderation_state)` 快照）、`counter_notice`、`business_days_after()`。
 本服務得隨時修改本條款。修改時會發布新版本並標示生效日；舊版本仍可查閱。
 你先前的同意是針對**某一個版本**記錄的。
 
+<!--INTERNAL
 **技術落點**：`legal_document`（`unique(kind, version)`、`content_sha256`）、
 `legal_acceptance`（綁 `document_id`，並存下同意當刻的快照）。
+INTERNAL-->
 
 ## 9. 終止與退出
 
