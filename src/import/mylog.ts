@@ -6,7 +6,6 @@
  * （見 tests/import.test.ts）。
  */
 
-import { Buffer } from 'node:buffer'
 
 /** 上游一列的原始欄位。169 筆實測全部具備這些欄位且皆非 null。 */
 export interface MyLogItem {
@@ -80,9 +79,22 @@ export function toTaipeiWallClock(iso: string): TaipeiWallClock {
   }
 }
 
-/** base64 的 id 解回原始 CSV 列，供交叉驗證與人工核對。 */
+/**
+ * base64 的 id 解回原始 CSV 列，供交叉驗證與人工核對。
+ *
+ * ⚠️ 刻意不用 `Buffer`。這個模組同時被 CLI（`scripts/import-mylog.ts`）與
+ * 瀏覽器（`/app/import`）載入，而 `node:buffer` 會讓**整個模組**在瀏覽器裡
+ * 載不起來——dev 是整條路由 500，**build 卻是 exit 0 並把它編成空物件**。
+ * 也就是說靜態檢查全綠、建置成功，功能靜默消失。
+ *
+ * `atob` 回的是 latin1 字串（每個 char code 是一個位元組），中文必須再經
+ * `TextDecoder` 才會對。等價性已對 169 個真實 import key 逐一比對（169/169 相同）。
+ */
 export function decodeImportKey(id: string): string {
-  return Buffer.from(id, 'base64').toString('utf8')
+  const binary = atob(id)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return new TextDecoder('utf-8').decode(bytes)
 }
 
 /**

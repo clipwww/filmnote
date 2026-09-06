@@ -41,6 +41,10 @@ export default defineNuxtConfig({
     // 搜尋結果依 query 而異，不快取（ISR 的 allowQuery 一開就是快取爆炸，踩雷 #8）
     '/search': { ssr: true, headers: { 'cache-control': 'no-store' } },
     '/app/**': { ssr: false, headers: { 'x-robots-tag': 'noindex, nofollow' } },
+    // 與 /app/** 同一組理由：ssr:false 路由的 <meta name="robots"> 在爬蟲眼裡
+    // 不存在，只有 HTTP header 有效（踩雷 #3）。管理介面漏了這條的後果比
+    // /app/** 更難看——被索引到的是審核佇列與 DMCA 承辦頁。
+    '/admin/**': { ssr: false, headers: { 'x-robots-tag': 'noindex, nofollow' } },
     '/api/**': { headers: { 'cache-control': 'no-store' } },
   },
 
