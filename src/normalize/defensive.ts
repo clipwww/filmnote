@@ -96,7 +96,7 @@ export function inspectOriginalTitle(value: string | undefined | null): {
  *   （寫這一行時就被吃掉過一次：字面版本變成了 `[-]`，一個什麼都比對不到的
  *   字元類別，而 tsc 完全不會抱怨。）
  */
-const PRIVATE_USE_RE = /[\uE000-\uF8FF]|[\u{F0000}-\u{FFFFD}]|[\u{100000}-\u{10FFFD}]/u
+const PRIVATE_USE_RE = /[\uE000-\uF8FF\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}]/u
 
 /** Unicode 替換字元。解碼器明講「這裡我解不出來」。 */
 const REPLACEMENT_RE = /\uFFFD/

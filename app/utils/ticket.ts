@@ -117,7 +117,7 @@ export function detailSegment(m: Omit<TicketMeta, 'venueName' | 'hallLabel'>): s
   const parts = [
     m.formatLabel,
     // ⚠️ 場次時間**不在這裡**：2026-09-06 起它搬到日期帶的最後一行
-    //（David：「觀影時間放到日期下面」）。兩邊都印就是同一個值出現兩次，
+    // （David：「觀影時間放到日期下面」）。兩邊都印就是同一個值出現兩次，
     // 而讀的人會以為那是兩個不同的時間。要改回來的話兩邊一起改。
     m.ticketCount ? `${m.ticketCount}張` : null,
     costText(m.cost),

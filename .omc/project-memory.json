@@ -33,7 +33,7 @@
   },
   "build": {
     "buildCommand": "cd /Users/david/Documents/Github/filmnote\nnode -e \"\nconst fs=require('fs');\nconst p='.omc/project-memory.json';\nconst j=JSON.parse(fs.readFileSync(p,'utf8'));\nj.build.buildCommand='pnpm run build';\nj.build.testCommand='pnpm test';\nj.build.lintCommand='pnpm run lint';\nj.build.devCommand='pnpm run dev';\nfs.writeFileSync(p, JSON.stringify(j,null,2)+'\\n');\nconsole.log('已修正 buildCommand（又被錄進一整串 heredoc）');\n\"\ngit grep -c -E '57,?873' 2>/dev/null || echo \"✅ 版控中已無殘留\"",
-    "testCommand": "cd /Users/david/Documents/Github/filmnote\necho \"=== 目錄結構（第一層）===\"; ls -d */ 2>/dev/null | tr '\\n' ' '; echo\necho \"=== 測試數 ===\"; pnpm test 2>&1 | grep -E 'Test Files|Tests' | head -2\necho \"=== node / pnpm ===\"; node -e \"const p=require('./package.json'); console.log('engines:', JSON.stringify(p.engines), '| pm:', p.packageManager)\"",
+    "testCommand": "cd /Users/david/Documents/Github/filmnote\necho \"=== 工作區 ===\"; git status --short\necho \"=== HEAD ===\"; git log --oneline -1\necho \"=== 塗銷形式有沒有正確落地 ===\"; git grep -c '5x,xxx' -- docs app | head -5\necho \"=== 測試 ===\"; pnpm test 2>&1 | grep -E 'Test Files|Tests' | head -2\necho \"=== lint ===\"; pnpm run lint >/dev/null 2>&1 && echo \"  ✅ 乾淨\" || echo \"  ⚠️ 有問題\"",
     "lintCommand": "pnpm run lint",
     "devCommand": "pnpm run dev",
     "scripts": {
@@ -164,6 +164,12 @@
       "path": "docs/handoff/backend.md",
       "accessCount": 3,
       "lastAccessed": 1788665234979,
+      "type": "file"
+    },
+    {
+      "path": "server/api/admin/films/merge.post.ts",
+      "accessCount": 3,
+      "lastAccessed": 1788673160506,
       "type": "file"
     },
     {
@@ -356,12 +362,6 @@
       "path": "server/api/admin/films/[id]/approve.post.ts",
       "accessCount": 1,
       "lastAccessed": 1788634574910,
-      "type": "file"
-    },
-    {
-      "path": "server/api/admin/films/merge.post.ts",
-      "accessCount": 1,
-      "lastAccessed": 1788634598666,
       "type": "file"
     },
     {

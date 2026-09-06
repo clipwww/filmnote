@@ -6,7 +6,6 @@
  * （見 tests/import.test.ts）。
  */
 
-
 /** 上游一列的原始欄位。169 筆實測全部具備這些欄位且皆非 null。 */
 export interface MyLogItem {
   /** 原始 CSV 列的 base64。天生就是確定性鍵，直接當 import_key。 */

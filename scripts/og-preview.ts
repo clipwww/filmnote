@@ -1,3 +1,6 @@
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import process from 'node:process'
 /**
  * 把六種 OG 版面算成真的 PNG 放進 scratch 目錄，用眼睛看。
  *
@@ -9,9 +12,6 @@
  * satori 與 @resvg/resvg-js 已在 dependencies（a2a18f0）。
  */
 import { Resvg } from '@resvg/resvg-js'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
-import process from 'node:process'
 import satori from 'satori'
 import { FALLBACK_HERO, OG_HEIGHT, OG_WIDTH, profileCard, recordCard, safeHero } from '../server/utils/og-card'
 import { parseCmap } from '../server/utils/og-cmap'

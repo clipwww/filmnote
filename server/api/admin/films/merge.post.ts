@@ -84,8 +84,16 @@ export default defineEventHandler(async (event) => {
     .limit(1)
     .maybeSingle()
 
+  // 合併會搬動別人的觀影紀錄，是這個系統裡少數不可逆的管理動作之一。
+  // 權威的稽核軌跡在 film_merge_log（上面那一段就是從它讀的），這一行是
+  // 給 Vercel 的函式日誌看的——出事時那裡是最先看得到的地方，而查 DB 需要
+  // 另一套權限。兩者刻意重複。
+  // eslint-disable-next-line no-console -- 管理動作的稽核日誌，見上方說明
   console.log('[admin/films/merge]', JSON.stringify({
-    loserId, winnerId, by: user.id, movedRecords: log?.moved_records ?? null,
+    loserId,
+    winnerId,
+    by: user.id,
+    movedRecords: log?.moved_records ?? null,
   }))
 
   return { ok: true, loserId, winnerId, movedRecords: log?.moved_records ?? null }

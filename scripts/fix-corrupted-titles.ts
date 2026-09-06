@@ -21,8 +21,8 @@
 
 import process from 'node:process'
 import { Client, types as pgTypes } from 'pg'
-import { hasPrivateUseChars } from '#pipeline/normalize/defensive'
 import { TITLE_CORRECTIONS } from '#pipeline/import/title-corrections'
+import { hasPrivateUseChars } from '#pipeline/normalize/defensive'
 
 for (const oid of [1082, 1114, 1184, 1083])
   pgTypes.setTypeParser(oid, v => v)
@@ -99,7 +99,9 @@ try {
 
       if (certNeedsFix) {
         await client.query(
-          `update public.certificate set title_zh = $1 where id = $2`, [c.titleZh, row.cert_id])
+          `update public.certificate set title_zh = $1 where id = $2`,
+          [c.titleZh, row.cert_id],
+        )
         fixedCerts++
       }
       if (filmNeedsFix && row.film_id) {
@@ -107,7 +109,8 @@ try {
         // 改成別的值會讓 TMDB 日後有權覆蓋它——那正是絕不能發生的事。
         await client.query(
           `update public.film set title_zh = $1, updated_at = now() where id = $2`,
-          [c.titleZh, row.film_id])
+          [c.titleZh, row.film_id],
+        )
         fixedFilms++
       }
     }
@@ -129,7 +132,8 @@ try {
     `select count(*) as n from public.film
       where exists (select 1 from regexp_split_to_table(
                       coalesce(title_zh,'') || coalesce(title_original,''), '') ch
-                     where ascii(ch) between 57344 and 63743)`)
+                     where ascii(ch) between 57344 and 63743)`,
+  )
   const remaining = Number(left[0]?.n ?? 0)
   console.log(remaining === 0
     ? '✅ 片庫已無含私用區字元的片名。'
