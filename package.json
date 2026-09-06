@@ -35,10 +35,12 @@
     "@internationalized/date": "^3.12.3",
     "@nuxt/ui": "^4.11.0",
     "@nuxtjs/supabase": "^2.0.10",
+    "@resvg/resvg-js": "2.6.2",
     "@supabase/supabase-js": "^2.115.0",
     "csv-parse": "^7.0.2",
     "echarts": "^6.1.0",
     "nuxt": "4.5.2",
+    "satori": "0.33.4",
     "tailwindcss": "^4.3.3",
     "vue-echarts": "^8.2.0",
     "zod": "^4.0.0"
