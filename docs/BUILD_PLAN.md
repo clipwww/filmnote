@@ -2362,7 +2362,10 @@ TMDB 上四話各自獨立、沒有連映版條目，而一筆 `viewing_record` 
 > | #100–#114 | backend |
 > | #115–#129 | design |
 > | #130–#144 | adminui（`/admin/**` 與 `/app/import`；主 session 讓出的前段，已用到 #135） |
-> | #145+ | 主 session |
+> | #145–#164 | frontend（第三棒，已收線；號段保留不回收）|
+> | #165–#184 | **charts**（2026-09-06 主 session 第三棒配發：圖表、首頁、`/u/`）|
+> | #185–#204 | **records**（2026-09-06 配發：`/app/records` 個人紀錄管理）|
+> | #205+ | 未配 |
 >
 > **號段內有跳號是正常的，不要為了連號而重排。** 號段用完就跟主 session 要下一段。
 
@@ -2565,6 +2568,12 @@ diff /tmp/a /tmp/b                     # 除了 SSR 時戳外必須完全相同
 | 96 | **Nuxt UI 的 `UCheckbox` 把原生 `<input type=checkbox>` 藏起來，Playwright 的 `.check()` 會逾時 30 秒。** 那個 input 帶 `data-hidden`、`aria-hidden="true"`、`tabindex="-1"`，點擊座標落在頁面容器上，錯誤訊息是「`<div class="mx-auto …">` intercepts pointer events」——看起來像版面把它蓋住了，其實是**選錯元素**。用 `getByRole('checkbox')`（reka-ui 真正可互動的那一個）。⇒ 這類假象會讓人去改版面而不是改測試 | 2026-09-06 實測（Chrome 152 / CDP） |
 | 99 | **★★ `text-muted` / `bg-elevated` / `border-default` 這一整組語意色，在 production build 裡是死的——而 dev 完全正常。** `app.config.ts` 的 `neutral: 'paper'` 讓 Nuxt UI 產生 `--ui-text-muted: var(--ui-color-neutral-500)` 這一串，但 **`--ui-color-neutral-*` 自己一個都沒有被定義**（實測 `.output/public/_nuxt/entry*.css`：引用 10 次、定義 0 次）。原因是 Tailwind v4 的 `@theme` 會 tree-shake 沒有被任何 **utility** 用到的變數，而這一串只被另一個自訂屬性讀 —— dev 不 tree-shake，所以**只有 production 掉色**。症狀：文字全部退回黑色、`soft` 的中性按鈕連背景都沒有、`USwitch` 只剩一顆點；而 `pnpm build` 是 exit 0、零警告，dev 的截圖全部是對的。⇒ 解法是在 `main.css` **未分層的 `:root`** 裡把 10 個 `--ui-color-neutral-*` 顯式寫出來（順帶讓 `--color-paper-100…800` 不再被 tree-shake——修之前只有 25/50/900/950 活著）。⚠️ **這一類問題只有量 production 產物才看得到**：驗收「顏色對不對」不能只在 dev 截圖，要 `pnpm build` 之後跑 `node .output/server/index.mjs` 再量一次 | 2026-09-06 實測（frontend 第三棒，`/app/settings` 驗收時發現；§1.6 已為 `--ui-radius` 記過同一個機制，但只修了那一個變數） |
 | 97 | **★ 瀏覽器驗證的兩個「看起來像瀏覽器掛了」其實不是。** ① `chromium.connectOverCDP()` 會列舉瀏覽器裡的**每一個** target，只要有人開著一個 `file://` 分頁就整個逾時 30 秒（前一棒記過 file:// 讀不到，這是它的另一面：**別人的分頁會弄壞你的附著**）。② Node 22 的 `fetch()` 打 Chrome 的 `http://127.0.0.1:9222/json/list` **永遠掛著不回**，同一個 URL `curl` 是 0.9ms 回 200；症狀是腳本一行輸出都沒有。⇒ 兩者的解法都是**只連一個分頁的裸 CDP**：用 `node:http`（`agent: false`）取 `/json/list`，再對那一個 target 的 `webSocketDebuggerUrl` 開 WebSocket 發 `Runtime.evaluate` / `Page.captureScreenshot`。不需要 Playwright，也不會被別人的分頁影響 | 2026-09-06 實測（`/legal/dmca` 成功畫面的驗收） |
+| 185 | **★ `position: sticky` 黏的是「最近的捲動祖先」，而 `UTable` 的 root 本身就是 `overflow-auto`。** 把 `min-w-*` 掛在 root 上（再由外層 div 負責橫捲）時，pinned 欄會黏在**那個自己已經被外層捲出畫面的盒子**的右緣 ⇒ 使用者看到的是「操作欄根本不在畫面上」，而 `getComputedStyle` 讀到的仍然是 `position: sticky`、看起來完全正常。正解是讓 `UTable` 自己的 root 當捲動容器（最小寬度改掛 `base`，也就是真正的 `<table>`）。⚠️ **這條的真正教訓在檢查機制**：我的第一版檢查「量最內層那個會捲的祖先，看操作欄跟它的距離有沒有變」——對這個 bug 是**綠的**。改成量「把所有會橫捲的祖先都推到兩端，操作欄是否仍在**視窗**內且位置不動」才會紅。故意把它弄壞一次是唯一發現這件事的方法 | 2026-09-06 實測（records，`/app/records` 操作欄固定） |
+| 186 | **★ Nuxt UI 的 pinned 欄底色是半透明 `bg-default/75`，而它 computed 出來是 `oklab(... / 0.75)` 不是 `rgba(...)`。** 半透明的固定欄在捲動時會讓底下的欄位透出來疊字。要蓋掉它必須寫 `bg-default!`（important）——來源是元件主題，沒有 important 不保證贏。⚠️ 同樣是檢查機制的問題：用 `/rgba\([^)]+,\s*0?\.\d+\)/` 判斷「有沒有透明度」的檢查**漏掉了它**，因為 Tailwind 4 的顏色是 oklab/oklch。要解析 `/ <alpha>)` 這種斜線語法才抓得到 | 同上 |
+| 187 | **`truncate` 需要一個確定的寬度，而 `w-*` 掛在 `<td>` 上只是「建議」。** 九欄的自動配寬會照內容搶寬度：影城欄（長店名）自己漲到 267px，把備註欄壓到 86px——展開後變成一行兩個字、十一行高的一條。`<td>` 的 `w-*` 要配上內層元素的 `max-w-*` 才真的生效。⚠️ 這一類是**量不出來的**（沒有溢出、沒有純白、沒有錯誤），只有把畫面看過一遍才會發現 | 同上 |
+| 165 | **★★ DB 那側把一個欄位釘得再牢，都證明不了前端有在用它。** `0003` 為「歷年每月平均」特地做了 `monthly_baseline`（分母是**曝光數**：該月份實際經歷過幾次），`verify-core` 的 H4／H6 把它守得很死。但實測 2026-09-06：**那個欄位在整個前端 `grep` 是空的**——`app/utils/stats.ts` 自己用「該月份總場次 ÷ 年份數」另算了一套，12 個月裡有 5 個偏掉（十月畫 1.85，DB 說 2.00），而 H1–H6 全綠、單元測試也全綠。**單元測試甚至把錯的答案釘住了**（`expect(avg[9]).toBe(1.85)`），所以它是反向的保護。⇒ `backend.md §6e` 早就預言了這個形狀（「一致性斷言只驗到內部一致」），只是預言的是 DB 內部，實際發生在**跨層的接縫**上。跨層的欄位要有跨層的斷言：`verify-all.ts` 的 `frontend/monthly-baseline` 三條拿真實資料跑**真正的前端函式**跟 DB 逐格對帳，並且**證明那組資料分辨得出兩種分母**（沒有第三條的話，資料一變成兩種分母同解就會靜默失去分辨力） | 2026-09-06 實測（charts） |
+| 166 | **★ 用字串比對檢查「某個檔案有沒有呼叫某個函式」時，註解會餵飽斷言。** #165 的第三條檢查第一版寫 `src.includes('monthlyBaselineSeries')`，把呼叫整個拿掉之後**照樣綠**——因為同一頁的註解裡就寫著「見 `stats.ts` 的 `monthlyBaselineSeries()`」，而且**註解寫得越詳細越容易中**。⇒ 先 strip 掉 `<!-- -->`／`/* */`／`//` 再比對，而且要求左括號（要的是呼叫不是提及）。⚠️ 這條是**故意把斷言守的東西弄壞一次**才發現的；在那次破壞測試之前它已經「通過」了一輪，合計那行寫著 39／39 | 同上 |
+| 167 | **同一個工作樹裡有別的 session 在寫時，`pnpm run lint` 會給你一份不是你造成的紅燈。** 實測 2026-09-06：開工前跑 lint 得到 98 個 `vue/html-indent` 錯誤，兩分鐘後同一個指令 exit 0——`records` 那一棒正好在寫 `app/pages/app/records/index.vue`（mtime 距我執行只差 36 秒）。`verify:all` 已經會對 `supabase/migrations`／`scripts` 的髒工作樹吵一聲，但 **lint 與 test 吃的是 `app/**`，那裡沒有任何警告**。⇒ 拿到紅燈先 `git status` 看檔名是不是自己的，再看 `ls -lT` 的 mtime；重跑一次也是有效的判別法 | 同上 |
 
 ## 7.5 資料匯入（來自 SPEC 實測）
 

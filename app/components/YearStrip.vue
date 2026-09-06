@@ -21,12 +21,26 @@ import type { YearStripRow } from '~/utils/stats'
  */
 const props = withDefaults(defineProps<{
   rows: YearStripRow[]
+  /** `null` = 全期檢視視角（**預設**，見 `SCREENS §9`）。 */
   selected: number | null
   /** false ⇒ 只當門面，不可點也不進 tab 順序。 */
   interactive?: boolean
-}>(), { interactive: true })
+  /**
+   * 是否在最上面放一列「全部年度」。
+   *
+   * ★ 2026-09-06：全期成為預設檢視視角之後，**回到全期必須是看得見的一個選項**。
+   *   做成「再點一次同一年就回到全部」那種隱藏切換是不行的：年表本身就是這一頁的
+   *   檢視選擇器，而一個選擇器不能有一個選不到、只能猜出來的狀態——尤其它還是預設值，
+   *   使用者第一眼看到的就是它，卻找不到它在哪一列被標示著。
+   */
+  showAll?: boolean
+}>(), { interactive: true, showAll: true })
 
-const emit = defineEmits<{ 'update:selected': [year: number] }>()
+/** ⚠️ 型別必須含 `null`，否則 UI 上永遠到不了全期視角（2026-09-06 之前就是這樣）。 */
+const emit = defineEmits<{ 'update:selected': [year: number | null] }>()
+
+/** 「全部年度」那一列右邊的總場次。跟畫面上這些列加總一致，不另外接一個來源。 */
+const allRecords = computed(() => props.rows.reduce((n, r) => n + r.records, 0))
 
 /**
  * 三階，取值與年度出席圖同一組（`att` = heat-0/4/6）。
@@ -59,17 +73,56 @@ function cellVars(n: number) {
   return { '--att-l': CHART.light.att[i], '--att-d': CHART.dark.att[i] }
 }
 
+/**
+ * ↑↓ 換選項。**「全部年度」也在這串裡**——它是一個選項，不是一個逃生門，
+ * 所以鍵盤走得到它，順序也跟畫面一致（它在最上面）。
+ */
+const options = computed<(number | null)[]>(() =>
+  [...(props.showAll ? [null] : []), ...props.rows.map(r => r.year)])
+
 function move(delta: number) {
-  const list = props.rows
-  const i = list.findIndex(r => r.year === props.selected)
+  const list = options.value
+  const i = list.indexOf(props.selected)
   const next = list[Math.min(list.length - 1, Math.max(0, (i < 0 ? 0 : i) + delta))]
-  if (next)
-    emit('update:selected', next.year)
+  // `next` 可能正當地是 null（全部年度），所以判斷式是 `!== undefined` 不是真值
+  if (next !== undefined)
+    emit('update:selected', next)
 }
 </script>
 
 <template>
-  <div :role="interactive ? 'listbox' : 'list'" aria-label="年份" class="space-y-1">
+  <div :role="interactive ? 'listbox' : 'list'" aria-label="檢視的年份" class="space-y-1">
+    <!--
+      ★「全部年度」——全期檢視視角（2026-09-06 起是**預設**）。
+        它刻意沒有 53 格：那 53 格的座標軸是「一個日曆年裡的第幾週」，
+        跨年度沒有這個座標。把十三年疊起來畫成一列會是一條幾乎全滿的黑帶，
+        既不傳達東西，又會被讀成「這是某一年」。所以這一列只有標籤與總數，
+        並用一條髮絲線跟下面的年份列分開，讀起來是「檢視範圍」而不是「某一年」。
+    -->
+    <div
+      v-if="showAll"
+      :role="interactive ? 'option' : undefined"
+      :tabindex="interactive ? 0 : undefined"
+      :aria-selected="interactive ? selected === null : undefined"
+      :aria-label="`全部年度 ${allRecords} 場`"
+      class="flex items-center gap-2 border-b border-l-2 border-b-default py-1 pr-1 pl-2 focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
+      :class="[
+        selected === null ? 'border-l-primary' : 'border-l-transparent',
+        interactive && selected !== null ? 'cursor-pointer' : '',
+      ]"
+      @click="interactive && emit('update:selected', null)"
+      @keydown.enter.prevent="interactive && emit('update:selected', null)"
+      @keydown.space.prevent="interactive && emit('update:selected', null)"
+      @keydown.down.prevent="interactive && move(1)"
+      @keydown.up.prevent="interactive && move(-1)"
+    >
+      <span
+        class="min-w-0 flex-1 text-xs"
+        :class="selected === null ? 'font-semibold text-highlighted' : 'text-muted'"
+      >全部年度</span>
+      <span class="w-8 shrink-0 text-right text-xs tabular-nums text-muted">{{ allRecords }}</span>
+    </div>
+
     <div
       v-for="row in rows"
       :key="row.year"

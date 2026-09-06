@@ -24,10 +24,12 @@
  * 的假綠燈。**這類授權只能用真的 PostgREST + 真的使用者 JWT 測。**
  */
 
+import type { YearStats } from '../app/utils/stats'
 import { execFileSync } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import process from 'node:process'
 import { Client, types as pgTypes } from 'pg'
+import { monthlyBaselineSeries } from '../app/utils/stats'
 import { runSsrAndOgChecks } from './verify-http'
 
 // 與 scripts/db.ts 同：不要讓 node-postgres 把 date/timestamp 轉成 JS Date，
@@ -108,6 +110,112 @@ async function sql(query: string, params: unknown[] = []): Promise<Record<string
   finally {
     await client.end()
   }
+}
+
+/**
+ * 把 `.vue` 原始碼裡的註解拿掉，只留下真的會執行的部分。
+ *
+ * ⚠️ 存在的理由見下方③的註解：**註解會餵飽字串比對的斷言**。
+ * 這支不追求剖析正確（不處理字串字面裡的 `//`），它只需要讓
+ * 「檔案裡提到某個名字」與「檔案裡真的呼叫某個名字」分得開。
+ */
+function stripComments(src: string): string {
+  return src
+    .replace(/<!--[\s\S]*?-->/g, ' ') // template 註解
+    .replace(/\/\*[\s\S]*?\*\//g, ' ') // 區塊註解（含 JSDoc）
+    .replace(/^\s*\/\/.*$/gm, ' ') // 整行的行註解
+}
+
+/**
+ * ── 前端有沒有真的接上 `monthly_baseline` ───────────────────────────────────
+ *
+ * ★★ 這一段守的是一個 **DB 那側守不到** 的破法。
+ *
+ * `verify-core` 的 H4／H6 把 `monthly_baseline` 這個欄位釘得很牢（不受 p_year
+ * 影響、分母是曝光數而不是年份數）。但它們只證明**資料庫給的是對的**——
+ * 完全沒有東西證明**前端有在用它**。實測 2026-09-06：那個欄位在整個前端
+ * `grep` 是空的，`app/utils/stats.ts` 自己用「該月份總場次 ÷ 年份數」另算了一套，
+ * 12 個月裡有 5 個偏掉（十月畫 1.85，DB 說 2.00），而 H1–H6 全綠。
+ *
+ * 這正是 `backend.md §6e` 預言過的形狀：一致性斷言只驗到內部一致。
+ *
+ * 所以這裡拿**真實資料**跑**真正的前端函式**（直接 import `app/utils/stats.ts`，
+ * 不是抄一份公式——抄一份就變成實作的複本，實作改錯它會跟著改錯），
+ * 再跟 DB 的答案逐格對帳。三條：
+ *
+ *   ① 前端算出來的 12 個值 === DB 的 `monthly_baseline[].avg_records`
+ *   ② ★ **對照組**：同一組資料用「年份數」當分母會得到**不同**的答案。
+ *      沒有這一條的話，哪天資料剛好變成兩種分母同解（例如每個月曝光數都相同），
+ *      ①就會靜默失去分辨力而照樣全綠——那是「看不到必須配一組看得到」的同一個道理。
+ *   ③ 呼叫端真的有接線：畫這條線的頁面必須引用得到這個值。
+ *      ①②只證明函式對，不證明有人呼叫它——而 2026-09-06 的病灶正是「沒人呼叫」。
+ */
+async function runMonthlyBaselineChecks(): Promise<void> {
+  const guards = '★ §6e／§7 #123：平均線的分母是曝光數，而且前端要真的用 DB 給的那個欄位'
+
+  const rows = await sql(
+    `select p.username, public.user_year_stats(p.username, null) as stats
+       from public.profile p
+       join auth.users u on u.id = p.id
+      where u.email = $1`,
+    // ⚠️ 以 email 精確指定，不用 `limit 1`／「DB 裡唯一一筆 profile」這種假設。
+    //    email 從環境變數來，**不進版控**（這個 repo 是 public 的）。
+    [process.env.IMPORT_TARGET_EMAIL ?? ''],
+  )
+
+  const stats = rows[0]?.stats as YearStats | undefined
+  const baseline = stats?.monthly_baseline
+  if (!baseline?.length) {
+    skip('frontend/monthly-baseline', guards, 'IMPORT_TARGET_EMAIL 沒設或該帳號沒有紀錄 ⇒ 拿不到真實資料可對帳')
+    return
+  }
+
+  // ① 前端的函式 vs DB 的答案
+  const fromFrontend = monthlyBaselineSeries(baseline)
+  const fromDb = [...baseline].sort((a, b) => a.month - b.month).map(b => b.avg_records)
+  record('frontend/monthly-baseline', guards, JSON.stringify(fromFrontend) === JSON.stringify(fromDb), `前端 ${JSON.stringify(fromFrontend)} vs DB ${JSON.stringify(fromDb)}`)
+
+  // ② ★ 對照組：這組資料真的分辨得出兩種分母嗎？
+  const yearCount = stats?.by_year?.length ?? 0
+  const byYearCount = [...baseline]
+    .sort((a, b) => a.month - b.month)
+    .map(b => (yearCount ? Math.round((b.records / yearCount) * 100) / 100 : 0))
+  const differs = byYearCount.some((v, i) => v !== fromDb[i])
+  record('frontend/monthly-baseline-discriminates', guards, differs, differs
+    ? `年份數分母(${yearCount}) 會得到 ${JSON.stringify(byYearCount)}，與曝光數分母不同 ⇒ ①有分辨力`
+    : `⚠️ 這組資料下兩種分母同解 ⇒ 上面那條**分辨不出**錯的分母，等於沒在守`)
+
+  // ③ 呼叫端真的有接線。
+  //
+  // ⚠️ 這裡**不寫死頁面清單**。寫死的話，這條會在「某一頁還沒做圖表」時紅
+  //    （那不是缺陷，是還沒做），而真正該紅的「新增了一頁畫月度趨勢卻自己算平均」
+  //    反而漏掉——清單不會自己長出新頁面。
+  //    改成從實作推導：**凡是 render `<MonthlyTrend` 的檔案，都必須引用得到
+  //    `monthlyBaselineSeries`。** 條件與結論都跟著程式碼走。
+  const files = execFileSync('git', ['ls-files', 'app'], { encoding: 'utf8' })
+    .split('\n')
+    .filter(f => f.endsWith('.vue'))
+  const drawers: string[] = []
+  const missing: string[] = []
+  for (const f of files) {
+    // ⚠️ **一定要先把註解拿掉。** 第一版用 `src.includes('monthlyBaselineSeries')`
+    //    直接掃原始碼，實測把呼叫拿掉之後**照樣綠**——因為那一頁的註解裡就寫著
+    //    「見 stats.ts 的 monthlyBaselineSeries()」，註解餵飽了斷言。
+    //    這個專案最貴的錯就是這種「檢查機制本身失效」，而且這一條是我自己剛寫的。
+    const src = stripComments(await readFile(f, 'utf8').catch(() => ''))
+    // 元件自己不算（它收 prop，不負責取數）
+    if (!src.includes('<MonthlyTrend') || f.endsWith('MonthlyTrend.vue'))
+      continue
+    drawers.push(f)
+    // 要的是**呼叫**，所以左括號是條件的一部分
+    if (!/monthlyBaselineSeries\s*\(/.test(src))
+      missing.push(f)
+  }
+  record('frontend/monthly-baseline-wired', guards, drawers.length > 0 && missing.length === 0, !drawers.length
+    ? '⚠️ 找不到任何 render <MonthlyTrend 的頁面 ⇒ 這條在空轉'
+    : missing.length
+      ? `這些頁面畫了月度趨勢卻沒有引用 monthlyBaselineSeries（＝自己算了一套）：${missing.join('、')}`
+      : `${drawers.length} 個呼叫端都接上了：${drawers.join('、')}`)
 }
 
 async function runHttpChecks(env: HttpEnv): Promise<void> {
@@ -523,6 +631,9 @@ console.log('── SQL 斷言 ──')
 await runSqlFile('scripts/verify-core.sql', 'schema 不變量／RLS／TMDB 合規／資料完整性')
 await runSqlFile('scripts/verify-dmca.sql', '§90-4 通知／取下／三振／回復')
 await runSqlFile('scripts/verify-admin.sql', 'Step 7 審核與合併的資料庫端')
+
+console.log('\n── 前端對帳（真實資料 × 真正的前端函式）──')
+await runMonthlyBaselineChecks()
 
 if (!sqlOnly) {
   console.log('\n── HTTP 斷言（真實 PostgREST + 真實使用者 JWT）──')

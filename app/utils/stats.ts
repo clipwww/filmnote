@@ -45,6 +45,31 @@ export interface YearStats {
    * （「我幾月比較常看片」），這一支是走勢（「我這些年看片量的變化」）。
    */
   monthly_series?: { month: string, records: number, tickets: number, spend: number, spend_is_partial: boolean }[]
+  /**
+   * 月度趨勢圖上那條虛線「歷年每月平均」。**這是 `0003` 為這件事特地做的欄位，
+   * 前端一定要用它，不要自己算。**
+   *
+   * ⚠️ `avg_records` 的分母是 **`years_observed`（曝光數）**——從第一筆紀錄那個月
+   * 到 `greatest(最後一筆, 今天)`，這個月份實際經歷過幾次。**不是年份數。**
+   * 實測 David：三月 13 次、一月 12 次（2014-01 在起點之前）、十月 12 次
+   * （2026-10 還沒到）。用年份數當分母的話 12 個月裡有 5 個會偏
+   * （十月 2.00 → 1.85、一月 0.92 → 0.85、十二月 1.50 → 1.38）。
+   *
+   * ⚠️ **不受 `p_year` 影響**（來自未過濾的 `rec_all`）：指定年份時它是對照基準，
+   * 全期時它與 `monthly` 同形狀而數值是平均。**一個欄位餵兩個用途，
+   * 不要做成兩套計算**——兩套一定會在某次修改後給出不一致的數字，而沒有人會發現，
+   * 因為沒有人會把兩頁的數字擺在一起看。（`backend.md §6e`、`verify-core` 的 H4/H6）
+   */
+  monthly_baseline?: {
+    month: number
+    /** 分母：這個月份實際經歷過幾次。**不是年份數。** */
+    years_observed: number
+    records: number
+    avg_records: number
+    avg_tickets: number
+    avg_spend: number
+    spend_is_partial: boolean
+  }[]
   venues: { venue_id: string | null, name: string | null, city: string | null, kind: string | null, records: number }[]
   countries: { country: string, records: number }[]
   formats: { code: string, label: string, records: number }[]
@@ -198,28 +223,54 @@ export function monthlySeriesToDate(
   return filled.map((v, i) => (i + 1 > thisMonth ? null : v))
 }
 
+/** 月度趨勢圖那條虛線要 12 個點。少一格就整條不畫，不補零。 */
+export const MONTHS_PER_YEAR = 12
+
 /**
  * 歷年每月平均——月度趨勢圖上那條虛線（視覺稿 band 4，圖例「2014–2026 每月平均」）。
  *
- * 定義精確地是：**該日曆月份在所有年度的總場次 ÷ 年份數**。
- * 不是「當年度的月平均」（那會是一條水平線，也回答不了「十月是不是我的旺季」），
- * 也不是「每年平均看幾場」。
+ * ★ **這支只做搬運，不做計算。** 數值一律來自 `user_year_stats` 的
+ *   `monthly_baseline[].avg_records`，那是 `0003` 為這件事特地做的欄位。
  *
- * ⚠️ 資料一律取自 `user_year_stats(username, null)` 的 `monthly`，**不要在前端
- *    拿紀錄列表就地算**：`/u/` 上別人拿得到的紀錄集合與本人不同（RLS 依觀看者
- *    而異），就地算會讓同一個人的「歷年平均」因為誰在看而不一樣。
+ * ── 2026-09-06 修正：這裡本來自己算，而且分母是錯的 ──────────────
+ * 舊版是 `monthlyAverageSeries(monthly, by_year.length)`，也就是
+ * **該月份總場次 ÷ 年份數**。`monthly_baseline` 的分母是
+ * **`years_observed`（曝光數）**：從第一筆紀錄那個月到
+ * `greatest(最後一筆, 今天)`，這個月份實際經歷過幾次。兩者對 David 的真實
+ * 資料在 12 個月裡有 5 個不一樣（十月 2.00 vs 1.85、一月 0.92 vs 0.85、
+ * 二月 0.92 vs 0.85、十一月 1.42 vs 1.31、十二月 1.50 vs 1.38），
+ * 因為 2014-01 在第一筆紀錄之前、2026-10 之後的月份還沒發生。
  *
- * 年份數不明（`by_year` 空的、或全期資料還沒回來）時回 null——
+ * ⚠️ **不要因為「自己算比較直接」而把計算搬回這裡。** 一個欄位餵兩個用途
+ * （指定年份時是對照基準、全期時是平均），做成兩套一定會在某次修改後不一致，
+ * 而那種不一致沒有人會發現——因為沒有人會把兩頁的數字擺在一起看
+ * （`backend.md §6e`）。DB 那側有 `verify-core` 的 H4/H6 守著分母；
+ * **前端這一側由 `verify-all.ts` 的 `frontend/monthly-baseline` 兩條守著**
+ * ——它拿真實資料跑這支函式，跟 DB 的答案逐格對帳，並且證明那組資料真的
+ * 分辨得出兩種分母。
+ *
+ * ⚠️ 資料一律取自 `user_year_stats(username, null)`，**不要在前端拿紀錄列表
+ *    就地算**：`/u/` 上別人拿得到的紀錄集合與本人不同（RLS 依觀看者而異），
+ *    就地算會讓同一個人的「歷年平均」因為誰在看而不一樣。
+ *
+ * 拿不到這個欄位（舊的快取、RPC 還沒回來、或格數不是 12）時回 null——
  * **寧可不畫那條線，也不要畫一條除以錯的數字的線**。
  */
-export function monthlyAverageSeries(
-  allTimeMonthly: YearStats['monthly'] | undefined,
-  yearCount: number | undefined,
+export function monthlyBaselineSeries(
+  baseline: YearStats['monthly_baseline'],
 ): number[] | null {
-  if (!allTimeMonthly?.length || !yearCount)
+  if (!baseline?.length)
     return null
-  const totals = monthlySeries(allTimeMonthly)
-  return totals.map(v => Math.round((v / yearCount) * 100) / 100)
+  const by = new Map(baseline.map(b => [b.month, b.avg_records]))
+  const out: number[] = []
+  for (let m = 1; m <= MONTHS_PER_YEAR; m++) {
+    const v = by.get(m)
+    // 缺任何一格就整條不畫。補 0 會讓那個月看起來像「平均從沒去過」。
+    if (typeof v !== 'number' || !Number.isFinite(v))
+      return null
+    out.push(v)
+  }
+  return out
 }
 
 /* ─────────────────────────── 分布長條 ─────────────────────────── */

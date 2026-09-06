@@ -9,7 +9,7 @@ import {
   inHourRow,
   isoDow,
   MIDNIGHT_LABEL,
-  monthlyAverageSeries,
+  monthlyBaselineSeries,
   monthlySeries,
   monthlySeriesToDate,
   slotTitle,
@@ -112,33 +112,65 @@ describe('月度趨勢', () => {
     expect(s[0]).toBe(0)
   })
 
-  it('歷年每月平均＝該月份的全期總場次 ÷ 年份數', () => {
-    // David 的真實分佈（user_year_stats('clipwww', null) 實測）：
-    // 1:11 2:11 3:18 4:12 5:11 6:10 7:13 8:14 9:15 10:24 11:17 12:18，共 174 場、13 個年份
-    const totals = [11, 11, 18, 12, 11, 10, 13, 14, 15, 24, 17, 18]
-    const monthly = totals.map((records, i) => ({
-      month: i + 1,
-      records,
-      tickets: records,
-      spend: 0,
-      spend_is_partial: false,
-    }))
-    const avg = monthlyAverageSeries(monthly, 13)
-    expect(avg).not.toBeNull()
-    expect(avg!).toHaveLength(12)
-    // 十月是旺季：24 / 13 = 1.85
-    expect(avg![9]).toBe(1.85)
-    expect(avg![0]).toBe(0.85)
-    // 總和 ÷ 年份數要等於「平均一年看幾場」
-    const perYear = avg!.reduce((a, b) => a + b, 0)
-    expect(perYear).toBeCloseTo(174 / 13, 1)
+  /**
+   * ★ 這一組 2026-09-06 整個換掉了。
+   *
+   * 舊的那條叫「歷年每月平均＝該月份的全期總場次 ÷ 年份數」，而且把
+   * `avg![9]` 釘成 **1.85**（24 ÷ 13）。**那是把錯的答案釘住的假綠燈**：
+   * 分母不是年份數，是 `years_observed`（曝光數）——那個月份實際經歷過幾次。
+   * DB 早就在 `monthly_baseline` 裡給了正確答案（十月 **2.00**，因為 2026-10
+   * 還沒發生 ⇒ 曝光 12 次不是 13 次），前端卻自己算了一套，而這條測試
+   * 保護的正是那一套。
+   *
+   * 現在的形狀：**前端只搬運，不計算**，所以測試也不再重算一次公式
+   * （重算就是實作的複本，實作改錯它會跟著改錯）。它守的是搬運的正確性
+   * ——月份對得上、格數是 12、缺格不畫。分母對不對由
+   * `verify-all.ts` 的 `frontend/monthly-baseline` 拿真實資料跟 DB 對帳。
+   */
+  const REAL_BASELINE = [
+    // user_year_stats('clipwww', null) → monthly_baseline 實測 2026-09-06
+    { month: 1, years_observed: 12, records: 11, avg_records: 0.92 },
+    { month: 2, years_observed: 12, records: 11, avg_records: 0.92 },
+    { month: 3, years_observed: 13, records: 18, avg_records: 1.38 },
+    { month: 4, years_observed: 13, records: 12, avg_records: 0.92 },
+    { month: 5, years_observed: 13, records: 11, avg_records: 0.85 },
+    { month: 6, years_observed: 13, records: 10, avg_records: 0.77 },
+    { month: 7, years_observed: 13, records: 13, avg_records: 1.00 },
+    { month: 8, years_observed: 13, records: 14, avg_records: 1.08 },
+    { month: 9, years_observed: 13, records: 15, avg_records: 1.15 },
+    { month: 10, years_observed: 12, records: 24, avg_records: 2.00 },
+    { month: 11, years_observed: 12, records: 17, avg_records: 1.42 },
+    { month: 12, years_observed: 12, records: 18, avg_records: 1.50 },
+  ].map(b => ({ ...b, avg_tickets: 0, avg_spend: 0, spend_is_partial: false }))
+
+  it('平均線的數值原封不動來自 monthly_baseline.avg_records', () => {
+    const avg = monthlyBaselineSeries(REAL_BASELINE)
+    expect(avg).toEqual([0.92, 0.92, 1.38, 0.92, 0.85, 0.77, 1.00, 1.08, 1.15, 2.00, 1.42, 1.50])
   })
 
-  it('年份數不明時不畫平均線——寧可少一條，也不要除以錯的數字', () => {
-    const monthly = [{ month: 1, records: 5, tickets: 5, spend: 0, spend_is_partial: false }]
-    expect(monthlyAverageSeries(monthly, undefined)).toBeNull()
-    expect(monthlyAverageSeries(monthly, 0)).toBeNull()
-    expect(monthlyAverageSeries([], 13)).toBeNull()
+  it('★ 分母是曝光數不是年份數——十月是 2.00 不是 1.85', () => {
+    // 這一條是拿來**分辨兩種分母**的，不是重算公式。
+    // 十月：24 場、曝光 12 次（2026-10 還沒到）⇒ 2.00；除以年份數 13 會得到 1.85。
+    // 一月：11 場、曝光 12 次（2014-01 在第一筆紀錄之前）⇒ 0.92；除以 13 會得到 0.85。
+    const avg = monthlyBaselineSeries(REAL_BASELINE)!
+    expect(avg[9]).toBe(2.00)
+    expect(avg[9]).not.toBe(1.85)
+    expect(avg[0]).toBe(0.92)
+    expect(avg[0]).not.toBe(0.85)
+    // 曝光數確實不是全部相同——否則這組資料分辨不出兩種分母，這條測試會變成空轉
+    expect(new Set(REAL_BASELINE.map(b => b.years_observed)).size).toBeGreaterThan(1)
+  })
+
+  it('月份順序由 month 欄位決定，不是陣列順序', () => {
+    // RPC 有 `order by e.m`，但契約是欄位不是順序。倒著餵應該得到一樣的結果。
+    const shuffled = [...REAL_BASELINE].reverse()
+    expect(monthlyBaselineSeries(shuffled)).toEqual(monthlyBaselineSeries(REAL_BASELINE))
+  })
+
+  it('缺任何一格就整條不畫——不補 0（那會讓那個月看起來像平均從沒去過）', () => {
+    expect(monthlyBaselineSeries(undefined)).toBeNull()
+    expect(monthlyBaselineSeries([])).toBeNull()
+    expect(monthlyBaselineSeries(REAL_BASELINE.filter(b => b.month !== 7))).toBeNull()
   })
 
   it('看今年時，還沒到的月份是斷點不是 0', () => {

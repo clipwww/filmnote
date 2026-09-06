@@ -102,10 +102,16 @@ const stripRows = computed(() => yearStripRows(
   (counts.value?.byYear ?? []).map(y => y.year),
 ))
 
-/** 年表同時是年份選擇器（§2.1）。再點一次同一年就回到全部。 */
+/**
+ * 年表同時是檢視視角選擇器（§2.1）。
+ *
+ * ★ `null` = 全部年度，而且是**預設**（David 2026-09-06 裁決，`/app` 與 `/u/` 一致）。
+ *   `YearStrip` 最上面那一列「全部年度」會直接 emit null，所以不再需要
+ *   「再點一次同一年回到全部」那種隱藏切換——它本來就不該是隱藏的。
+ */
 const selectedYear = ref<number | null>(null)
-function pickYear(year: number) {
-  selectedYear.value = selectedYear.value === year ? null : year
+function pickYear(year: number | null) {
+  selectedYear.value = year
   shown.value = PAGE
 }
 
