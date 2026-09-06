@@ -22,6 +22,7 @@ import type { DropdownMenuItem } from '@nuxt/ui'
  * **不要因為自己看得到就以為所有人看得到**。
  */
 const supabase = useSupabaseClient()
+const colorMode = useColorMode()
 const { username, isStaff, isSignedIn } = useMyIdentity()
 
 async function signOut() {
@@ -29,6 +30,37 @@ async function signOut() {
   // 留在 /app/** 只會被 middleware 彈回 /login，多一次跳轉。直接回首頁。
   await navigateTo('/')
 }
+
+/**
+ * 明暗切換（2026-09-06 David：「少了 light / dark mode 的切換開關」）。
+ *
+ * ── 三態不是兩態 ─────────────────────────────────────────────────────
+ * 跟隨系統／亮／暗。沒有明確選過的人應該跟著作業系統走——那是多數人期望的行為，
+ * 也是 `@nuxtjs/color-mode` 的預設（`preference: 'system'`）。做成兩態的話，
+ * 使用者第一次點下去就永久脫離了系統設定，而且沒有路回去。
+ *
+ * ── ⚠️ ISR 污染：查過了，這條路是乾淨的 ───────────────────────────────
+ * `/` 與 `/film/**` 走 ISR，而 Vercel 以「路徑」為單位快取（踩雷 #1）⇒
+ * 任何隨使用者而異的東西進了 SSR 輸出，就會被第一個訪客的版本烤進 CDN。
+ * 主題偏好正是這一類。**實測 2026-09-06**：把 `nuxt-color-mode` cookie 設成
+ * dark／light／不帶，抹掉 payload 裡的 SSR 時戳之後三份 HTML **逐位元組相同**，
+ * `$scolor-mode` 在三種情況下都是 `"system"`——偏好只在瀏覽器端套用，
+ * 沒有進伺服器輸出。
+ * ⚠️ 這是**現在**的結論，不是永久保證：哪天有人在 SSR 期間讀了
+ * `colorMode.value` 去挑顏色（踩雷 #88 那條），這個保證就沒了。
+ * 驗法留在這裡：`curl -H 'Cookie: nuxt-color-mode=dark' …` 對照無 cookie 版本。
+ */
+const themeGroup = computed<DropdownMenuItem[]>(() => {
+  const pick = (v: 'system' | 'light' | 'dark') => () => {
+    colorMode.preference = v
+  }
+  return [
+    { label: '外觀', type: 'label' },
+    { type: 'checkbox', label: '跟隨系統', icon: 'i-lucide-monitor', checked: colorMode.preference === 'system', onUpdateChecked: pick('system') },
+    { type: 'checkbox', label: '亮色', icon: 'i-lucide-sun', checked: colorMode.preference === 'light', onUpdateChecked: pick('light') },
+    { type: 'checkbox', label: '暗色', icon: 'i-lucide-moon', checked: colorMode.preference === 'dark', onUpdateChecked: pick('dark') },
+  ]
+})
 
 /** 法遵四頁做成子選單：它們每一頁的頁尾都連得到，這裡是第二條路不是唯一那條。 */
 const legalGroup: DropdownMenuItem = {
@@ -47,6 +79,7 @@ const items = computed<DropdownMenuItem[][]>(() => {
     return [
       [{ label: '登入', icon: 'i-lucide-log-in', to: '/login' }],
       [{ label: '搜尋作品', icon: 'i-lucide-search', to: '/search' }],
+      themeGroup.value,
       [legalGroup],
     ]
   }
@@ -74,6 +107,8 @@ const items = computed<DropdownMenuItem[][]>(() => {
   if (isStaff.value)
     groups.push([{ label: '管理後台', icon: 'i-lucide-shield-check', to: '/admin' }])
 
+  // 外觀跟帳號無關，登入與否都在同一個位置——使用者不必記得它「登入後才有」。
+  groups.push(themeGroup.value)
   groups.push([legalGroup])
   groups.push([{ label: '登出', icon: 'i-lucide-log-out', onSelect: signOut }])
   return groups
