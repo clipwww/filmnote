@@ -2107,10 +2107,19 @@ curl -s "$URL/rest/v1/username?select=*" -H "apikey: $ANON" | jq '[.[]|select(.k
 
 **做**
 
-1. `/app/films/new`：只填片名 + 年份（US-14），海報選填上傳到 **private** bucket `ugc-poster-pending/{uid}/{film_id}.{ext}`。
-2. `server/api/admin/films/[id]/approve.post.ts` —— **這是提案 1 沒做完、承認會 404 的那一步**：以 service role `storage.copy(..., { destinationBucket: 'ugc-poster' })` 搬檔 → 從 pending remove → 再以**使用者身分的 client** 呼叫 `admin_approve_film` RPC（`serverSupabaseServiceRole` 不做任何身分檢查，授權必須另外做，踩雷 #26）。
+> ⚠️ **本節先前描述的是「雙 bucket 搬檔」架構（`ugc-poster-pending` → `ugc-poster`），
+> 那個架構在 §1.1 修正 C 已被否決而本節沒有同步。** 實作是**單一 bucket `ugc-poster`
+> 且 `public: false`**，由 storage RLS 依 film 的審核狀態把關，讀取走 signed URL
+> （不是付費牆，法遵不受影響）。審核通過不搬檔，只改審核狀態。
+> 函式名也修正過：實際是 `approve_film` 與 `merge_films`，不是 `admin_approve_film` /
+> `admin_merge_film`（2026-09-06 對實際 DB 查證）。
+
+1. `/app/films/new`：只填片名 + 年份（US-14），海報選填上傳到 **private** bucket `ugc-poster/{film_id}/…`（`public: false`，未審核前只有作者讀得到）。
+   ⚠️ **上傳成功不等於畫得出來**：必須把路徑寫進 `film.ugc_poster_path`，否則 `film_public.ugc_poster_path` 是 null，畫面會退回文字卡片——海報明明已公開可讀卻不顯示。
+2. `server/api/admin/films/[id]/approve.post.ts` —— **這是提案 1 沒做完、承認會 404 的那一步**：以**使用者身分的 client** 呼叫 `approve_film` RPC（`serverSupabaseServiceRole` 不做任何身分檢查，授權必須另外做，踩雷 #26）。單一 bucket 架構下不需要搬檔。
 3. `/admin` 審核佇列用 `UTable`（`virtualize` 需要容器確定高度，踩雷 #54）。
-4. `/admin/films/merge` 呼叫 `admin_merge_film`（只改 `film_identity` 指向，`viewing_record` 一列不動）。
+   **不需要新端點**：staff 靠 `film_read` 的 `is_staff()` 分支就能直接查 PostgREST。
+4. `/admin/films/merge` 呼叫 `merge_films`（只改 `film_identity` 指向，`viewing_record` 一列不動）。
 
 **怎麼確認它對了**
 
@@ -2119,16 +2128,16 @@ curl -s "$URL/rest/v1/username?select=*" -H "apikey: $ANON" | jq '[.[]|select(.k
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' \
-  "$URL/storage/v1/object/public/ugc-poster-pending/$UID/$FILM.jpg"      # 400/404，不得 200
-curl -s -X POST "$URL/storage/v1/object/list/ugc-poster-pending" \
+  "$URL/storage/v1/object/public/ugc-poster/$FILM/poster.jpg"            # 400/404，不得 200
+curl -s -X POST "$URL/storage/v1/object/list/ugc-poster" \
   -H "apikey: $ANON" -H 'Content-Type: application/json' \
   -d '{"prefix":"","limit":100}'                                          # 必須 []
 ```
 
 - 片名不得經 slug 外洩：`curl -s "$URL/rest/v1/film_identity?select=key" -H "apikey: $ANON" | grep -c '<私有片名切片>'` → 0（踩雷 #37）。
-- 審核通過後：作品進公共片庫、海報改由 `ugc-poster` 供應且**已不在 pending bucket**、`film_identity` 多一筆 `slug:`。
+- 審核通過後：作品進公共片庫、海報改由 signed URL 供應（**檔案沒有移動過**，變的是 storage RLS 的判定結果）、`film_identity` 多一筆 `slug:`。
 - 合併兩部作品後：`viewing_record` 一列都沒少、敗方的 `gov:` 鍵指向存活者；**再跑一次 seed 不會復活出重複列**。
-- 非 admin 帳號呼叫 `admin_approve_film` → `42501`。
+- 非 admin 帳號呼叫 `approve_film` → `42501`。
 - **破壞性寫入測試（兩種身分都要測，只測匿名會漏掉真正的破口）**：
   ```bash
   # ① 匿名 —— 沒有 EXECUTE，應該連函式都看不到
@@ -2164,7 +2173,7 @@ curl -s "$URL/rest/v1/takedown_notice?select=*" -H "apikey: $ANON"              
 不帶 `Prefer: return=minimal` 會失敗，這是刻意的——沒有 SELECT policy 就拿不到 RETURNING，確保這張表在 API 層是單向的。
 
 - `admin_takedown` 後：該紀錄／作品在公開頁**立即**消失（US-52），**且引用該作品的其他人的公開紀錄與票價也一併消失**（這是提案 1 漏掉的 join，必須實測）。
-- `admin_add_strike` 第三次後 `profile.service_status = 'terminated'`，該使用者個人頁與全部公開紀錄立即不可讀。
+- `admin_add_strike` 第三次後 `profile_private.service_status = 'terminated'`，該使用者個人頁與全部公開紀錄立即不可讀。
 - `admin_restore` 後內容回復、`visibility` 一併還原、該次三振被作廢（不是沉默的半回復）。
 - `counter_notice` 填 `forwarded_at` → `litigation_proof_due_at`（+10 工作日）與 `restore_due_at`（+14 工作日）自動算出。
 
@@ -2298,7 +2307,7 @@ TMDB 上四話各自獨立、沒有連映版條目，而一筆 `viewing_record` 
 | 要件 | 落點 | 具體內容 |
 |---|---|---|
 | **① 服務條款告知著作權保護措施，並確實履行** | `app/pages/legal/terms.vue`（prerender）<br>`public.legal_document`（kind='terms'）<br>`public.legal_acceptance` | 條款正文含「著作權保護措施」專章。**版本與 `content_sha256` 寫進 `legal_document`**；使用者首次登入後在 `/app` 顯示一次性同意，寫入 `legal_acceptance`。沒有這兩張表，日後無從舉證「已於侵權發生時告知」。 |
-| **② 三振條款（三次侵權終止服務）** | `app/pages/legal/terms.vue` 明文條列<br>`public.copyright_strike` + `admin_add_strike()` + `profile.service_status`<br>`app/pages/app/notices.vue` | 條款須明白寫出「三次涉有侵權情事應終止全部或部分服務」。技術落點：第 2 次 `limited`、第 3 次 `terminated`。停權後 `profile_select` 與 `viewing_record_select` 都檢查 `service_status`，公開內容**立即**消失，不需另一支批次工作。 |
+| **② 三振條款（三次侵權終止服務）** | `app/pages/legal/terms.vue` 明文條列<br>`public.copyright_strike` + `admin_add_strike()` + `profile_private.service_status`<br>`app/pages/app/notices.vue` | 條款須明白寫出「三次涉有侵權情事應終止全部或部分服務」。技術落點：第 2 次 `limited`、第 3 次 `terminated`。停權後 `profile_select` 與 `viewing_record_select` 都檢查 `service_status`，公開內容**立即**消失，不需另一支批次工作。 |
 | **③ 公告接收侵權通知的聯繫窗口** | `app/pages/legal/copyright.vue`（prerender）<br>`app/layouts/default.vue` 頁尾常駐連結 | 頁面載明窗口電子郵件 `copyright@filmnote.tw`、聯絡地址、受理程序、所需記載事項（§90-6 及施行辦法）。**必須全站每一頁都能到達。** |
 | **④ 通知／取下／回復通知流程** | 通知：`app/pages/legal/copyright/notice.vue` + `server/api/legal/notice.post.ts` → `public.takedown_notice`<br>取下：`admin_takedown()` 設 `moderation_state='removed'`<br>告知使用者：`takedown_notice.notified_user_at` + `/app/notices`<br>回復通知：`app/pages/legal/copyright/counter/[id].vue` → `public.counter_notice`<br>期限：`business_days_after()` trigger<br>回復：`admin_restore()` | **取下一律是狀態不是 DELETE** —— 刪掉就永遠無法履行 §90-9 的回復義務，這是事後補不回來的 schema 決定。`forwarded_at` 一填，trigger 自動算出 `litigation_proof_due_at`（+10 工作日）與 `restore_due_at`（+14 工作日），各處實作不會漂移。 |
 
