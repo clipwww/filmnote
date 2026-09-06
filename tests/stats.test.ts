@@ -6,15 +6,18 @@ import {
   doubleFeatureDays,
   homeVenue,
   hourGrid,
+  hourInsightText,
   inHourRow,
   isoDow,
   MIDNIGHT_LABEL,
   monthlyBaselineSeries,
   monthlySeries,
   monthlySeriesToDate,
+  peakStandsOut,
   slotTitle,
   spendText,
   topWithRest,
+  venueInsightText,
   weekendEveningShare,
   weekIndexInYear,
   yearStripRows,
@@ -326,5 +329,104 @@ describe('金額的呈現', () => {
   it('非 TWD 不硬套 NT$', () => {
     expect(spendText(1200, 'JPY', false)).toBe('JPY 1,200')
     expect(spendText(1200, 'JPY', true)).toBe('JPY 1,200 以上')
+  })
+})
+
+describe('圖說：「最」要是真的', () => {
+  /** David 的真實時段分布（user_year_stats 實測 2026-09-06）。 */
+  function davidHours() {
+    const rows: { weekday: number, hour: number, records: number }[] = []
+    // 前三高：週六 14:00=9、週六 10:00=9、週五 22:00=8 —— **前兩名並列**
+    rows.push({ weekday: 6, hour: 14, records: 9 })
+    rows.push({ weekday: 6, hour: 10, records: 9 })
+    rows.push({ weekday: 5, hour: 22, records: 8 })
+    // 其餘 64 格湊到 174 場，且維持週末 78.7% 的形狀
+    for (let i = 0; i < 40; i++)
+      rows.push({ weekday: 5 + (i % 3), hour: 9 + (i % 12), records: 2 })
+    for (let i = 0; i < 24; i++)
+      rows.push({ weekday: 1 + (i % 4), hour: 9 + (i % 12), records: 2 })
+    return rows
+  }
+
+  it('★ 前兩名並列時不可以講「最」——那是在並列裡任意挑一個', () => {
+    // 這正是舊邏輯輸出「你最常在週六 10:00 進場，共 9 場」的那組資料。
+    // 9 場不小（z 分數會過關），但「最」宣稱的是**唯一性**。
+    expect(peakStandsOut([9, 9, 8, 2, 2, 2])).toBe(false)
+  })
+
+  it('明顯領先時可以講', () => {
+    expect(peakStandsOut([120, 14, 10, 8, 5])).toBe(true)
+  })
+
+  it('★ 領先再多，太少場也不算習慣', () => {
+    // 4 場 vs 1 場是 4 倍領先，但 4 場不是一個習慣，是巧合
+    expect(peakStandsOut([4, 1, 1])).toBe(false)
+    expect(peakStandsOut([5, 1, 1])).toBe(true)
+  })
+
+  it('只有一格有資料時不必比領先幅度', () => {
+    expect(peakStandsOut([7, 0, 0])).toBe(true)
+  })
+
+  it('★ David 的真實分布：講週末佔比（真的），不講並列的尖峰（假的）', () => {
+    const text = hourInsightText(davidHours(), '全部年度')!
+    expect(text).toContain('週五到週日')
+    expect(text).not.toContain('最常')
+    expect(text).not.toContain('10:00')
+  })
+
+  it('★ 聚合句必須真的在講多數——39% 不可以寫成「你 39% 的場次在…」', () => {
+    // 實測 David 的「週末晚上」是 39%，基準線 30%（3/7 × 8/16）⇒ 倍率 1.3。
+    // 光看 lift 會放行，畫面上就出現「你 39% 的場次在週五到週日的晚上」——
+    // 技術上沒說錯，但使用者讀到的是「這就是我的樣子」，而 61% 不是那樣。
+    // ⚠️ 總筆數必須 >= INSIGHT_MIN(20)，否則會走「樣本不足」那條早退路徑而
+    //    根本進不到聚合分支——第一版寫成 10 筆，**弄壞實作時測試照樣綠**。
+    // 這組：20 場，週末晚上 8/20 = 40%、週末 40%、晚場 40% ⇒ 三個分支都該被擋。
+    // 而尖峰 8 vs 6 不到 1.5 倍 ⇒ 也不准講「最」。
+    const rows = [
+      { weekday: 6, hour: 20, records: 8 }, // 週末晚上
+      { weekday: 2, hour: 10, records: 6 }, // 平日白天
+      { weekday: 3, hour: 11, records: 6 }, // 平日白天
+    ]
+    const text = hourInsightText(rows, '全部年度')!
+    expect(text).not.toMatch(/你 \d+% 的場次/)
+  })
+
+  it('樣本不足時只敘述，不出現「最」「主場」「你的」', () => {
+    const few = [{ weekday: 6, hour: 10, records: 2 }, { weekday: 3, hour: 14, records: 1 }]
+    const text = hourInsightText(few, '2026 年')!
+    expect(text).toContain('2026 年')
+    expect(text).not.toContain('最')
+  })
+
+  it('★ 什麼都站不出來時，給一句真的敘述而不是硬講一個「最」', () => {
+    // 平坦分布：40 格各 5 場，沒有尖峰也沒有週末/晚場的偏斜
+    const flat = Array.from({ length: 40 }, (_, i) => ({
+      weekday: (i % 7) + 1,
+      hour: 9 + (i % 6), // 全部落在 09–14，晚場佔比 0 ⇒ 聚合也站不出來
+      records: 5,
+    }))
+    const text = hourInsightText(flat, '全部年度')!
+    expect(text).toContain('沒有特別集中')
+    expect(text).not.toContain('最常')
+  })
+
+  it('影城：站得出來才叫「主場」，站不出來改講前三家的佔比', () => {
+    const dominant = [
+      { venue_id: 'a', name: '林口威秀', city: null, kind: null, records: 120 },
+      { venue_id: 'b', name: '信義威秀', city: null, kind: null, records: 14 },
+      { venue_id: 'c', name: '京站威秀', city: null, kind: null, records: 10 },
+    ]
+    expect(venueInsightText(dominant, 144, '全部年度')).toContain('主場')
+
+    const flat = [
+      { venue_id: 'a', name: 'A', city: null, kind: null, records: 30 },
+      { venue_id: 'b', name: 'B', city: null, kind: null, records: 28 },
+      { venue_id: 'c', name: 'C', city: null, kind: null, records: 25 },
+      { venue_id: 'd', name: 'D', city: null, kind: null, records: 20 },
+    ]
+    const text = venueInsightText(flat, 103, '全部年度')!
+    expect(text).not.toContain('主場')
+    expect(text).toContain('最常去的三家')
   })
 })

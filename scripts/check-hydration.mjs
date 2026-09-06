@@ -1,6 +1,7 @@
 import process from 'node:process'
 
-// SSR 頁的 hydration 驗收。**亮暗兩種偏好都要各重新載入一次。**
+// SSR 頁的**瀏覽器端健康檢查**：hydration mismatch ＋ 任何 console error／pageerror。
+// **亮暗兩種偏好都要各重新載入一次。**
 //
 //   PLAYWRIGHT_CORE=… node scripts/check-hydration.mjs /u/clipwww /film/xxx
 //
@@ -12,6 +13,17 @@ import process from 'node:process'
 //
 // ⚠️ **一定要兩種偏好都跑。** 實測那次的病灶只有 `preference=dark` 會出現
 //    35 條警告，`preference=light` 是 0 條——只驗亮色會得到一個乾淨的假象。
+//
+// ── ★★ 為什麼連「一般的 console error」也要當成失敗 ──────────────────────
+// 2026-09-06 實測：把一個匯出的函式從 `app/composables/` 搬到 `app/utils/`
+// 之後，dev server 的模組圖沒有跟著更新，瀏覽器收到
+// `SyntaxError: The requested module '…/useUserSpend.ts' does not provide an
+// export named 'spendText'` ⇒ **`/u/` 整頁一條 band 都畫不出來**。
+// 而同一時間 `pnpm typecheck` / `lint` / `test` / `verify:all` **四個全綠**：
+//   · typecheck 讀的是 Nuxt 產生的 imports.d.ts，那份已經是對的
+//   · verify:all 的 `u/html-has-content` 檢查的是 **SSR 的 HTML**，
+//     而 SSR 本來就正常——爆掉的是 client 端的 hydration
+// ⇒ 「這一頁在真的瀏覽器裡跑不跑得起來」沒有任何自動檢查在守。這一支就是。
 //
 // ⚠️ playwright-core 刻意不是專案相依（只給人工驗收用），用 PLAYWRIGHT_CORE 指路。
 // ⚠️ 絕對不要 browser.close()——那會關掉使用者的瀏覽器。斷開用 process.exit(0)。
@@ -29,9 +41,9 @@ const page = await browser.contexts()[0].newPage()
 const logs = []
 page.on('console', (m) => {
   if (m.type() === 'error' || m.type() === 'warning')
-    logs.push(m.text())
+    logs.push({ level: m.type(), text: m.text() })
 })
-page.on('pageerror', e => logs.push(String(e)))
+page.on('pageerror', e => logs.push({ level: 'pageerror', text: String(e) }))
 
 let bad = 0
 try {
@@ -51,11 +63,14 @@ try {
       await page.reload({ waitUntil: 'networkidle' })
       await page.waitForTimeout(1800)
 
-      const hits = logs.filter(t => /Hydration|mismatch/i.test(t))
+      const hydration = logs.filter(l => /Hydration|mismatch/i.test(l.text))
+      // ★ 任何 error／pageerror 都算失敗，不只 hydration —— 見檔頭。
+      const errors = logs.filter(l => l.level === 'error' || l.level === 'pageerror')
+      const hits = [...new Set([...hydration, ...errors])]
       const mark = hits.length ? '❌' : '✅'
-      console.log(`${mark} ${path}  preference=${pref}  hydration 警告 ${hits.length} 條`)
-      for (const h of hits.slice(0, 3))
-        console.log(`     ↳ ${h.replace(/\s+/g, ' ').slice(0, 180)}`)
+      console.log(`${mark} ${path}  preference=${pref}  hydration ${hydration.length} 條／console error ${errors.length} 條`)
+      for (const h of hits.slice(0, 4))
+        console.log(`     ↳ [${h.level}] ${h.text.replace(/\s+/g, ' ').slice(0, 170)}`)
       if (hits.length)
         bad++
     }
@@ -67,5 +82,5 @@ try {
 finally {
   await page.close()
 }
-console.log(bad ? `\n❌ ${bad} 組有 hydration mismatch` : '\n✅ 全部乾淨')
+console.log(bad ? `\n❌ ${bad} 組有 hydration mismatch 或 console 錯誤` : '\n✅ 全部乾淨')
 process.exit(bad ? 1 : 0)

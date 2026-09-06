@@ -435,11 +435,72 @@ export function slotTitle(weekday: number, rowLabel: string): string {
 export const INSIGHT_MIN = 20
 
 /**
+ * ★★ **「最」要是真的**（David 2026-09-06 裁決，收緊 `SCREENS §9c.3`）。
+ *
+ * `INSIGHT_MIN` 守的是**總筆數**，但那守不到真正的問題。實測 David 的時段分布：
+ * 174 場、67 個有值的格子，**最高 9 場、第二高也是 9 場、第三高 8 場**
+ * （週六 14:00、週六 10:00、週五 22:00）。舊邏輯照樣輸出
+ * 「你最常在週六 10:00 進場，共 9 場」——那句話**不是弱，是不成立**：
+ * 它在兩個並列的格子裡任意挑了一個，而使用者會把它讀成一個發現。
+ *
+ * ⇒ 門檻要守的是**「這個尖峰有沒有從分布裡站出來」**，不是總筆數。
+ */
+
+/** 絕對下限。低於這個數字的「最」不是習慣，是巧合。 */
+export const PEAK_MIN_RECORDS = 5
+
+/**
+ * 尖峰必須明顯領先第二名。**這一條才是抓到 David 那個並列的東西**——
+ * 只看「尖峰夠不夠大」（例如 z 分數）會放行 9 vs 9，因為 9 確實夠大。
+ * 「最」這個字宣稱的是**唯一性**，所以判準也必須是唯一性。
+ */
+export const PEAK_LEAD = 1.5
+
+/**
+ * 聚合型斷言（「X% 的場次在週末」）的門檻：至少要是**平均分佈**的這麼多倍。
+ *
+ * 聚合橫跨很多格，所以不受單格雜訊影響——那正是尖峰站不出來時仍然講得出
+ * 真話的原因。基準線是「完全平均分佈時會是多少」：週末是 3/7 ＝ 42.9%，
+ * 所以 1.4 倍 ＝ 60%。實測 David 週末 **78.7%**（過關，而且是真的）。
+ */
+export const AGGREGATE_LIFT = 1.4
+
+/**
+ * ★ 而且它必須真的在講**多數**。
+ *
+ * 只看「有沒有高過平均分佈」是不夠的：實測 David 的「週末晚上」是 **39%**，
+ * 基準線 30%（3/7 × 8/16），倍率 1.3 ⇒ 光看 lift 會放行，
+ * 於是畫面上出現「**你 39% 的場次在週五到週日的晚上**」。
+ * 那句話技術上沒說錯，但讀起來是假的——使用者讀到的是「這就是我的樣子」，
+ * 而 61% 的場次不是那樣。**判準是「這句話講出去要是對的」，不是「數學上站得住」。**
+ */
+export const AGGREGATE_MIN_SHARE = 50
+
+/**
+ * 這一組數字裡的最大值，有沒有「站出來」到可以被稱為「最」。
+ *
+ * ⚠️ 兩頁（`/app` 與 `/u/`）共用這一支。各留一份判斷一定會漂移，
+ *    而漂移之後沒有人會發現——沒有人會把兩頁的同一句圖說擺在一起看。
+ */
+export function peakStandsOut(counts: number[]): boolean {
+  const sorted = [...counts].filter(n => n > 0).sort((a, b) => b - a)
+  const top = sorted[0] ?? 0
+  const second = sorted[1] ?? 0
+  if (top < PEAK_MIN_RECORDS)
+    return false
+  // 第二名是 0（只有一格有資料）時不必比領先幅度，它本來就是唯一的
+  return second === 0 || top >= PEAK_LEAD * second
+}
+
+/**
  * 時段熱點圖的圖說。
  *
+ * 順序是**由穩健到脆弱**：先講跨很多格的聚合（不受單格雜訊影響），
+ * 站不出來的尖峰**不講**，什麼都站不出來時給一句純敘述——
+ * 「沒有特別集中的一格」本身就是一個發現，而且是真的。
+ *
  * ⚠️ **這一段刻意放在 `utils` 而不是各自寫在兩個頁面裡。** `/app` 與 `/u/` 畫的是
- * 同一張圖，圖說各留一份的話**一定會漂移**——而漂移之後沒有人會發現，
- * 因為沒有人會把兩頁的同一張圖擺在一起看（`backend.md §6e` 對
+ * 同一張圖，圖說各留一份的話**一定會漂移**（`backend.md §6e` 對
  * 「一個欄位餵兩個用途」講的是同一件事）。
  *
  * `scopeLabel` 是「全部年度」或「2019 年」：**每一句圖說都要說得出自己涵蓋
@@ -449,38 +510,82 @@ export function hourInsightText(rows: YearStats['weekday_hour'], scopeLabel: str
   const n = rows.reduce((sum, r) => sum + r.records, 0)
   if (!n)
     return null
-  if (n < INSIGHT_MIN) {
-    const slots = new Set(rows.map(r => `${r.weekday}:${r.hour}`)).size
+
+  const grid = hourGrid(rows)
+  const slots = new Set(rows.map(r => `${r.weekday}:${r.hour}`)).size
+
+  if (n < INSIGHT_MIN)
     return `${scopeLabel}的 ${n} 場分佈在 ${slots} 個時段。`
+
+  // ── ① 穩健的聚合：橫跨很多格，單格的雜訊動不了它 ──────────────────────
+  const isEvening = (h: number) => h >= 17 || MIDNIGHT_HOURS.includes(h)
+  const share = (pred: (r: YearStats['weekday_hour'][number]) => boolean) =>
+    Math.round((rows.filter(pred).reduce((m, r) => m + r.records, 0) / n) * 100)
+
+  // 最具體的先試：週末的晚上。基準線是 (3/7) × (晚場列數 / 全部列數)。
+  const eveningRows = grid.rows.filter(l => l === MIDNIGHT_LABEL || Number(l.slice(0, 2)) >= 17).length
+  const eveningBase = eveningRows / grid.rows.length
+  // ★ 直接用既有的 `weekendEveningShare()`，不要在這裡重算一份同樣的東西
+  //   ——兩份一定會在某次修改後給出不一致的數字。
+  const weShare = weekendEveningShare(rows)
+  if (weShare >= AGGREGATE_MIN_SHARE && weShare >= Math.round((3 / 7) * eveningBase * AGGREGATE_LIFT * 100))
+    return `你 ${weShare}% 的場次在週五到週日的晚上。`
+
+  // 週末（基準線 3/7 ＝ 42.9%，門檻 60%）
+  const weekendShare = share(r => WEEKEND_ISODOW.has(r.weekday))
+  if (weekendShare >= AGGREGATE_MIN_SHARE && weekendShare >= Math.round((3 / 7) * AGGREGATE_LIFT * 100))
+    return `你 ${weekendShare}% 的場次在週五到週日。`
+
+  // 晚場（基準線由格盤自己算，David 約 50% ⇒ 51.7% 不過關，那本來就不是發現）
+  const eveningShare = share(r => isEvening(r.hour))
+  if (eveningShare >= AGGREGATE_MIN_SHARE && eveningShare >= Math.round(eveningBase * AGGREGATE_LIFT * 100))
+    return `你 ${eveningShare}% 的場次在晚上。`
+
+  // ── ② 尖峰：**只有真的站得出來才准講「最」** ──────────────────────────
+  const peak = peakStandsOut(rows.map(r => r.records)) ? peakSlot(rows) : null
+  if (peak) {
+    const hour = MIDNIGHT_HOURS.includes(peak.hour)
+      ? MIDNIGHT_LABEL
+      : `${String(peak.hour).padStart(2, '0')}:00`
+    return `你最常在週${WEEKDAY_LABELS[peak.weekday - 1]} ${hour} 進場，共 ${peak.records} 場。`
   }
-  const share = weekendEveningShare(rows)
-  if (share >= 50)
-    return `你 ${share}% 的場次在週五到週日的晚上。`
-  const peak = peakSlot(rows)
-  if (!peak)
-    return null
-  const hour = MIDNIGHT_HOURS.includes(peak.hour)
-    ? MIDNIGHT_LABEL
-    : `${String(peak.hour).padStart(2, '0')}:00`
-  return `你最常在週${WEEKDAY_LABELS[peak.weekday - 1]} ${hour} 進場，共 ${peak.records} 場。`
+
+  // ── ③ 都站不出來 ⇒ 純敘述。「沒有特別集中的一格」也是一個發現。 ────────
+  return `${scopeLabel}的 ${n} 場散在 ${slots} 個時段，沒有特別集中的一格。`
 }
 
-/** 影城分布的圖說。同上，兩頁共用。 */
+/**
+ * 影城分布的圖說。同上，兩頁共用，而且「主場」也要真的站得出來。
+ *
+ * 實測 David：120 / 14 / 10…，佔 69% ⇒ 站得出來，「主場」是真的。
+ * 但如果最高的那家只比第二名多一點，「你的主場是 X」就是一句任意的話。
+ */
 export function venueInsightText(
   venues: YearStats['venues'],
   totalRecords: number,
   scopeLabel: string,
 ): string | null {
-  const top = homeVenue(venues)
-  if (!totalRecords || !top)
+  if (!totalRecords || !venues.length)
     return null
   // 樣本不足就只敘述，不說「你的主場」——8 場裡的 6 場不構成「主場」
   if (totalRecords < INSIGHT_MIN)
     return `${scopeLabel}的 ${totalRecords} 場分佈在 ${venues.length} 個場所。`
-  return `你的主場是 ${top.name}，${top.share}% 的場次在這裡。`
+
+  const top = homeVenue(venues)
+  if (top && peakStandsOut(venues.map(v => v.records)))
+    return `你的主場是 ${top.name}，${top.share}% 的場次在這裡。`
+
+  // 站不出來就講一句**集合層級**的真話：不宣稱唯一的贏家，但仍然有資訊
+  const total = venues.reduce((m, v) => m + v.records, 0)
+  const topThree = [...venues].sort((a, b) => b.records - a.records).slice(0, 3)
+  const shareOfThree = Math.round((topThree.reduce((m, v) => m + v.records, 0) / Math.max(1, total)) * 100)
+  return `${scopeLabel}的場次分散在 ${venues.length} 個場所，最常去的三家佔 ${shareOfThree}%。`
 }
 
-/** 最常進場的那一格。`weekendEveningShare` 在週末佔比不高時沒有洞察力，改講這個。 */
+/**
+ * 最大值那一格。⚠️ **它只是最大值，不是「最」**——要宣稱「最」之前必須先過
+ * `peakStandsOut()`（實測 David 的前兩名都是 9 場，argmax 是任意挑一個）。
+ */
 export function peakSlot(rows: YearStats['weekday_hour']): { weekday: number, hour: number, records: number } | null {
   let best: { weekday: number, hour: number, records: number } | null = null
   for (const r of rows) {
