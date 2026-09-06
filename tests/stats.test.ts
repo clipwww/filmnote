@@ -9,7 +9,9 @@ import {
   inHourRow,
   isoDow,
   MIDNIGHT_LABEL,
+  monthlyAverageSeries,
   monthlySeries,
+  monthlySeriesToDate,
   slotTitle,
   topWithRest,
   weekendEveningShare,
@@ -108,6 +110,50 @@ describe('月度趨勢', () => {
     expect(s.length).toBe(12)
     expect(s[2]).toBe(4)
     expect(s[0]).toBe(0)
+  })
+
+  it('歷年每月平均＝該月份的全期總場次 ÷ 年份數', () => {
+    // David 的真實分佈（user_year_stats('clipwww', null) 實測）：
+    // 1:11 2:11 3:18 4:12 5:11 6:10 7:13 8:14 9:15 10:24 11:17 12:18，共 174 場、13 個年份
+    const totals = [11, 11, 18, 12, 11, 10, 13, 14, 15, 24, 17, 18]
+    const monthly = totals.map((records, i) => ({
+      month: i + 1,
+      records,
+      tickets: records,
+      spend: 0,
+      spend_is_partial: false,
+    }))
+    const avg = monthlyAverageSeries(monthly, 13)
+    expect(avg).not.toBeNull()
+    expect(avg!).toHaveLength(12)
+    // 十月是旺季：24 / 13 = 1.85
+    expect(avg![9]).toBe(1.85)
+    expect(avg![0]).toBe(0.85)
+    // 總和 ÷ 年份數要等於「平均一年看幾場」
+    const perYear = avg!.reduce((a, b) => a + b, 0)
+    expect(perYear).toBeCloseTo(174 / 13, 1)
+  })
+
+  it('年份數不明時不畫平均線——寧可少一條，也不要除以錯的數字', () => {
+    const monthly = [{ month: 1, records: 5, tickets: 5, spend: 0, spend_is_partial: false }]
+    expect(monthlyAverageSeries(monthly, undefined)).toBeNull()
+    expect(monthlyAverageSeries(monthly, 0)).toBeNull()
+    expect(monthlyAverageSeries([], 13)).toBeNull()
+  })
+
+  it('看今年時，還沒到的月份是斷點不是 0', () => {
+    const monthly = [{ month: 1, records: 3, tickets: 3, spend: 0, spend_is_partial: false }]
+    const today = new Date('2026-03-15T00:00:00Z')
+    const s = monthlySeriesToDate(monthly, 2026, today)
+    expect(s[0]).toBe(3)
+    expect(s[1]).toBe(0) // 二月過了但沒去 ⇒ 真的是 0
+    expect(s[2]).toBe(0) // 三月進行中
+    expect(s[3]).toBeNull() // 四月還沒到 ⇒ 斷點，不是 0
+    expect(s[11]).toBeNull()
+    // 看往年時整年都過完了，12 個月都是數字
+    expect(monthlySeriesToDate(monthly, 2025, today).every(v => v !== null)).toBe(true)
+    // 全期視角沒有「未來的月份」
+    expect(monthlySeriesToDate(monthly, null, today).every(v => v !== null)).toBe(true)
   })
 })
 

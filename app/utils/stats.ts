@@ -33,6 +33,18 @@ export interface YearStats {
   /** ⚠️ `weekday` 是 **isodow**：1=週一 … 7=週日。不是 `dow` 的 0=週日。 */
   weekday_hour: { weekday: number, hour: number, records: number }[]
   monthly: { month: number, records: number, tickets: number, spend: number, spend_is_partial: boolean }[]
+  /**
+   * 全期視角（`p_year = null`）才有內容，指定年份時是空陣列。
+   * ⚠️ `spend_is_partial` 是**逐年**的旗標：全期把十三年混在一起的那個 true
+   *    對前端沒有用（只要任何一年有未公開票價就會是 true）。
+   */
+  by_year?: { year: number, records: number, films: number, tickets: number, spend: number, spend_is_partial: boolean }[]
+  /**
+   * 156 個月的時間序列（`YYYY-MM`），全期視角才有內容。
+   * 與 `monthly` 是**兩種不同的問題**：`monthly` 是十三年的同月份加總
+   * （「我幾月比較常看片」），這一支是走勢（「我這些年看片量的變化」）。
+   */
+  monthly_series?: { month: string, records: number, tickets: number, spend: number, spend_is_partial: boolean }[]
   venues: { venue_id: string | null, name: string | null, city: string | null, kind: string | null, records: number }[]
   countries: { country: string, records: number }[]
   formats: { code: string, label: string, records: number }[]
@@ -162,6 +174,52 @@ export function weekendEveningShare(rows: YearStats['weekday_hour']): number {
 export function monthlySeries(monthly: YearStats['monthly']): number[] {
   const by = new Map(monthly.map(m => [m.month, m.records]))
   return Array.from({ length: 12 }, (_, i) => by.get(i + 1) ?? 0)
+}
+
+/**
+ * 同上，但**還沒到的月份給 null 而不是 0**（`DESIGN_SYSTEM §5.3-8`）。
+ *
+ * 看的是今年時，12 月的 0 跟 3 月的 0 意思完全不同：一個是「還沒發生」，
+ * 一個是「那個月沒去」。畫成 0 會讓折線在年中直接墜到底，看起來像
+ * 「他從七月就不看電影了」。ECharts 對 null 的處理是斷線，那正是我們要的。
+ *
+ * `year` 或 `today` 給 null 時退回 `monthlySeries()` 的行為（全部補 0）——
+ * 全期視角本來就沒有「未來的月份」。
+ */
+export function monthlySeriesToDate(
+  monthly: YearStats['monthly'],
+  year: number | null,
+  today = new Date(),
+): (number | null)[] {
+  const filled = monthlySeries(monthly)
+  if (year === null || year !== today.getFullYear())
+    return filled
+  const thisMonth = today.getMonth() + 1
+  return filled.map((v, i) => (i + 1 > thisMonth ? null : v))
+}
+
+/**
+ * 歷年每月平均——月度趨勢圖上那條虛線（視覺稿 band 4，圖例「2014–2026 每月平均」）。
+ *
+ * 定義精確地是：**該日曆月份在所有年度的總場次 ÷ 年份數**。
+ * 不是「當年度的月平均」（那會是一條水平線，也回答不了「十月是不是我的旺季」），
+ * 也不是「每年平均看幾場」。
+ *
+ * ⚠️ 資料一律取自 `user_year_stats(username, null)` 的 `monthly`，**不要在前端
+ *    拿紀錄列表就地算**：`/u/` 上別人拿得到的紀錄集合與本人不同（RLS 依觀看者
+ *    而異），就地算會讓同一個人的「歷年平均」因為誰在看而不一樣。
+ *
+ * 年份數不明（`by_year` 空的、或全期資料還沒回來）時回 null——
+ * **寧可不畫那條線，也不要畫一條除以錯的數字的線**。
+ */
+export function monthlyAverageSeries(
+  allTimeMonthly: YearStats['monthly'] | undefined,
+  yearCount: number | undefined,
+): number[] | null {
+  if (!allTimeMonthly?.length || !yearCount)
+    return null
+  const totals = monthlySeries(allTimeMonthly)
+  return totals.map(v => Math.round((v / yearCount) * 100) / 100)
 }
 
 /* ─────────────────────────── 分布長條 ─────────────────────────── */

@@ -37,6 +37,31 @@ const loading = computed(() => allStatus.value === 'pending' || status.value ===
 const totals = computed(() => stats.value?.totals ?? null)
 
 /**
+ * 月度趨勢的基準線：歷年每月平均（視覺稿 band 4 的虛線）。
+ * 取自**全期**那一份（`allStats`，`p_year = null`），不是當年度的那一份——
+ * 它問的是「這個月對我來說算多還是算少」，分母是年份數。
+ * `by_year` 空的時候 `monthlyAverageSeries()` 回 null，那條線就不畫：
+ * 寧可少一條線，也不要畫一條除以錯的數字的線。
+ */
+const monthlyAverage = computed(() =>
+  monthlyAverageSeries(allStats.value?.monthly, allStats.value?.by_year?.length))
+
+const averageLegendLabel = computed(() => {
+  const years = allStats.value?.by_year ?? []
+  if (!years.length)
+    return '歷年每月平均'
+  const ys = years.map(y => y.year)
+  return `${Math.min(...ys)}–${Math.max(...ys)} 每月平均`
+})
+
+/** 圖例的色塊要跟 canvas 裡的線同色，所以從同一組色票取。 */
+// composable 必須在 setup 作用域呼叫，不能包在 computed 的 getter 裡
+const legendColorMode = useColorMode()
+const legendPalette = computed(() => chartPalette(legendColorMode.value === 'dark'))
+const legendInk = computed(() => legendPalette.value.text0)
+const legendAvg = computed(() => legendPalette.value.heat[2])
+
+/**
  * §9.3 的中間態：**圖表 band 在資料 ≥10 筆才出現。**
  * 不到門檻時只顯示年表與票根列表，並寫出「再記 N 場就會出現時段分析」——
  * 四張圖同時只有兩三個點，比沒有更糟。
@@ -355,7 +380,22 @@ const demoCells = Array.from({ length: 7 * 26 }, (_, i) => {
 
         <!-- ── band 4：月度趨勢 ── -->
         <ChartBand title="每個月" table-summary="看每個月的數字">
-          <MonthlyTrend :monthly="stats?.monthly ?? []" />
+          <MonthlyTrend
+            :monthly="stats?.monthly ?? []"
+            :average="monthlyAverage"
+            :year="activeYear"
+          />
+          <!-- 圖例自己用 HTML 畫（見 frontend 交接 §3：canvas 的圖例拿不到鍵盤與螢幕閱讀器） -->
+          <p v-if="monthlyAverage" class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
+            <span class="inline-flex items-center gap-1.5">
+              <span class="inline-block h-0.5 w-4 align-middle" :style="{ background: legendInk }" />
+              {{ activeYear === null ? '全部年度' : `${activeYear} 年` }}
+            </span>
+            <span class="inline-flex items-center gap-1.5">
+              <span class="inline-block h-0 w-4 align-middle border-t border-dashed" :style="{ borderColor: legendAvg }" />
+              {{ averageLegendLabel }}
+            </span>
+          </p>
           <template #table>
             <table class="w-full text-sm tabular-nums">
               <thead class="text-muted">
