@@ -28,7 +28,8 @@
     "ingest:cinema": "tsx src/pipeline/ingest-cinema.ts",
     "db:sql": "tsx --env-file=.env scripts/db.ts",
     "import:mylog": "tsx --env-file=.env scripts/import-mylog.ts",
-    "tmdb:backfill": "tsx --env-file=.env scripts/tmdb-backfill.ts"
+    "tmdb:backfill": "tsx --env-file=.env scripts/tmdb-backfill.ts",
+    "verify:all": "tsx --env-file=.env scripts/verify-all.ts"
   },
   "dependencies": {
     "@internationalized/date": "^3.12.3",
