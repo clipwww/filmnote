@@ -557,11 +557,6 @@ await runSsrAndOgChecks({
     skip(id, guards ?? '踩雷 #79：訪客的 access_token 不得被寫進 CDN', why),
 })
 
-{
-  {
-  }
-}
-
 const failed = results.filter(r => !r.ok)
 const skipped = results.filter(r => r.skipped)
 console.log(`\n── 合計 ── 通過 ${results.length - failed.length - skipped.length}`

@@ -212,7 +212,7 @@ export async function runSsrAndOgChecks(r: Reporter): Promise<void> {
       //    是乾淨的**（真正的頁面可能還沒寫，或寫了之後才開始塞東西進 useState）。
       //    所以照驗，但在標籤上講清楚它只是弱證據。
       const weak = res.status === 404 ? '（⚠️ 這條路由目前是 404，只驗到錯誤頁）' : ''
-      record(`★ ${pattern} 會被快取 ⇒ payload 不得夾帶身分（${path}）${weak}`, found.length === 0, `HTTP ${res.status}，HTML 裡出現了 ${found.join(' / ')}`)
+      record(`★ ${pattern} 會被快取 ⇒ payload 不得夾帶身分（${path}）${weak}`, found.length === 0, `HTTP ${res.status}，HTML 裡出現了 ${found.join(' / ')}`, GUARD_PAYLOAD)
     }
 
     record('至少有一條可快取路由被驗到（否則整段是空轉）', cacheablePaths.length > 0, '沒有任何 routeRules 標成 isr/prerender/cache')
@@ -259,13 +259,18 @@ export async function runSsrAndOgChecks(r: Reporter): Promise<void> {
         && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))
       const width = isPng ? buf.readUInt32BE(16) : 0
       const height = isPng ? buf.readUInt32BE(20) : 0
-      record(`★ ${label}`, res.ok && isPng && width === 1200 && height === 630, `HTTP ${res.status}、${buf.length} bytes、isPng=${isPng}、${width}x${height}`
-      + `${res.ok && !isPng ? `、開頭：${buf.subarray(0, 60).toString('utf8')}` : ''}`)
+      record(
+        `★ ${label}`,
+        res.ok && isPng && width === 1200 && height === 630,
+        `HTTP ${res.status}、${buf.length} bytes、isPng=${isPng}、${width}x${height}`
+        + `${res.ok && !isPng ? `、開頭：${buf.subarray(0, 60).toString('utf8')}` : ''}`,
+        GUARD_OG,
+      )
     }
 
     // 對照組：不存在的使用者必須 404，而不是畫一張空圖出來。
     const ogMissing = await fetch(`${SITE}/api/og/u/zznosuchuser.png`)
-    record('★ 對照組：不存在的使用者 → 404（不是一張空圖）', ogMissing.status === 404, `實得 HTTP ${ogMissing.status}`)
+    record('★ 對照組：不存在的使用者 → 404（不是一張空圖）', ogMissing.status === 404, `實得 HTTP ${ogMissing.status}`, GUARD_OG)
   }
   finally {
     if (userId) {
