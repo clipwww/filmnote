@@ -24,9 +24,11 @@
  * 的假綠燈。**這類授權只能用真的 PostgREST + 真的使用者 JWT 測。**
  */
 
+import { execFileSync } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import process from 'node:process'
 import { Client, types as pgTypes } from 'pg'
+import { runSsrAndOgChecks } from './verify-http'
 
 // 與 scripts/db.ts 同：不要讓 node-postgres 把 date/timestamp 轉成 JS Date，
 // 那個顯示層會讓人得出完全相反的結論（交接筆記 2.1）。
@@ -484,6 +486,39 @@ async function assertNoResidue(): Promise<void> {
 
 const sqlOnly = process.argv.includes('--sql-only')
 
+/**
+ * ⚠️ 四個 session 共用一個工作樹。別人的 migration 或腳本改到一半時，
+ *   這支會變紅，而**紅的樣子跟自己造成的迴歸一模一樣**。
+ *   實測 2026-09-06：adminui 看到三條 US-47 斷言失敗、整批只跑 14 條就中止，
+ *   它正確地判斷是別人改到一半——但那個判斷花掉的時間本來可以省下來。
+ *
+ *   所以在最前面吵一聲。這裡刻意**不**阻止執行：那些變更多半是無害的，
+ *   而擋下驗收的成本比誤報高。
+ */
+function warnAboutDirtyTree(): void {
+  let dirty: string[] = []
+  try {
+    dirty = execFileSync('git', ['status', '--porcelain', '--', 'supabase/migrations', 'scripts'], { encoding: 'utf8' })
+      .split('\n')
+      .map(l => l.slice(3))
+      .filter(Boolean)
+  }
+  catch {
+    return // 不在 git 工作樹裡（例如 CI 用 tarball），那就沒有這個問題
+  }
+  if (!dirty.length)
+    return
+  console.log('⚠️  supabase/migrations 或 scripts 有未提交的變更：')
+  for (const f of dirty.slice(0, 8))
+    console.log(`     ${f}`)
+  if (dirty.length > 8)
+    console.log(`     …還有 ${dirty.length - 8} 個`)
+  console.log('   四個 session 共用一個工作樹 —— 下面的紅燈**可能不是你造成的**。')
+  console.log('   先 `git status` 看是誰在改，再決定要不要追。\n')
+}
+
+warnAboutDirtyTree()
+
 console.log('── SQL 斷言 ──')
 await runSqlFile('scripts/verify-core.sql', 'schema 不變量／RLS／TMDB 合規／資料完整性')
 await runSqlFile('scripts/verify-dmca.sql', '§90-4 通知／取下／三振／回復')
@@ -501,6 +536,29 @@ if (!sqlOnly) {
     await runHttpChecks({ url, anon, secret })
     await runAccountDeletionChecks({ url, anon, secret })
     await assertNoResidue()
+  }
+}
+
+/**
+ * ── SSR payload 與 OG 圖 ──────────────────────────────────────────────────
+ * 需要一個跑著的 Nuxt server，沒有就**略過**（不是失敗）：verify:all 必須在
+ * 沒有 server 的環境也能全綠。但被略過的斷言等於不存在，所以合計會把略過數
+ * 單獨列出來，而略過的理由裡寫明它守的是什麼。
+ *
+ * ★ 斷言本身住在 `scripts/verify-http.ts`，這裡**共用同一份**而不是抄一份。
+ *   它原本只能單獨跑，於是 `strip-auth-on-cacheable.ts` 的註解宣稱有一張安全網、
+ *   而 verify:all 從來沒跑過它（§7 #124）。
+ */
+console.log('\n── SSR payload 與 OG（需要 pnpm dev）──')
+await runSsrAndOgChecks({
+  record: (id, ok, detail, guards) =>
+    record(id, guards ?? '踩雷 #79：訪客的 access_token 不得被寫進 CDN', ok, detail),
+  skip: (id, why, guards) =>
+    skip(id, guards ?? '踩雷 #79：訪客的 access_token 不得被寫進 CDN', why),
+})
+
+{
+  {
   }
 }
 

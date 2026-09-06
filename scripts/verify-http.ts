@@ -36,6 +36,7 @@
 
 import { Buffer } from 'node:buffer'
 import process from 'node:process'
+import { pathToFileURL } from 'node:url'
 import { Client } from 'pg'
 
 const SITE = process.env.SITE ?? 'http://localhost:3000'
@@ -44,9 +45,32 @@ const EMAIL = 'zzssrprobe@example.com'
 interface Result { ok: boolean }
 const results: Result[] = []
 
-function record(label: string, ok: boolean, detail = ''): void {
-  results.push({ ok })
-  console.log(`${ok ? '✅' : '❌'} ${label}${ok ? '' : `\n     ↳ ${detail}`}`)
+/**
+ * 斷言的輸出介面。
+ *
+ * ★ 抽成介面是為了讓 `verify-all.ts` **共用同一份斷言**而不是抄一份。
+ *   這支原本只能單獨跑，於是 `strip-auth-on-cacheable.ts` 的註解宣稱有一張
+ *   安全網、而 `verify:all` 從來沒跑過它——**一個宣稱有安全網的註解比沒有註解
+ *   更糟，它會讓人不去補真的那個**（§7 #124）。
+ */
+export interface Reporter {
+  record: (label: string, ok: boolean, detail?: string, guards?: string) => void
+  skip: (label: string, why: string, guards?: string) => void
+}
+
+/** 兩組斷言守的是不同的東西，標籤不要混在一起。 */
+const GUARD_PAYLOAD = '踩雷 #79：訪客的 access_token 不得被寫進 CDN'
+const GUARD_OG = '§7 #118：OG 端點曾對每個請求回 400，只看狀態碼分不出圖還是 JSON'
+
+const standalone: Reporter = {
+  record(label, ok, detail = '') {
+    results.push({ ok })
+    console.log(`${ok ? '✅' : '❌'} ${label}${ok ? '' : `\n     ↳ ${detail}`}`)
+  },
+  skip(label, why) {
+    results.push({ ok: true })
+    console.log(`⏭️  ${label}\n     ↳ 略過：${why}`)
+  },
 }
 
 /**
@@ -79,18 +103,21 @@ function sampleFor(pattern: string, samples: Record<string, string>): string | n
   return null
 }
 
-async function main(): Promise<void> {
+export async function runSsrAndOgChecks(r: Reporter): Promise<void> {
+  const record = r.record
+
   const url = process.env.SUPABASE_URL
   const anon = process.env.SUPABASE_KEY
   const secret = process.env.SUPABASE_SECRET_KEY
-  if (!url || !anon || !secret || !process.env.DATABASE_URL) {
-    console.log('⏭️  略過：環境變數不齊')
-    return
-  }
+  if (!url || !anon || !secret || !process.env.DATABASE_URL)
+    return r.skip('ssr/og', '環境變數不齊')
+
   const alive = await fetch(SITE).then(() => true).catch(() => false)
   if (!alive) {
-    console.log(`⏭️  略過：${SITE} 沒有回應。先在另一個終端機跑 \`pnpm dev\`。`)
-    return
+    // ★ 略過而不是失敗：verify:all 必須在沒有 dev server 的環境（CI、剛 clone
+    //   的機器）也全綠。但**要吵**——被略過的斷言等於不存在，所以這一行要
+    //   出現在輸出裡，而且 verify:all 的合計會把略過數單獨列出來。
+    return r.skip('ssr/og', `${SITE} 沒有回應 —— 這一組守的是「訪客的 access_token 不得被寫進 CDN」（踩雷 #79）。先跑 \`pnpm dev\` 再跑一次。`)
   }
 
   // 取真的 slug / venue id / username，否則抓到的是 404 頁——那上面本來就
@@ -254,9 +281,12 @@ async function main(): Promise<void> {
   }
 }
 
-await main()
-
-const failed = results.filter(r => !r.ok).length
-console.log(`\n── 合計 ── 通過 ${results.length - failed}／失敗 ${failed}`)
-if (failed)
-  process.exit(1)
+// ★ 只有「直接被執行」時才自己跑。被 verify-all.ts 匯入時不能有副作用，
+//   否則那邊的輸出會多出一份亂序的斷言。
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await runSsrAndOgChecks(standalone)
+  const failed = results.filter(r => !r.ok).length
+  console.log(`\n── 合計 ── 通過 ${results.length - failed}／失敗 ${failed}`)
+  if (failed)
+    process.exit(1)
+}

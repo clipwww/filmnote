@@ -11,11 +11,10 @@
 ## 0. 先做這兩件事
 
 ```bash
-pnpm verify:all                                          # 25 條，全綠
+pnpm dev                                                 # 先開這個，verify:all 才會跑滿
+pnpm verify:all                                          # 36 條（沒有 dev server 時 25 條 + 1 略過）
 pnpm test                                                # 298 條，全綠
 pnpm typecheck                                           # 全綠（整個 repo）
-pnpm dev                                                 # 另一個終端機
-pnpm tsx --env-file=.env scripts/verify-http.ts           # 11 條，全綠
 pnpm tsx --env-file=.env scripts/verify-account-delete.ts # 11 條，全綠（會真的刪帳號）
 pnpm tsx --env-file=.env scripts/scan-git-secrets.ts      # push 前必跑
 ```
@@ -50,7 +49,7 @@ pnpm tsx --env-file=.env scripts/scan-git-secrets.ts      # push 前必跑
 | `/app/import` 的 CSV 剖析 | ✅ `POST /api/import/parse-csv` ＋ `server/utils/mylog-csv.ts`（19 條單元測試） |
 | `strip-auth-on-cacheable` 的隱性耦合 | ✅ 改成問 `getRouteRules(event)`，不再有第二份清單（§7 #117） |
 | **`/api/og/**` 從來沒有真的跑起來過** | ✅ router param 的鍵是 `username.png`，兩支端點對每個請求都回 400（§7 #118） |
-| SSR payload 與 OG 的 HTTP 驗收 | ✅ `scripts/verify-http.ts`（11 條，含兩組對照） |
+| SSR payload 與 OG 的 HTTP 驗收 | ✅ `scripts/verify-http.ts`，**已接進 `verify:all`**（11 條，含兩組對照） |
 | Step 11 憑證掃描 | ✅ `scripts/scan-git-secrets.ts`（掃**全部** 943 個物件，含 13 個不可達 blob） |
 | 「照著改」的覆蓋層 | ✅ `0012`：`admin_correct_film` / `admin_correct_venue` ＋ `seed_venues` RPC |
 | 全期統計（不分年份） | ✅ `0003` 加 `by_year` ＋ `monthly_baseline`（那支**本來就支援**全期，§7 #122） |
@@ -400,6 +399,26 @@ join——那是**片庫大小**的函數，不是使用者紀錄數的函數。
 ⇒ 使用者長到一萬筆時這個數字不會跟著長十倍。
 **改動時請維持「單一 rec_all、多次 group by」的形狀**；會爆掉的寫法是讓每組聚合
 各自 join 回 `viewing_record`。
+
+## 6f. verify:all 現在是 36 條，而且會自己吵
+
+- **有 dev server：36 條全綠。沒有：25 條 + 1 略過（仍然綠）。**
+  略過的那一行會寫明它守的是什麼（踩雷 #79），因為**被略過的斷言等於不存在**，
+  不吵出來就會變成「常常被略過的那一條」。
+- SSR payload 與 OG 的斷言住在 `scripts/verify-http.ts`，**兩個入口共用同一份**
+  （`export runSsrAndOgChecks(reporter)`）。單獨跑那支仍然可以，它有
+  `import.meta.url === pathToFileURL(process.argv[1]).href` 的入口守衛，
+  被匯入時不會有副作用。
+- **開頭會偵測 `supabase/migrations/**` 與 `scripts/**` 有沒有未提交的變更**，
+  有就印一行警告。四個 session 共用一個工作樹，別人改到一半時這支會變紅，
+  而紅的樣子跟自己造成的迴歸一模一樣——實測 adminui 就遇到過一次。
+  刻意**不**阻止執行：那些變更多半無害，擋下驗收的成本比誤報高。
+
+⚠️ **`verify-http.ts` 那一組守的是這個專案最貴的外洩**（踩雷 #79：@nuxtjs/supabase
+把 session 寫進 useState、Nuxt 把 useState 序列化進 `__NUXT_DATA__`、ISR 以路徑
+為單位快取 ⇒ 第一位登入者的 token 發給所有訪客）。它有一組**反向斷言**：
+不快取的 `/u/**` 上**必須看得到** token——只驗「可快取路由沒有 token」的話，
+中介層把所有路由都拔光也會全綠。
 
 ## 6. 給下一棒的提醒
 

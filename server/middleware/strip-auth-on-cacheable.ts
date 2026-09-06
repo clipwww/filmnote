@@ -53,7 +53,8 @@
  * 這裡會自動開始拔 cookie，不必記得回來改。
  *
  * ⚠️ `getRouteRules()` 回空物件時我們會判成「不快取」＝不拔 cookie，那是
- *    **不安全的方向**。所以 `scripts/verify-ssr-payload.ts` 直接對真的 HTML
+ *    **不安全的方向**。所以 `scripts/verify-http.ts`（**已接進 `pnpm verify:all`**）
+ *    直接對真的 HTML
  *    斷言「可快取路由的 payload 裡不得出現 access_token」——那條測的是我們
  *    真正在乎的性質，而不是這支的機制。
  */
