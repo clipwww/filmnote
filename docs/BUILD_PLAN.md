@@ -2328,10 +2328,10 @@ TMDB 上四話各自獨立、沒有連映版條目，而一筆 `viewing_record` 
 
 | 要件 | 落點 | 具體內容 |
 |---|---|---|
-| **① 服務條款告知著作權保護措施，並確實履行** | `app/pages/legal/terms.vue`（prerender）<br>`public.legal_document`（kind='terms'）<br>`public.legal_acceptance` | 條款正文含「著作權保護措施」專章。**版本與 `content_sha256` 寫進 `legal_document`**；使用者首次登入後在 `/app` 顯示一次性同意，寫入 `legal_acceptance`。沒有這兩張表，日後無從舉證「已於侵權發生時告知」。 |
-| **② 三振條款（三次侵權終止服務）** | `app/pages/legal/terms.vue` 明文條列<br>`public.copyright_strike` + `admin_add_strike()` + `profile_private.service_status`<br>`app/pages/app/notices.vue` | 條款須明白寫出「三次涉有侵權情事應終止全部或部分服務」。技術落點：第 2 次 `limited`、第 3 次 `terminated`。停權後 `profile_select` 與 `viewing_record_select` 都檢查 `service_status`，公開內容**立即**消失，不需另一支批次工作。 |
-| **③ 公告接收侵權通知的聯繫窗口** | `app/pages/legal/copyright.vue`（prerender）<br>`app/layouts/default.vue` 頁尾常駐連結 | 頁面載明窗口電子郵件 `copyright@filmnote.tw`、聯絡地址、受理程序、所需記載事項（§90-6 及施行辦法）。**必須全站每一頁都能到達。** |
-| **④ 通知／取下／回復通知流程** | 通知：`app/pages/legal/copyright/notice.vue` + `server/api/legal/notice.post.ts` → `public.takedown_notice`<br>取下：`admin_takedown()` 設 `moderation_state='removed'`<br>告知使用者：`takedown_notice.notified_user_at` + `/app/notices`<br>回復通知：`app/pages/legal/copyright/counter/[id].vue` → `public.counter_notice`<br>期限：`business_days_after()` trigger<br>回復：`admin_restore()` | **取下一律是狀態不是 DELETE** —— 刪掉就永遠無法履行 §90-9 的回復義務，這是事後補不回來的 schema 決定。`forwarded_at` 一填，trigger 自動算出 `litigation_proof_due_at`（+10 工作日）與 `restore_due_at`（+14 工作日），各處實作不會漂移。 |
+| **① 服務條款告知著作權保護措施，並確實履行** | `app/pages/legal/terms.vue`（SSR，見踩雷 #91：`prerender: true` 實際上沒有生效）<br>`public.legal_document`（kind='terms'）<br>`public.legal_acceptance` | 條款正文含「著作權保護措施」專章。**版本與 `content_sha256` 寫進 `legal_document`**；使用者首次登入後在 `/app` 顯示一次性同意，寫入 `legal_acceptance`。沒有這兩張表，日後無從舉證「已於侵權發生時告知」。 |
+| **② 三振條款（三次侵權終止服務）** | `app/pages/legal/terms.vue` 明文條列（第 6 節）<br>`public.copyright_strike` + `admin_add_strike()` + `profile_private.service_status`<br>使用者端狀態依 `SCREENS §15.5` 在 **`/app/settings`**（尚未實作），不是 `app/pages/app/notices.vue` | 條款須明白寫出「三次涉有侵權情事應終止全部或部分服務」。技術落點：第 2 次 `limited`、第 3 次 `terminated`。停權後 `profile_select` 與 `viewing_record_select` 都檢查 `service_status`，公開內容**立即**消失，不需另一支批次工作。 |
+| **③ 公告接收侵權通知的聯繫窗口** | `app/pages/legal/copyright.vue`（SSR）<br>`app/components/AttributionFooter.vue`（掛在 `app/layouts/default.vue`，每一個公開頁都有） | 頁面載明窗口電子郵件 `copyright@filmnote.tw`、聯絡地址、受理程序、所需記載事項（§90-6 及施行辦法）。**必須全站每一頁都能到達。** |
+| **④ 通知／取下／回復通知流程** | 通知：**`app/pages/legal/dmca.vue`**（路徑以 `SCREENS §15.0` 為準，不是 `legal/copyright/notice.vue`）+ `server/api/legal/notice.post.ts` → `public.takedown_notice`<br>取下：`admin_takedown()` 設 `moderation_state='removed'`<br>告知使用者：`takedown_notice.notified_user_at` + `/app/notices`<br>回復通知：**`app/pages/legal/dmca/counter/[noticeId].vue` 尚未實作**（端點 `server/api/legal/counter-notice.post.ts` 已在，入口依 `SCREENS §15.4` 應在內容被取下的地方，不在 `/legal`）→ `public.counter_notice`<br>期限：`business_days_after()` trigger<br>回復：`admin_restore()` | **取下一律是狀態不是 DELETE** —— 刪掉就永遠無法履行 §90-9 的回復義務，這是事後補不回來的 schema 決定。`forwarded_at` 一填，trigger 自動算出 `litigation_proof_due_at`（+10 工作日）與 `restore_due_at`（+14 工作日），各處實作不會漂移。 |
 
 ## 6.2 其他法遵落點
 
@@ -2358,10 +2358,11 @@ TMDB 上四話各自獨立、沒有連映版條目，而一筆 `viewing_record` 
 > | 號段 | 擁有者 |
 > |---|---|
 > | #1–#84 | 已發出（歷史，不重新編號） |
-> | #85–#99 | frontend |
+> | #85–#99 | frontend（已用到 #96） |
 > | #100–#114 | backend |
 > | #115–#129 | design |
-> | #130+ | 主 session |
+> | #130–#144 | adminui（`/admin/**` 與 `/app/import`；主 session 讓出的前段，已用到 #133） |
+> | #145+ | 主 session |
 >
 > **號段內有跳號是正常的，不要為了連號而重排。** 號段用完就跟主 session 要下一段。
 
@@ -2383,6 +2384,10 @@ TMDB 上四話各自獨立、沒有連映版條目，而一筆 `viewing_record` 
 | 12 | **Node 版本要對齊。** `nuxt@4.5.2` engines `^22.19.0 \|\| ^24.11.0 \|\| >=26.0.0`；Vercel 停在 20.x 裝不起來 | npm registry |
 | 79 | **★ `@nuxtjs/supabase` 會把來訪者的 session 寫進 `__NUXT_DATA__`，於是「每一條可快取的 SSR 路由」都在外洩身分——與該頁抓了什麼資料無關。** 詳見下方專節 | 2026-09-05 實測（dev 與 production build 皆重現） |
 | 80 | **★ `package.json` 的 `imports` 別名（`"#pipeline/*": "./src/*"`）在 Nitro 打包時不補副檔名。** `server/**` 若以 `#pipeline/tmdb/client` 做**值**匯入，執行期會 `ENOENT … open '…/src/tmdb/client'`（沒有 `.ts`）。致命的是 `pnpm typecheck`、`pnpm test`、`pnpm lint` **全綠**——tsc 走 tsconfig `paths` 會補副檔名，vitest 有自己的 `resolve.alias`，只有 rollup 與 vue-tsc 的 Nuxt 子專案不補。⇒ **解法是 `nuxt.config.ts` 的 `alias: { '#pipeline': … }`**（3fdda08 已加），它同時修好打包器與型別檢查兩邊。⚠️ 驗證這一類問題**不能只看 typecheck 綠**，要真的執行到會載入該模組的路徑——本專案同類錯誤已發生三次 | 2026-09-06 實測（Step 9，端點 500 → 加 alias 後以 production build 實跑通過） |
+| 130 | **★ 前端頁面 import 到任何含 `node:` 內建模組的 `src/**` 檔案，`pnpm build` 會是 exit 0，但東西不會動——而且 dev 與 prod 的壞法完全不同。** 實測 2026-09-06（`/app/import` import `#pipeline/import/mylog`，該檔頂層有 `import { Buffer } from 'node:buffer'`）：**dev** 是整條路由 500，訊息 `The requested module '/_nuxt/@id/__vite-browser-external:node:buffer' does not provide an export named 'Buffer'`——**光 import 那個模組就炸**，連同檔案裡不碰 Buffer 的純函式一起拿不到；**build** 則是 exit 0，只在 log 留一行 `has been externalized for browser compatibility` 的 WARN，產物編成 `Vt.Buffer.from(e,"base64")` 而 `Vt = {}`（**空物件，不是會 throw 的 Proxy**），要等使用者真的操作到才炸成 `TypeError: Cannot read properties of undefined (reading 'from')`，訊息裡沒有任何 `node:buffer` 的線索。⇒ `src/**` 的純函式要給前端複用，就不能有 `node:` import；`import type` 不受影響（會被完全抹除）。**檢查方式是 grep build log 的 `externalized`，typecheck 與 lint 都不會說話。** | 2026-09-06 實測（Step 10 UI） |
+| 131 | **`pages/` 底下可以放非路由檔案，前綴用 `-`（`ignorePrefix`，Nuxt 4 預設值就是 `-`）。** `pages/` 掃的是 `.vue` **和** `.ts`，所以共用的 composable／子元件直接放進去會冒出 `/admin/-admin-shared` 這種路由。加了前綴之後掃描器跳過它，而**顯式相對 import 照樣可用**（那走 Vite 的解析，不看 nuxt 的 ignore 清單）。多 session 並行、共用層屬於別人時，這是把「只屬於這一區的共用碼」留在自己目錄裡的唯一乾淨作法。實測 2026-09-06：production build 只產出 `/admin`、`/admin/films`、`/admin/takedowns`、`/admin/reports` 四條 | 2026-09-06 實測 |
+| 91 | **★ `routeRules` 裡帶萬用字元的 `prerender: true` 等於沒有寫，而且 `nuxt build` 根本不會跑預先算繪。** 兩件事疊在一起：① nitro 組預先算繪佇列時明文濾掉含 `*` 的路徑（`filter(([path, o]) => o.prerender && !path.includes("*"))`），所以 `'/legal/**': { prerender: true }` 貢獻 0 條；② Nuxt 4.5.2 的 `nuxt build`（沒有 `--prerender`）與 `nitropack` 的 `build()` **都沒有呼叫** nitro 的 `prerender()`。實測 `pnpm build` 之後 `.output/public/` 裡一個 HTML 都沒有、日誌沒有 `Initializing prerenderer`，而 `nuxt.config.ts` 看起來是設好的。⇒ **這一類設定只能用產物驗收**（`find .output/public -name '*.html'`），看設定檔會得到相反的結論。要真的靜態化就在 `nitro.prerender.routes` 明列具體路徑 | 2026-09-06 實測（`/legal/**`，Step 8） |
+| 92 | **Vue 的 whitespace `condense` 在「文字 ↔ 元素」之間留下的是一個空格，不是零。** 前幾棒的教訓（`utils/ticket.ts` 檔頭）講的是**元素 ↔ 元素**之間會被摺掉；反過來這一半同樣會咬人：`…並通知對方。\n<span>不需要註冊…</span>` render 成「並通知對方。 不需要註冊」，中文句子中間多一個看得見的空隙，而 DS §2.5 又禁止手打空格補間距。最惡劣的形式是標點前面：`…你的帳號狀態，\n<a>設定</a>\n。` → 「狀態， 設定 。」。⇒ 中文句子夾行內元素時**整句排成一行**，或把行內元素拉出來自成一段 | 2026-09-06 實測（`/legal/dmca`、`/legal/copyright`） |
 
 
 ### 踩雷 #79 詳述：為什麼 #1 的理由涵蓋不到這個情況
@@ -2441,11 +2446,12 @@ diff /tmp/a /tmp/b                     # 除了 SSR 時戳外必須完全相同
 
 ⚠️ 驗這條時**務必用真的 session cookie**。手工拼一個假的會被模組拒絕、`$ssupabase_user` 停在 `null`，於是測試「通過」而實際上什麼都沒驗到——本專案第一次就踩了這個假陰性。判斷 cookie 有沒有生效：payload 裡找得到自己的 email 才算數。
 
+
 ## 7.2 Supabase / Auth
 
 | # | 踩雷點 | 來源 |
 |---|---|---|
-| 13 | **v2 破壞性變更：`useSupabaseUser()` / `serverSupabaseUser()` 回傳 JWT claims 不是 User 物件。`user.id` 不存在，要用 `user.sub`。** 舊教學幾乎全是 v1 寫法 | 官方 migration 頁；`serverSupabaseUser.js`；issue #561 |
+| 13 | **v2 破壞性變更：`useSupabaseUser()` / `serverSupabaseUser()` 回傳 JWT claims 不是 User 物件。`user.id` 不存在，要用 `user.sub`。** 舊教學幾乎全是 v1 寫法。⚠️ **`pnpm typecheck` 抓不到這條**（實測 2026-09-06 再犯一次）：型別上 `user.value.id` 完全合法，執行期才變成 `undefined`，而症狀是 PostgREST 收到 `user_id=eq.undefined` 回 **400 `invalid input syntax for type uuid`**——supabase-js 把錯誤放在 `error` 而 `data` 是 `null`，呼叫端若寫 `data ?? []` 就會拿到一個**空集合當成正常答案**。當時的具體後果：`/app/import` 的匯入前對帳把「已經有 122 筆、這次新增 0 筆」說成「這次新增 122 筆」，也就是**邀請使用者去按一顆會重複匯入的按鈕**。⇒ 新寫的查詢一定要看一次 Network 面板有沒有 4xx，不要只看畫面有沒有東西 | 官方 migration 頁；`serverSupabaseUser.js`；issue #561；2026-09-06 實測 |
 | 14 | **`redirectOptions.callback` 不要設成 `'/'`。** 模組會無條件對 callback 路徑加 `routeRules[callback] = { ssr:false }`，等於把首頁 SSR 關掉 | issue #582；`dist/module.mjs` |
 | 15 | **`include`/`exclude` pattern 不是 glob，是 `new RegExp('^' + p.replace(/\*/g,'.*') + '$')`。** `'/app'` 不匹配 `/app/new`；`'*'` 與 `'**'` 行為相同；**與 Dashboard Redirect URLs 的 glob 語法不一樣** | `auth-redirect.js` |
 | 16 | **`include` 有值時完全短路 `exclude`**，兩者不是疊加關係 | 同上 |
@@ -2498,6 +2504,8 @@ diff /tmp/a /tmp/b                     # 除了 SSR 時戳外必須完全相同
 | 106 | **★ 新增 policy 時有兩個獨立的坑，而且症狀完全不同。** ① **policy 內對別張表的子查詢會套用那張表的 policy，可能繞回來。** `film_delete_own_ugc` 要檢查「有沒有 viewing_record 引用」，直接寫 `exists (select 1 from viewing_record …)` ⇒ `record_read` 又 `exists (select 1 from film …)` ⇒ **infinite recursion detected in policy for relation "film"**。解法是包成 SECURITY DEFINER 的 helper（0001 的 helper 全是 DEFINER 正是為此），並記得在 9999 對 `authenticated` 開 EXECUTE（否則是 #84）。② **policy 決定「哪些列」，表級 grant 決定「能不能做這個動作」。** 少了 `grant delete`，policy 寫得再對也只是 `permission denied for table film`。兩個坑在同一支 migration 裡先後炸了兩次 | 2026-09-06 實測（0008） |
 | 107 | **satori 缺字重時不做 fake bold，而且不吭聲。** 只載入 Regular 時，`fontWeight: 700` 與 400 渲染出**完全一樣**的輪廓（實測 path 總長 16,243 vs 16,257，差值來自文字本身不同）——沒有警告、沒有錯誤，只是階層消失。⇒ OG 圖要有字重階層就必須真的打包那個字重（本專案 Regular + Bold 共 14MB，那 7MB 是買到東西的）。想省字型就得改用尺寸／顏色拉階層，不能指望它自己變粗 | 2026-09-06 實測 |
 | 108 | **★ 原生模組（napi）一定被外部化，而 `.output` 追蹤到的是「建置當下那台機器」的二進位。** 實測：`pnpm build` 後 `.output/server/node_modules/@resvg/` 只有 **`resvg-js-darwin-arm64`**，而 Vercel 跑的是 linux-x64。兩個推論：① `satori` 與 `@resvg/resvg-js` **都**出現在 `.output/server/package.json` 的 dependencies ⇒ 它們必須在**專案的** `dependencies` 而非 `devDependencies`，否則正式環境 `--prod` 安裝時裝不到，症狀是本機全綠、部署後端點 500；② **不要部署本機建好的 `.output`**（`vercel deploy --prebuilt`）——那會把 darwin 的 .node 送上 linux。讓 Vercel 自己建就沒事 | 2026-09-06 實測 |
+| 132 | **★ 表級 GRANT 在 RLS 之前擋，所以一條 `for all` 的 staff policy 可以完全是裝飾品。** 實測 2026-09-06（`information_schema.role_table_grants`）：`takedown_notice` / `counter_notice` / `data_report` 對 `authenticated` **只有 SELECT / INSERT，沒有 UPDATE**，而 `0001` 明明建了 `takedown_staff` / `counter_staff` 兩條 `for all … using (is_staff())`。後果具體而且很貴：staff 勾不了 `takedown_notice.notified_user_at`（§90-4 第 4 款的舉證欄位）、寫不進 `counter_notice.forwarded_at`——而**那正是 `counter_notice_deadlines` trigger 的觸發點**，缺它 `litigation_deadline_at` / `restore_deadline_at` 永遠是 null，`/admin/takedowns` 的「剩餘工作日」沒有任何資料可讀；`data_report.status` 也永遠停在 `open`。⇒ 這是 #106 ② 的同一個家族，但反過來：那次是少了 grant 而 policy 對，這次是 policy 對而**沒有人發現 grant 從來沒給過**，因為沒有 UI 去按那顆鈕。新增 staff-only 的寫入路徑時，policy 與 grant 要一起 review | 2026-09-06 實測（Step 7 UI） |
+| 133 | **`review_state = 'pending'` 不等於「待審核」，必須同時要求 `merged_into_film_id is null`。** `merge_films()` 不改 `review_state`（也不該改），所以匯入時建的 UGC 佔位被併掉之後，`review_state` 仍然停在 `pending`。實測 2026-09-06：DB 裡 16 列 `pending`，**16 列全部都已經有 `merged_into_film_id`** ⇒ 少了這個條件，`/admin/films` 的審核佇列會整排都是已經不存在於任何讀取路徑上的殭屍，而且每一筆都按得下去 | 2026-09-06 實測（Step 7 UI） |
 | 76 | **`db.<ref>.supabase.co`（direct connection）只有 AAAA 記錄。** 沒有 IPv6 的機器一律 `getaddrinfo ENOTFOUND`，與憑證無關。改用 session pooler `aws-N-<region>.pooler.supabase.com:**5432**`（**5432 是 session mode，6543 才是 transaction mode**），使用者名稱要寫成 `postgres.<ref>`。`inet_server_addr()` 實測是同一台 DB，DDL 與 prepared statement 行為相同 | 2026-09-05 實測 |
 | 77 | **`supabase gen types typescript` 即使給了 `--db-url` 仍需要 Docker**（CLI 2.20 / 2.30 / 2.48 實測皆然，錯誤為 `failed to inspect docker image`）。沒有 Docker 的機器要嘛改用 Management API（需 personal access token），要嘛自己從資料庫目錄產生（本專案採後者，見 `scripts/gen-types.ts`） | 2026-09-05 實測 |
 | 78 | **自產型別時 `Relationships[].isOneToOne` 不可以是 `null`。** `GenericRelationship` 宣告為 `isOneToOne?: boolean`，一旦出現 `null`，整個 `Database` 就不滿足 `GenericSchema`，於是**所有** `select()` 的列型別靜默塌成 `never`——錯誤訊息只會說「Property 'x' does not exist on type 'never'」，完全指不到根因。SQL 端記得 `coalesce(bool_or(...), false)` | 2026-09-05 實測 |
@@ -2532,6 +2540,10 @@ diff /tmp/a /tmp/b                     # 除了 SSR 時戳外必須完全相同
 | 88 | **★ 在 SSR 頁用 `useColorMode()` 在 JS 裡挑顏色再寫成 inline style ⇒ hydration mismatch。** 伺服器端算出來的是亮色、瀏覽器 hydrate 時是暗色，兩份 style 對不起來，而**畫面看起來完全正常**，只在 console 留一行 `Hydration completed but contains mismatches`。`/app` 是 `ssr: false` 所以看不到，同一個元件搬到 `/u/` 就會炸。正解是把亮暗兩個值都印成 custom property、由 CSS 挑。⚠️ **不要用 SFC `<style scoped>` 裡的 `:global(.dark) X` 去挑**——實測沒有生效（暗色下變數仍解析成亮色值），要用 Nuxt UI 註冊的 `@variant dark (&:where(.dark, .dark *))` | 同上 |
 | 89 | **★ 任何「使用者自己的東西」都不能查 `*_public` view。** `film_public` 的 where 有 `visibility = 'public'`，所以使用者**自己剛新增、審核中的 UGC 作品不在裡面**——US-17「可立刻用於記錄」只在新增完那一次的交棒成立，之後再想記同一部片就永遠找不到。改查基表由 RLS 把關；但基表沒有 view 的 `merged_into_film_id is null`，要自己補，否則會選到被合併掉的敗方 | 同上 |
 | 90 | **UGC 作品 insert 當下就有 slug（觸發器產的），但 `/film/[slug]` 對作者自己也是 404**——那支 API 明確用匿名 client（為了 ISR 安全）。於是待審作品的卡片會出現一個看起來正常、點下去是錯誤頁的連結，而且 **Nuxt 會在 hover 之前就 prefetch 它的 payload**，每張這種卡在 console 留一個 404。只有 `public` + `approved` 才給連結 | 同上 |
+| 93 | **Tailwind 的 preflight 讓 `<code>` 仍然是等寬字，什麼都不寫也一樣。** preflight 對 `code, kbd, samp, pre` 下了 `font-family: var(--default-mono-font-family, …)`。`SCREENS §15.1` 特地點名「不要用 Nuxt UI 的 prose，因為它會把 `<code>` 渲染成等寬字」——結果不用 prose、自己寫樣式，一樣是等寬字（實測條款頁上 `docs/SPEC.md`、`profile.username` 全部變成等寬，違反 DS §0）。要顯式加 `font-sans` 蓋掉 | 2026-09-06 實測 |
+| 94 | **`34ch` 對中文不是 34 個字，是 17–20 個字。** `ch` 是**當前字型「0」的推進寬度**：Inter ≈ 0.6em、退到蘋方是半形 0.5em ⇒ `34ch` 落在 272–330px。DS §2.4 寫「`max-width: 34ch`（≈560px）」，兩個數字對不起來，而 §2.4 自己的推導是用 em 的（31.5 em ≈ 32 個漢字）。漢字是 1 em 全形 ⇒ 「34 個字」寫成 CSS 是 **`34em`（544px）**。⚠️ 這條的症狀是「看起來只是有點窄」，不會有任何錯誤 | 2026-09-06 實測（`/legal/**` 內文） |
+| 95 | **zod 4 的 `z.preprocess()` 推不出輸出型別，會把整個 `UForm` 的 state 型別炸成 `unknown`。** `UForm` 的 `:state` 是 `Partial<z.output<schema>>`；某個欄位用 `z.preprocess()` 之後 `z.output` 那一格是 `unknown`，typecheck 紅在 `:state` 那一行而不是 schema 那一行。改用 `.transform().pipe()` 即可。**同一組的另一半**：`z.literal(true)`（勾選型的法定聲明）會讓「還沒勾」這個合法中間狀態在型別上不存在，`:state` 一樣塞不進去 ⇒ 前端寫 `z.boolean().refine(v => v === true)`，把 `literal(true)` 留給伺服器 | 2026-09-06 實測（`/legal/dmca`） |
+| 96 | **Nuxt UI 的 `UCheckbox` 把原生 `<input type=checkbox>` 藏起來，Playwright 的 `.check()` 會逾時 30 秒。** 那個 input 帶 `data-hidden`、`aria-hidden="true"`、`tabindex="-1"`，點擊座標落在頁面容器上，錯誤訊息是「`<div class="mx-auto …">` intercepts pointer events」——看起來像版面把它蓋住了，其實是**選錯元素**。用 `getByRole('checkbox')`（reka-ui 真正可互動的那一個）。⇒ 這類假象會讓人去改版面而不是改測試 | 2026-09-06 實測（Chrome 152 / CDP） |
 
 ## 7.5 資料匯入（來自 SPEC 實測）
 

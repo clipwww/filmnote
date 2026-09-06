@@ -305,7 +305,7 @@ export function dayTitle(date: string): string {
   return `${date.replace(/-/g, '/')}${name ? `（週${name}）` : ''}`
 }
 
-/** `週五　21:00` 之類的標題。 */
+/** `週五` + 全形空格 + `21:00` 之類的標題（分隔符是 U+3000，見下面的樣板字串）。 */
 export function slotTitle(weekday: number, rowLabel: string): string {
   const name = WEEKDAY_LABELS[weekday - 1] ?? ''
   return `週${name}　${rowLabel}`
