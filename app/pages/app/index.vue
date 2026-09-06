@@ -297,8 +297,9 @@ const demoCells = Array.from({ length: 7 * 26 }, (_, i) => {
           :insight="`再記 ${CHART_THRESHOLD - totalRecords} 場就會出現時段分析。`"
         >
           <ul class="space-y-2">
+            <!-- 同抽屜：這份列表是全部紀錄、沒有年份分組，年份必須自己帶 -->
             <li v-for="r in records" :key="r.id">
-              <TicketCard :record="r" />
+              <TicketCard :record="r" show-year />
             </li>
           </ul>
         </ChartBand>
@@ -470,9 +471,16 @@ const demoCells = Array.from({ length: 7 * 26 }, (_, i) => {
           <p v-if="!drawerRecords.length" class="py-6 text-center text-muted">
             這個時段沒有紀錄。
           </p>
+          <!--
+            show-year 是必要的：抽屜的內容跨年份聚合，而標題不一定帶年——
+            出席圖點一格是「2024/03/15 (週五)」有年，時段圖點一格是
+            「週三 14:00~15:00」，那一格的紀錄可能散在 2014–2026。
+            日期帶預設不顯示年份（依年份分組的列表由上下文提供），
+            抽屜打破了那個前提。
+          -->
           <ul v-else class="space-y-2 pb-4">
             <li v-for="r in drawerRecords" :key="r.id">
-              <TicketCard :record="r" />
+              <TicketCard :record="r" show-year />
             </li>
           </ul>
         </div>
