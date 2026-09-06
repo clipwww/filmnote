@@ -36,6 +36,7 @@ pnpm tsx --env-file=.env scripts/verify-all.ts
 | 作者刪除自建 UGC 作品 | ✅ 0008，三條件同時成立才放行 |
 | `country` 空字串正規化 | ✅ 0008，35 列 → NULL，並加 check 讓它長不回來 |
 | `/u/[username]` 的 UGC 海報 | ✅ 批次 `createSignedUrls` |
+| OG 分享圖產生器 | ⚠️ 程式全好、實際算過圖，**但相依還沒進 `package.json`**（見第 7 節） |
 
 **沒做**：`/legal/**` 與 `/admin` 頁面（frontend）、條款正文（主 session 與 David）、
 Turnstile（需 David 的站台金鑰，上線前項目）。
@@ -158,6 +159,49 @@ public，那不是半回復，是把從未公開過的作品 publish 出去。
 - **`title_zh = ''` 的顯示層未處理。** `displayTitle('')` 回空字串，而目前 DB 裡沒有
   任何一列是空的，所以還沒壞。上面那條「損毀就寫空」的規則一旦真的觸發，畫面會出現
   空標題——顯示層應該退回 `title_original`。已回報 frontend。
+
+---
+
+## 7. OG 分享圖：satori 的實際行為（design 標記為未驗證的那題）
+
+design 在 `DS §2.7` 把中文字型那題結掉了（打包完整 Noto Sans TC、不子集），
+但誠實標記「satori 吃不吃 woff2 沒驗過，我是用 .ttf 繞開」。**現在有答案了：**
+
+> **satori 不吃 woff2。** 實測錯誤訊息：`Unsupported OpenType signature wOF2`。
+> 所以「Google Fonts 對非瀏覽器 UA 直接回 .ttf」**不是繞開，那是唯一的路。**
+> 字型必須是 .ttf / .otf。
+
+其餘實測（2026-09-06）：
+- 我另外寫了一份 cmap parser（`server/utils/og-cmap.ts`，無相依）交叉驗證 design 的
+  數字，**完全一致**：20,745 個碼位、中文片名缺字 5/2669、原文片名 344/2669（12.9%）、
+  影城名 0。兩份獨立實作得到同一組數字，那批數字可以信。
+- satori 會把文字轉成 `<path>` 輪廓，所以 **resvg 那一步不需要字型**。
+- 字型兩個字重共 14 MB，進版控後 `.output/server` 是 **34 MB**——Vercel Node
+  250 MB 放得下，**Edge 1/4 MB 放不下**，實測印證 design 的約束①。
+
+### ⚠️ 還沒完成的一件事：相依尚未進 package.json
+
+`satori` 與 `@resvg/resvg-js` 需要主 session 核可才能加。在那之前：
+
+- `server/utils/og-render.ts` 與 `scripts/og-preview.ts` 用**執行期動態 import
+  且 specifier 經過變數**。這是刻意的：字面 specifier 會讓 `pnpm typecheck` 與
+  `pnpm build` 直接紅，**擋住另外兩個 session**，代價遠大於晚一輪落地。
+  套件不在時端點回 503 並說明原因。
+- **套件一裝好就把它改回一般的靜態 import**。動態 + 非字面 specifier 會讓打包器
+  放棄靜態分析，也拿不到型別——它是過渡形狀，不是設計。
+- 驗過的事：`pnpm build` 在**沒有**這兩個套件時仍然成功（exit 0），OG 路由的
+  chunk 有生成，字型也確實被打包進 `.output/server/chunks/raw/`。
+
+### 怎麼看它畫出來長什麼樣
+
+```bash
+pnpm add satori @resvg/resvg-js     # 核可後
+pnpm tsx scripts/og-preview.ts      # 產四張真圖到 .data/og-preview/
+```
+
+OG 圖是「要看到才知道對不對」的東西——版面歪了、字級太小、色階分不開，
+單元測試一條都抓不到。我用它抓到兩個：年表的色階第一版 13 個年份全是同一個棕色
+（起點取太深），以及顯名列上方有一大塊死區（本體沒有垂直置中）。
 
 ---
 
