@@ -33,7 +33,14 @@ export default defineNuxtConfig({
 
   routeRules: {
     '/': { ssr: true, isr: { expiration: 300, allowQuery: [] } },
-    '/legal/**': { prerender: true },
+    // ⚠️ 這裡曾經是 prerender: true，但實測**完全沒有生效**（踩雷 #91，
+    //    .output/public/ 一個 HTML 都沒有）。而且就算生效也是錯的：
+    //    條款正文來自 legal_document，烤死在建置當下的版本會讓
+    //    legal_acceptance 記下的「使用者同意了某一版」變成不可查證
+    //    ——畫面顯示的內容與 DB 裡那一版可能已經不同。
+    //    改成明確的即時 SSR，並且不快取：條款頁的正確性遠比它的延遲重要，
+    //    而它們一年也改不了幾次，快取省不到什麼。
+    '/legal/**': { ssr: true, headers: { 'cache-control': 'no-store' } },
     // ★ 絕不加 isr / swr：同一路徑對作者與路人 render 出不同 HTML（踩雷 #1）
     '/u/**': { ssr: true, headers: { 'cache-control': 'private, no-store' } },
     '/film/**': { ssr: true, isr: { expiration: 3600, allowQuery: [] } },
@@ -71,7 +78,17 @@ export default defineNuxtConfig({
   runtimeConfig: {
     tmdbApiKey: '', // NUXT_TMDB_API_KEY —— 只在 server 用
     cronSecret: '', // NUXT_CRON_SECRET
-    public: { siteUrl: 'http://localhost:3000' }, // NUXT_PUBLIC_SITE_URL
+    public: {
+      siteUrl: 'http://localhost:3000', // NUXT_PUBLIC_SITE_URL
+      // 著作權侵權通知的聯繫窗口。§90-4 第 3 款要求「公告」它，所以它必須
+      // 出現在公開頁上 ⇒ 只能放 public。
+      //
+      // ⚠️ 讀的是 COPYRIGHT_CONTACT_EMAIL 而不是 NUXT_PUBLIC_ 前綴的自動對應：
+      // 那個變數名在 .env、.env.example 與部署設定裡都已經存在，改名要三個地方
+      // 同時改對，而漏掉的症狀是頁面上出現空白的聯繫窗口——一個「看起來只是
+      // 少一行字」但實際上讓避風港要件不成立的失敗。
+      copyrightContactEmail: process.env.COPYRIGHT_CONTACT_EMAIL ?? '',
+    },
   },
 
   nitro: { preset: undefined }, // Vercel 自動偵測，不要手動釘（踩雷 #11）
