@@ -1,0 +1,197 @@
+<!doctype html><html lang="zh-Hant-TW"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>影記 — /app/import 匯入對帳</title><style>
+[hidden]{display:none!important}
+:root{color-scheme:light;
+ --paper-25:#FDF9F1;--paper-50:#F8EDDC;--paper-100:#EADDCA;--paper-200:#DACCB9;
+ --paper-300:#C5B5A3;--paper-400:#948777;--paper-500:#776A5D;--paper-600:#5F5348;
+ --paper-700:#4A4036;--paper-800:#3D332C;--paper-900:#29211A;--paper-950:#1D1610;
+ --amber-50:#FFF1C2;--amber-100:#F9E4A4;--amber-400:#C9A62B;--amber-600:#866500;--amber-950:#2D1D02;
+ --heat-4:#685946;--heat-6:#1A1209;
+ --bg:var(--paper-50);--surface:var(--paper-25);--sunken:var(--paper-100);
+ --line:var(--paper-200);--line-strong:var(--paper-300);
+ --t0:var(--paper-900);--t1:var(--paper-700);--t2:var(--paper-500);--t3:var(--paper-400);
+ --accent:var(--amber-600);--accent-soft:var(--amber-50);--accent-on:var(--paper-25);
+ --font:'Inter','PingFang TC','Noto Sans CJK TC','Noto Sans TC','Microsoft JhengHei',sans-serif;
+ line-break:strict;text-autospace:normal}
+:root.dark{color-scheme:dark;
+ --bg:var(--paper-950);--surface:var(--paper-900);--sunken:var(--paper-800);
+ --line:var(--paper-800);--line-strong:var(--paper-700);
+ --t0:var(--paper-50);--t1:var(--paper-200);--t2:var(--paper-400);--t3:var(--paper-500);
+ --accent:var(--amber-400);--accent-soft:var(--amber-950);--accent-on:var(--paper-900);
+ --heat-4:#A59788;--heat-6:#F6F1EB}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--t1);font-family:var(--font);font-size:16px;
+ line-height:1.75;font-variant-numeric:tabular-nums}
+.page{max-width:1080px;margin:0 auto;padding:24px 20px 80px}
+h2.sec{font-size:19px;color:var(--t0);margin:52px 0 4px;padding-bottom:8px;
+ border-bottom:1px solid var(--line);font-feature-settings:'palt' 1}
+p.n{font-size:13px;line-height:1.55;color:var(--t2);margin:4px 0 16px;max-width:74ch}
+code{font-family:var(--font);color:var(--t0);font-size:.92em}
+.demo{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:24px 28px;margin-top:12px}
+.btn{border:0;border-radius:4px;padding:9px 16px;font:inherit;font-size:15px;font-weight:600;
+ background:var(--accent);color:var(--accent-on);cursor:pointer}
+.btn.ghost{background:transparent;color:var(--t1);border:1px solid var(--line-strong);font-weight:400}
+.btn.sm{padding:5px 11px;font-size:13px}
+.sel{font:inherit;font-size:14px;color:var(--t0);background:var(--surface);
+ border:1px solid var(--line-strong);border-radius:4px;padding:7px 10px;width:100%}
+.sel.empty{color:var(--t3)}
+.aside{border-inline-start:2px solid var(--line-strong);padding:2px 0 2px 12px;margin:18px 0;
+ font-size:13px;line-height:1.6;color:var(--t2);max-width:56ch}
+.aside b{color:var(--t1)}
+.aside.loud{border-inline-start-color:var(--accent)}.aside.loud b{color:var(--t0)}
+table{border-collapse:collapse;width:100%;font-size:14px;line-height:1.6}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+th{color:var(--t2);font-weight:600;font-size:13px}
+.num{font-variant-numeric:tabular-nums;color:var(--t0);font-weight:600}
+.chip{display:inline-block;font-size:12px;line-height:1.6;padding:0 7px;border-radius:2px;
+ border:1px solid var(--line-strong);color:var(--t2)}
+.chip.on{background:var(--accent-soft);border-color:var(--accent);color:var(--t0)}
+.chip.due{border-color:#B3261E;color:#B3261E;font-weight:600}
+:root.dark .chip.due{border-color:#F2B8B5;color:#F2B8B5}
+.bar{height:6px;background:var(--sunken);border-radius:2px;overflow:hidden;margin:6px 0 2px}
+.bar i{display:block;height:100%;background:var(--accent)}
+.step{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:4px}
+.step h1{font-size:24px;color:var(--t0);margin:0;font-feature-settings:'palt' 1}
+.step .of{font-size:13px;color:var(--t2)}
+.vrow{display:grid;grid-template-columns:1fr auto 300px;gap:14px;align-items:center;
+ padding:9px 0;border-bottom:1px solid var(--line)}
+.vrow .src{font-size:15px;color:var(--t0)}
+.vrow .cnt{font-size:14px;color:var(--t2);white-space:nowrap}
+.vrow .cnt b{color:var(--t0);font-weight:600}
+@media(max-width:720px){.vrow{grid-template-columns:1fr}}
+.fold{border:1px solid var(--line);border-radius:4px;background:var(--sunken);padding:12px 16px;margin:14px 0}
+.fold summary{cursor:pointer;font-size:15px;color:var(--t0);font-weight:600}
+.card3{border:1px solid var(--line);border-radius:4px;padding:14px 16px;margin-bottom:10px;background:var(--surface)}
+.card3 .zh{font-size:16px;font-weight:600;color:var(--t0)}
+.card3 .sub{font-size:13px;color:var(--t2);margin-top:2px}
+.card3 .acts{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0;
+ border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.sum div{padding:14px 16px;border-right:1px solid var(--line)}
+.sum div:last-child{border-right:0}
+.sum .k{font-size:13px;color:var(--t2)}.sum .v{font-size:26px;font-weight:600;color:var(--t0);line-height:1.2}
+</style></head><body><div class="page">
+
+<h2 class="sec">/app/import 匯入對帳（SCREENS §13、US-56~58）</h2>
+<p class="n">
+  審查用說明物。<strong>版面照 David 真實匯入的規模去想，不是照「假設有 10 筆」</strong>：
+  169 筆來源 → 174 筆紀錄、133 部相異作品、134 個相異片名、15 個相異影城名稱、NT$5x,xxx。
+  <code>BUILD_PLAN §5 Step 10</code> 的首次匯入分佈：既有片庫吻合 50 部／72 筆、
+  TMDB 命中 66 部／76 筆、未命中 18 部／21 筆。
+</p>
+
+<h2 class="sec">第 1 步：影城（先於片名，這是投資報酬率最高的一步）</h2>
+<div class="demo">
+  <div class="step"><h1>匯入 169 筆紀錄</h1><span class="of">第 1 步／共 2 步</span></div>
+  <p style="margin:6px 0 2px">先把你的影城名稱對到官方名稱。</p>
+  <p style="font-size:14px;color:var(--t2);margin:0 0 4px">你用了 <b class="num">15</b> 個影城名稱。對好一次，169 筆就都對好了。</p>
+  <div class="bar"><i style="width:27%"></i></div>
+  <p style="font-size:13px;color:var(--t2);margin:0 0 14px">已對好 4／15</p>
+
+  <div class="vrow"><span class="src">林口威秀</span><span class="cnt"><b>115</b> 筆</span>
+    <select class="sel"><option>林口MITSUI OUTLET PARK威秀影城</option></select></div>
+  <div class="vrow"><span class="src">信義威秀</span><span class="cnt"><b>14</b> 筆</span>
+    <select class="sel"><option>台北信義威秀影城</option></select></div>
+  <div class="vrow"><span class="src">京站威秀</span><span class="cnt"><b>10</b> 筆</span>
+    <select class="sel"><option>台北京站威秀影城</option></select></div>
+  <div class="vrow"><span class="src">大直美麗華</span><span class="cnt"><b>8</b> 筆</span>
+    <select class="sel empty"><option>選擇…</option></select></div>
+  <div class="vrow"><span class="src">板橋威秀</span><span class="cnt"><b>6</b> 筆</span>
+    <select class="sel empty"><option>選擇…</option></select></div>
+  <div class="vrow"><span class="src">イオンシネマ シアタス心斎橋</span><span class="cnt"><b>1</b> 筆</span>
+    <select class="sel"><option>其他（非台灣影城）</option></select></div>
+  <p style="font-size:13px;color:var(--t2);margin:12px 0 0">…還有 9 個</p>
+  <div style="display:flex;gap:12px;margin-top:20px"><button class="btn">下一步</button></div>
+</div>
+<p class="n">
+  <strong>四個決定，每一個都來自實測：</strong><br>
+  ① <strong>影城排在片名前面。</strong>只有 15 個相異名稱要對，對完覆蓋全部 169 筆；片名有 134 個。
+  先做便宜的那一段，使用者才有動力做第二段。<br>
+  ② <strong>依筆數由多到少排序。</strong>第一列就是 115 筆——對完那一個，工作量少掉 68%。
+  按字母排序會讓最有價值的那一列淹沒在中間。<br>
+  ③ <strong>下拉一律不預選。</strong>實測模糊比對會把「林口威秀」綁到「樹林秀泰影城」，
+  而<strong>錯配比不配更糟</strong>——不配看得見，錯配看不見。<br>
+  ④ <strong>「其他（非台灣影城）」要是一個正式選項。</strong>實測 1 筆日本影城不在 111 家名單內。
+  沒有這個出口，使用者會被迫亂綁一個台灣影城。
+</p>
+
+<h2 class="sec">第 2 步：片名（把 87% 摺起來，只讓人看要決定的那 13%）</h2>
+<div class="demo">
+  <div class="step"><h1>匯入 169 筆紀錄</h1><span class="of">第 2 步／共 2 步</span></div>
+  <p style="margin:6px 0 12px">134 個片名裡，<b class="num">116</b> 個我們認得，<b class="num">18</b> 個要你決定。</p>
+
+  <details class="fold"><summary>已經對好的 116 部　<span class="chip">不用看，除非你想檢查</span></summary>
+    <table style="margin-top:10px">
+      <tr><th>來源片名</th><th>對到</th><th>怎麼對到的</th></tr>
+      <tr><td>沙丘：第二部</td><td>沙丘：第二部</td><td><span class="chip on">片庫完全吻合</span></td></tr>
+      <tr><td>Dune Part Two</td><td>沙丘：第二部</td><td><span class="chip">TMDB</span></td></tr>
+    </table>
+    <p style="font-size:13px;color:var(--t2);margin:10px 0 0">既有片庫吻合 50 部／72 筆　·　TMDB 命中 66 部／76 筆</p>
+  </details>
+
+  <h3 style="font-size:16px;color:var(--t0);margin:22px 0 10px">要你決定的 18 部</h3>
+  <div class="card3">
+    <div class="zh">4DX連映馬拉松場(下)</div>
+    <div class="sub">2 筆　·　2019-08-10、2019-08-11</div>
+    <div class="acts">
+      <button class="btn sm ghost">選片庫既有的</button>
+      <button class="btn sm">新增為作品</button>
+      <button class="btn sm ghost">先跳過</button>
+    </div>
+  </div>
+  <div class="card3">
+    <div class="zh">青凪大學體育會航空部劇場版</div>
+    <div class="sub">1 筆　·　2021-03-14</div>
+    <div class="acts">
+      <button class="btn sm ghost">選片庫既有的</button>
+      <button class="btn sm">新增為作品</button>
+      <button class="btn sm ghost">先跳過</button>
+    </div>
+  </div>
+  <p style="font-size:13px;color:var(--t2);margin:10px 0 0">…還有 16 部</p>
+  <div style="display:flex;gap:12px;margin-top:20px"><button class="btn">看匯入結果</button><button class="btn ghost">上一步</button></div>
+</div>
+<p class="n">
+  <strong>最重要的版面決定：把 116 個已經對好的摺起來。</strong>
+  首次匯入的實測是 116/134 命中，也就是 <strong>87% 的內容不需要人做任何決定</strong>。
+  把它們平鋪出來會讓使用者要捲過 116 列才找得到真正要處理的 18 列——
+  <strong>而那 18 列才是這個畫面存在的理由。</strong><br>
+  摺起來但<strong>可以展開</strong>：使用者有權不相信我們的比對，而且展開時要說明「怎麼對到的」，
+  因為「片庫完全吻合」與「TMDB 猜的」可信度不同。<br>
+  ⚠️ <strong>「新增為作品」不要跳頁。</strong>就地展開 <code>/app/films/new</code> 的欄位
+  （中文片名已帶入），做完收合、繼續下一部。跳出去再回來會弄丟這一頁的進度。<br>
+  ⚠️ <strong>「先跳過」必須存在而且不能是懲罰。</strong>18 部裡有 2 部是雙片連映，
+  屬於資料語意問題，使用者當下不見得答得出來——逼他決定只會讓他放棄整個匯入。
+</p>
+
+<h2 class="sec">第 3 步：匯入前的對帳（不是慶祝畫面）</h2>
+<div class="demo">
+  <div class="sum">
+    <div><div class="k">紀錄</div><div class="v">174</div></div>
+    <div><div class="k">相異作品</div><div class="v">133</div></div>
+    <div><div class="k">有記票價</div><div class="v">169</div></div>
+    <div><div class="k">總金額</div><div class="v">NT$5x,xxx</div></div>
+  </div>
+  <div class="aside loud" style="max-width:60ch">
+    <b>169 筆來源展開成 174 筆紀錄</b>——多出來的 5 筆是雙片連映，一張票兩部片。
+    如果這個數字跟你預期的不一樣，<b>現在還可以回去改</b>。
+  </div>
+  <div style="display:flex;gap:12px;margin-top:8px"><button class="btn">匯入這 174 筆</button><button class="btn ghost">上一步</button></div>
+</div>
+<p class="n">
+  <strong>來源筆數與結果筆數不一樣是常態，而且必須解釋。</strong>
+  實測 169 → 174（雙片連映展開）。不解釋的話，使用者會以為系統算錯或重複匯入了。<br>
+  這一頁不寫「匯入成功！」——<strong>它是最後一次反悔的機會，不是慶祝</strong>（DS §8：不寫「成功！」）。
+</p>
+
+<h2 class="sec">⚠️ 影城對照表要能持久化，不是只在匯入時存在</h2>
+<p class="n">
+  <code>SCREENS §13</code> 標記過這一條而且它<strong>還沒有答案</strong>：
+  「影城人工對照」在 <code>BUILD_PLAN §3</code> 的路由表上沒有位置。<br>
+  它不只匯入時需要——使用者以後手打「林口威秀」也會需要同一張表。
+  第 1 步對好的 15 組對照<strong>必須存下來</strong>，否則下次匯入要重對一次。
+  建議獨立成 <code>/app/settings/venues</code>，或收在匯入流程內但持久化。
+  <strong>這需要主 session 決定路由位置，設計端不自己決定。</strong>
+</p>
+</div></body></html>

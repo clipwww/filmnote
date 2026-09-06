@@ -1,0 +1,227 @@
+<!doctype html><html lang="zh-Hant-TW"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>影記 — /admin/* 三個佇列</title><style>
+[hidden]{display:none!important}
+:root{color-scheme:light;
+ --paper-25:#FDF9F1;--paper-50:#F8EDDC;--paper-100:#EADDCA;--paper-200:#DACCB9;
+ --paper-300:#C5B5A3;--paper-400:#948777;--paper-500:#776A5D;--paper-600:#5F5348;
+ --paper-700:#4A4036;--paper-800:#3D332C;--paper-900:#29211A;--paper-950:#1D1610;
+ --amber-50:#FFF1C2;--amber-100:#F9E4A4;--amber-400:#C9A62B;--amber-600:#866500;--amber-950:#2D1D02;
+ --heat-4:#685946;--heat-6:#1A1209;
+ --bg:var(--paper-50);--surface:var(--paper-25);--sunken:var(--paper-100);
+ --line:var(--paper-200);--line-strong:var(--paper-300);
+ --t0:var(--paper-900);--t1:var(--paper-700);--t2:var(--paper-500);--t3:var(--paper-400);
+ --accent:var(--amber-600);--accent-soft:var(--amber-50);--accent-on:var(--paper-25);
+ --font:'Inter','PingFang TC','Noto Sans CJK TC','Noto Sans TC','Microsoft JhengHei',sans-serif;
+ line-break:strict;text-autospace:normal}
+:root.dark{color-scheme:dark;
+ --bg:var(--paper-950);--surface:var(--paper-900);--sunken:var(--paper-800);
+ --line:var(--paper-800);--line-strong:var(--paper-700);
+ --t0:var(--paper-50);--t1:var(--paper-200);--t2:var(--paper-400);--t3:var(--paper-500);
+ --accent:var(--amber-400);--accent-soft:var(--amber-950);--accent-on:var(--paper-900);
+ --heat-4:#A59788;--heat-6:#F6F1EB}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--t1);font-family:var(--font);font-size:16px;
+ line-height:1.75;font-variant-numeric:tabular-nums}
+.page{max-width:1080px;margin:0 auto;padding:24px 20px 80px}
+h2.sec{font-size:19px;color:var(--t0);margin:52px 0 4px;padding-bottom:8px;
+ border-bottom:1px solid var(--line);font-feature-settings:'palt' 1}
+p.n{font-size:13px;line-height:1.55;color:var(--t2);margin:4px 0 16px;max-width:74ch}
+code{font-family:var(--font);color:var(--t0);font-size:.92em}
+.demo{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:24px 28px;margin-top:12px}
+.btn{border:0;border-radius:4px;padding:9px 16px;font:inherit;font-size:15px;font-weight:600;
+ background:var(--accent);color:var(--accent-on);cursor:pointer}
+.btn.ghost{background:transparent;color:var(--t1);border:1px solid var(--line-strong);font-weight:400}
+.btn.sm{padding:5px 11px;font-size:13px}
+.sel{font:inherit;font-size:14px;color:var(--t0);background:var(--surface);
+ border:1px solid var(--line-strong);border-radius:4px;padding:7px 10px;width:100%}
+.sel.empty{color:var(--t3)}
+.aside{border-inline-start:2px solid var(--line-strong);padding:2px 0 2px 12px;margin:18px 0;
+ font-size:13px;line-height:1.6;color:var(--t2);max-width:56ch}
+.aside b{color:var(--t1)}
+.aside.loud{border-inline-start-color:var(--accent)}.aside.loud b{color:var(--t0)}
+table{border-collapse:collapse;width:100%;font-size:14px;line-height:1.6}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+th{color:var(--t2);font-weight:600;font-size:13px}
+.num{font-variant-numeric:tabular-nums;color:var(--t0);font-weight:600}
+.chip{display:inline-block;font-size:12px;line-height:1.6;padding:0 7px;border-radius:2px;
+ border:1px solid var(--line-strong);color:var(--t2)}
+.chip.on{background:var(--accent-soft);border-color:var(--accent);color:var(--t0)}
+.chip.due{border-color:#B3261E;color:#B3261E;font-weight:600}
+:root.dark .chip.due{border-color:#F2B8B5;color:#F2B8B5}
+.bar{height:6px;background:var(--sunken);border-radius:2px;overflow:hidden;margin:6px 0 2px}
+.bar i{display:block;height:100%;background:var(--accent)}
+.split{display:grid;grid-template-columns:280px minmax(0,1fr);gap:0;
+ border:1px solid var(--line);border-radius:4px;overflow:hidden;background:var(--surface)}
+@media(max-width:760px){.split{grid-template-columns:1fr}}
+.list{border-right:1px solid var(--line);background:var(--sunken)}
+.list .hd{padding:10px 14px;font-size:13px;color:var(--t2);border-bottom:1px solid var(--line)}
+.li{padding:10px 14px;border-bottom:1px solid var(--line);cursor:pointer}
+.li.on{background:var(--accent-soft);border-inline-start:2px solid var(--accent);padding-left:12px}
+.li .t{font-size:14px;color:var(--t0);font-weight:600;line-height:1.4}
+.li .s{font-size:12px;color:var(--t2);margin-top:2px}
+.detail{padding:20px 22px}
+.detail h3{font-size:18px;color:var(--t0);margin:0 0 2px;font-feature-settings:'palt' 1}
+.detail .meta{font-size:13px;color:var(--t2);margin-bottom:16px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:14px;margin-bottom:16px}
+.kv dt{color:var(--t2)}.kv dd{margin:0;color:var(--t0)}
+.acts{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
+.danger{background:transparent;color:#B3261E;border:1px solid #B3261E;font-weight:600}
+:root.dark .danger{color:#F2B8B5;border-color:#F2B8B5}
+.merge{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.merge>div{padding:14px 16px}
+.merge>div:first-child{border-right:1px solid var(--line);background:var(--accent-soft)}
+.merge .zh{font-size:16px;font-weight:600;color:var(--t0)}
+.merge dl{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:13px;margin:10px 0 0}
+.merge dt{color:var(--t2)}.merge dd{margin:0;color:var(--t0)}
+.diff{background:var(--accent-soft);border-radius:2px;padding:0 4px}
+@media(max-width:640px){.merge{grid-template-columns:1fr}}
+</style></head><body><div class="page">
+
+<h2 class="sec">/admin/* 三個佇列（SCREENS §14，staff）</h2>
+<p class="n">
+  審查用說明物。三個佇列共用同一套版面：<strong>左列表、右詳情</strong>。<br>
+  <strong>前提：David 是唯一的 staff，而且他不是每天做這件事。</strong>
+  所以這裡刻意不做批次操作、不做統計儀表板、不做多人指派——
+  那些是給團隊營運台用的，在一人偶爾使用的情境下只是額外的學習成本。
+  <strong>每個畫面只回答一個問題：這一筆怎麼處理。</strong>
+</p>
+
+<h2 class="sec">① /admin/films — UGC 作品審核（US-19）</h2>
+<div class="split">
+  <div class="list">
+    <div class="hd">待審核 7</div>
+    <div class="li on"><div class="t">青凪大學體育會航空部劇場版</div><div class="s">clipwww　·　2 天前</div></div>
+    <div class="li"><div class="t">4DX連映馬拉松場(下)</div><div class="s">clipwww　·　2 天前</div></div>
+    <div class="li"><div class="t">シアタス心斎橋特別上映</div><div class="s">someone　·　5 天前</div></div>
+  </div>
+  <div class="detail">
+    <h3>青凪大學體育會航空部劇場版</h3>
+    <div class="meta">clipwww 於 2026-09-04 新增　·　目前只有他自己看得到</div>
+    <dl class="kv">
+      <dt>原文片名</dt><dd>あおなぎ</dd>
+      <dt>國別 / 年份</dt><dd>日本　·　2021</dd>
+      <dt>片長</dt><dd>96 分鐘</dd>
+      <dt>海報</dt><dd>沒有上傳</dd>
+      <dt>被引用</dt><dd>1 筆紀錄</dd>
+    </dl>
+    <div class="aside" style="margin:0">
+      <b>片庫裡有沒有像的？</b>搜過「青凪」「航空部」，沒有相近的作品。
+    </div>
+    <div class="acts">
+      <button class="btn">通過，進公共片庫</button>
+      <button class="btn ghost">合併到既有作品…</button>
+      <button class="btn ghost danger">退回</button>
+    </div>
+  </div>
+</div>
+<p class="n">
+  <strong>「被引用 1 筆紀錄」是這個畫面最重要的一行。</strong>退回一部作品會影響到別人已經記好的紀錄，
+  審核的人必須先知道會波及多少。<br>
+  <strong>「片庫裡有沒有像的」要由系統先查好。</strong>審核的實際工作有一半是判斷「這是不是重複」，
+  讓人自己去搜等於把系統該做的事推給人。查不到就明說查不到，不要留白。<br>
+  <strong>退回是破壞性動作</strong>，照 <code>DS §10</code> 走 <code>UModal</code> 二次確認，
+  而且要能填退回理由——使用者收到的通知裡要有理由，不然他不知道怎麼改。
+</p>
+
+<h2 class="sec">② /admin/films 的合併介面（US-20）</h2>
+<div class="demo">
+  <p style="margin:0 0 12px;font-size:15px">把右邊合併到左邊。<b>左邊是保留的那一部。</b></p>
+  <div class="merge">
+    <div>
+      <div class="zh">沙丘：第二部</div>
+      <dl>
+        <dt>來源</dt><dd>政府核准片名（113 年）</dd>
+        <dt>原文</dt><dd>Dune: Part Two</dd>
+        <dt>國別 / 年份</dt><dd>美國　·　2024</dd>
+        <dt>片長</dt><dd><span class="diff">166 分鐘</span></dd>
+        <dt>TMDB</dt><dd>693134</dd>
+        <dt>被引用</dt><dd>4 筆</dd>
+      </dl>
+    </div>
+    <div>
+      <div class="zh">沙丘 2</div>
+      <dl>
+        <dt>來源</dt><dd>使用者新增（UGC）</dd>
+        <dt>原文</dt><dd>Dune Part Two</dd>
+        <dt>國別 / 年份</dt><dd>美國　·　2024</dd>
+        <dt>片長</dt><dd><span class="diff">165 分鐘</span></dd>
+        <dt>TMDB</dt><dd>—</dd>
+        <dt>被引用</dt><dd>1 筆</dd>
+      </dl>
+    </div>
+  </div>
+  <div class="aside loud">
+    <b>合併之後：</b>右邊那部消失，它的 <b>1 筆</b>紀錄改指向左邊。
+    左邊的欄位全部保留，右邊只有「政府核准片名」以外的欄位會被丟掉。<b>這個動作不可逆。</b>
+  </div>
+  <div style="display:flex;gap:10px"><button class="btn">合併</button><button class="btn ghost">交換左右</button><button class="btn ghost">不是同一部</button></div>
+</div>
+<p class="n">
+  <strong>並排顯示核准紀錄，因為那是判斷是否同一部片的唯一依據</strong>（<code>SCREENS §14</code>）。
+  差異欄位（這裡是片長 166 vs 165）要標出來——<strong>相同的欄位不需要人看，不同的才要</strong>。<br>
+  <strong>「交換左右」必須存在。</strong>系統不一定猜得對哪一部該留；沒有這顆鈕，人就得取消重來。<br>
+  <strong>「不是同一部」也要在同一排。</strong>合併介面最常見的結局是「看完發現不該合併」，
+  那個出口不該藏在取消裡。
+</p>
+
+<h2 class="sec">③ /admin/takedowns — 有法定時限，時限就是排序鍵</h2>
+<div class="split">
+  <div class="list">
+    <div class="hd">處理中 3</div>
+    <div class="li on"><div class="t">#1043　○○影業</div><div class="s"><span class="chip due">剩 2 個工作日</span></div></div>
+    <div class="li"><div class="t">#1041　王小明</div><div class="s"><span class="chip">剩 9 個工作日</span></div></div>
+    <div class="li"><div class="t">#1038　△△娛樂</div><div class="s"><span class="chip">已回復</span></div></div>
+  </div>
+  <div class="detail">
+    <h3>#1043　○○影業股份有限公司</h3>
+    <div class="meta">2026-09-02 受理　·　狀態 <span class="chip on">已提出回復通知</span></div>
+    <dl class="kv">
+      <dt>標的</dt><dd>劇場版 吉伊卡哇 人魚島的秘密（作品）</dd>
+      <dt>主張著作</dt><dd>該片官方海報</dd>
+      <dt>通知人信箱</dt><dd>legal@example.com</dd>
+      <dt>已轉送使用者</dt><dd>2026-09-03</dd>
+      <dt>使用者回復通知</dt><dd>2026-09-08</dd>
+    </dl>
+    <div class="aside loud" style="margin:0 0 4px">
+      <b>對方要在 2026-09-22（剩 2 個工作日）前提出訴訟證明。</b><br>
+      逾期未提出 → 你必須在 <b>2026-09-26</b> 前把內容回復。
+    </div>
+    <div class="acts">
+      <button class="btn ghost">已收到訴訟證明</button>
+      <button class="btn">回復內容</button>
+      <button class="btn ghost danger">記一次三振</button>
+    </div>
+  </div>
+</div>
+<p class="n">
+  <strong>剩餘工作日是列表的排序鍵，也是列表裡最醒目的東西。</strong>
+  這個佇列跟另外兩個的差別在於：<strong>漏掉一筆的後果是法律責任，不是資料品質</strong>。
+  所以不按受理時間排，按剩餘時間排；快到期的用紅色 chip，而且紅色只用在這裡。<br>
+  ⚠️ <strong>所有日期都讀 DB 算好的值</strong>（<code>counter_notice_deadlines()</code> trigger 用
+  <code>business_days_after</code> 算），<strong>前端絕不自己算工作日</strong>——
+  兩邊各算一次就是兩個會分岔的答案，而分岔的那個會出現在法定期限上。<br>
+  ⚠️ <strong>「已轉送使用者」是手動勾的，不能自動填。</strong>
+  寄出通知是站外行為，程式無從得知它真的發生過（<code>0006</code> migration 的註解寫得很清楚）。
+  自動填只會產生一個看起來已履行、實際沒有的紀錄，<strong>而那正是日後要拿來舉證的欄位</strong>。
+  介面上要讓它看起來像一個「我確認我寄了」的動作，不是一個狀態顯示。
+</p>
+
+<h2 class="sec">⚠️ 這份稿裡的紅色是佔位</h2>
+<p class="n">
+  破壞性動作用的紅（<code>#B3261E</code> / 暗色 <code>#F2B8B5</code>）是這份稿自己挑的，
+  <strong>實作要用 Nuxt UI 的 <code>error</code> 語意色</strong>（<code>DS §1.5</code>：
+  error/success/warning/info 沿用 Nuxt UI 預設，只用於表單驗證與 toast）。<br>
+  ⚠️ 但 <code>DS §1.5</code> 同時警告：<strong>Nuxt UI 的 <code>warning</code> 預設就是 amber，
+  在暖底上會跟 <code>primary</code> 撞</strong>。admin 的三個佇列裡不要同時出現
+  <code>primary</code> 與 <code>warning</code>，要提醒就用 <code>error</code> 或改用文案。
+</p>
+
+<h2 class="sec">④ /admin/reports — 片名／影城錯誤回報（US-49/50）</h2>
+<p class="n">
+  同一套左列表右詳情，內容最單純：誰、回報哪一筆、說哪裡錯了、目前的值是什麼。
+  兩顆鈕：<strong>照著改</strong>／<strong>不改，回覆理由</strong>。<br>
+  ⚠️ <strong>「照著改」不可以直接寫進政府核准片名的欄位。</strong>那個欄位的權威來源是影視局開放資料，
+  被人工覆蓋之後下次資料更新會打架。修正要進覆蓋層，不是進來源層。
+</p>
+</div></body></html>
