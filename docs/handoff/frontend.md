@@ -1,114 +1,84 @@
-# 交接筆記 — frontend
+# 交接筆記 — frontend（第二棒）
 
-> 負責 `app/**`（除 `app/types/database.types.ts`）：頁面、元件、composable、layout、樣式。
-> 假設你讀得到 `docs/SPEC.md`、`docs/BUILD_PLAN.md` 與 `git log`，所以這裡**不重複**那些。
-> 只寫關掉 session 就會消失的東西。
+> 負責 `app/**`（除 `app/types/database.types.ts`）。
+> 假設你讀得到 `docs/SPEC.md`、`docs/BUILD_PLAN.md`、`docs/design/**` 與 `git log`，
+> 所以這裡**不重複**那些。只寫關掉 session 就會消失的東西。
+>
+> **前一棒那份在 git 歷史裡（`cfcfe49`），它的 §3「刻意沒做的取捨」整節仍然有效**
+> ——原生 `<input type="date">`、`/search` 用 `UInput` 不用 `USelectMenu`、
+> 票價 schema 不給 `.default(0)`、圖表色票定義在 TS、不裝 `nuxt-echarts`、
+> 個人頁 client 端分頁。那六條我這一棒都沒有推翻，理由也都還成立。
+> 它的 §2.1（whitespace condense）、§2.2（`USelectMenu` 的 `T | undefined`）、
+> §2.7（`break-all` 全站不用）也仍然有效，且已經進 §7。
 
 ---
 
-## 1. 現況：哪些畫面是真的，哪些是骨架
+## 1. 現況：哪些畫面是真的，哪些不存在
 
-| 路由 | 狀態 |
+| 路由 | 狀態（相對於前一棒的變化） |
 |---|---|
-| `/` | 可用。站台介紹，沒有「近期公開紀錄」（§3 說要，還沒做） |
-| `/search` | 可用。雙欄搜尋成立 |
+| `/` | 可用。仍然沒有「近期公開紀錄」 |
+| `/search` | 可用。**IME 已修**；「手動新增這部片」現在帶 `?title=&from=search` |
 | `/film/[slug]` | 可用 |
-| `/film` | 302 → `/search`（見 §3 的取捨） |
-| `/u/[username]` | 可用。年份分組 + 漸進式載入 |
+| `/u/[username]` | 可用。**加了年表**（同時是年份篩選器）、改用 `TicketCard`、統計改 `StatLine` |
 | `/login`、`/confirm` | 可用 |
-| `/app` | **骨架**。見下方 |
-| `/app/records`、`/app/records/new`、`/app/records/[id]/edit` | 可用，實機走過 |
-| `/app/settings` | 寫完但**沒有人用瀏覽器操作過**。改名／`show_cost`／匯出三個功能的資料層各自驗過，UI 沒驗 |
-| `/app/films/new` | **不存在**。`/search` 與 `new.vue` 的「找不到片」都連過去，會 404 |
-| `/app/import` | **不存在**。匯入目前只有 CLI（backend 做的） |
+| `/app` | **已完成**。七條圖表 band + 點格子開底部抽屜。不再有紀錄列表 |
+| `/app/records` | 可用。改用 `TicketCard` + 年份切換 + 刪除二次確認 |
+| `/app/records/new`、`/edit` | 可用。**IME 已修**、表單草稿會在去新增作品時保存 |
+| `/app/films/new` | **已完成**。含海報上傳（縮圖 → private bucket → 寫回 `ugc_poster_path`） |
+| `/app/settings` | 程式寫完，**仍然沒有人用瀏覽器操作過**（前一棒就是這樣，我沒動它） |
+| `/app/import` | **不存在**。匯入目前只有 CLI |
 | `/venue/[id]` | **不存在**，但 `nuxt.config.ts` 已有它的 routeRule |
-| `/legal/**` | **不存在**。§6 的四要件頁面，Phase 1 法遵要求 |
-| `/admin/**` | **不存在** |
-
-### `/app` 是最該先修的一個
-
-它還停在 Step 1 的最小骨架：標題「我的紀錄」、一段裸露的 JSON debug 區塊（印出
-使用者 UUID 與 email）、一個登出按鈕。**那是登入後看到的第一個畫面**，而使用者的
-174 筆紀錄一筆都沒出現在上面。
-
-UUID 與 email 只有本人看得到（該路由 `ssr: false` 且需登入），不是外洩，但那是
-debug 殘留不是設計。修它不需要等任何人——`/app/records` 已經有列表邏輯可以借。
+| `/legal/**` | **不存在**。`SCREENS §15` 的規格已經就緒，視覺稿也有了。這是最該接的下一件 |
+| `/admin/**` | **不存在**。backend 的 `approve_film` / `merge_films` 端點已經在了，缺的是介面 |
 
 ---
 
-## 2. 踩過但**還沒寫進 BUILD_PLAN §7** 的坑
+## 2. 踩過的坑
 
-§7 已經有 #1–#79。以下是我踩到但沒進去的，都是「看起來會動但其實不會」那一類。
+**#82–#90 已經進 `BUILD_PLAN §7`**（IME 兩條、ECharts 多層 canvas、visualMap 吃掉
+所有 series、`fontFamily: 'inherit'`、SSR 的 colorMode hydration、`*_public` view 漏掉
+自己的東西、UGC slug 的 404）。以下是**沒進 §7**、比較零碎但一樣會咬人的：
 
-### 2.1 Vue 的 whitespace 'condense' 會吃掉插值之間的空白
+### 2.1 `eslint --fix` 會把 `Array.from` 改寫成推論不出型別的形式
 
-```vue
-{{ date }}<span v-if="t"> {{ t }}</span>   <!-- render 成 2026-07-2616:00 -->
+```ts
+Array.from({ length: N }, () => 0)   // number[]
+// --fix 之後 ↓
+Array.from({ length: N }).fill(0)    // unknown[]  ← typecheck 紅
 ```
+兩個工具各自有理，但合起來會讓你在 lint 與 typecheck 之間來回。
+需要固定長度的數字陣列就手寫迴圈，別跟它拉扯。
 
-分隔符必須在**字串裡**就組好。這就是 `app/utils/format-datetime.ts` 存在的理由
-（`dateTimeText()` / `metaLine()`）。任何「用相鄰元素加空白做分隔」的寫法都會中招，
-而且 curl 掃 HTML 也看不出來——你得真的 render 才會發現兩個數字黏在一起。
+### 2.2 vitest 的 `~` 別名指向 `src/`，不是 `app/`
 
-### 2.2 `USelectMenu` 的 `v-model` 型別是 `T | undefined`，不是 `T | null`
+`vitest.config.ts` 的 alias 是給管線那一側用的。`app/utils/*` 之間互相 import
+**要用相對路徑**（`./chart-theme`），寫 `~/utils/chart-theme` 的話 Nuxt 跑得動、
+單元測試 resolve 不到。
 
-用 `ref<X | null>(null)` 綁上去，`nuxt typecheck` 會報
-`Type 'null' is not assignable to type 'X | undefined'`。三個選單欄位
-（film / venueId / formatCode）都得用 `undefined`，寫入 DB 前再 `?? null`。
+### 2.3 `USelectMenu` 的搜尋框在 portal 裡，attrs 到不了
 
-### 2.3 Nuxt UI 4.11 有 `UInputTime`，不只 `UInputDate`
+`$attrs` 綁在 trigger 上，不是那個搜尋 `<input>`。要把東西掛到搜尋框只能走
+`:search-input="{...}"`（會經 `defu` 再 v-bind 到內部的 `UInput`）。
+**這一棒最後沒有用到**——reka-ui 的 `ListboxFilter` 自己有 `useComposing()`，
+IME 那一題不需要從外面補。但下次要掛別的東西時這是唯一的路。
 
-踩雷 #53 只提到 `UInputDate granularity="minute"`。實際上還有獨立的 `UInputTime`。
-兩者的 `modelValue` 都是 **`@internationalized/date` 的物件**（`DateValue` /
-`TimeValue`），不是字串——換過去要寫轉換層（`parseDate` / `parseTime` / `today`
-都在該套件裡，約 20 行）。`UCalendar` 確實沒有時間 UI，#53 那半是對的。
+### 2.4 CDP 的 `Input.dispatchKeyEvent` 只送 `rawKeyDown` 不會產生 keypress
 
-### 2.4 `spaLoadingTemplate` 的值是「字面」接在 srcDir 後面
+而瀏覽器的 implicit form submission 掛在 keypress 上。少了 `text: '\r'`
+會得到「表單永遠不會送出」的假結論——我第一次驗 Enter 誤送就踩到，
+對照組跟實驗組同時是 0，看起來像沒問題。
 
-§2.3 寫 `'app/spa-loading-template.html'` → 解析成 `app/app/…`；官方文件的
-`'~/spa-loading-template.html'` → `app/~/…`。**別名不解析**，只能寫裸檔名
-`'spa-loading-template.html'`。檔案放 `app/` 底下是對的。
+### 2.5 macOS 上 `Control+A` 不是全選
 
-### 2.5 `tsx` 讀「最近的 tsconfig.json」解析路徑別名
+驗證腳本裡用 `Control+A` + `Backspace` 清空輸入框會清不掉（那是「移到行首」），
+於是得到「清空後空狀態沒有重設」的假陽性。用 `Meta+A` 或連按 Backspace。
 
-根目錄那份是 Nuxt 的 solution file，`paths` 必須留在裡面，否則 `src/` 內以 `~/`
-匯入的模組在 `pnpm run ingest:*` 執行期會 `Cannot find package '~'`——**而 tsc
-與 vitest 全綠**。測試與正式執行走不同解析路徑，全綠不代表 CLI 能跑。
-（`tsconfig.json` 裡有註解說明；`~/*` 是過渡條目，等 `src/import/**` 與
-`tests/import.test.ts` 轉完就能刪。）
+### 2.6 `supabase-js` v2 的 `storage.upload()` 沒有進度事件
 
-### 2.6 `pnpm run x -- file` 會把 `--` 原樣傳進腳本
-
-npm 會吃掉，pnpm 不會。吃 argv 的腳本要自己濾掉 bare `--`。
-
-### 2.7 48px 寬的容器放不下中文片名
-
-`FilmPoster` 的文字 fallback 原本是 `p-4` + `break-all`，在列表的 `w-12` 容器裡
-只剩 16px 可用，每行一個字再被截斷，變成「卡哇人」這種直式擠壓。
-**`break-all` 全站不要用**——它會在任意字元間斷行。現在改成 `variant`：
-小尺寸用字標（取片名首字），大尺寸才放全名配 `line-clamp`。
-
-字標取「第一個**有意義**的字」：片名常以 `《「【（` 開頭，直接取 `[0]` 只會拿到引號。
-
-### 2.8 文字 fallback 目前是全站常態，不是 10% 的邊角
-
-`film_tmdb_snapshot` 的 2,401 筆快照要等 Step 9 的刷新排程才有 `poster_path`。
-在那之前**每一列**都走文字卡片。設計這個 fallback 時請照「這是主要外觀」來想，
-不是照「偶爾才出現的降級」。
-
-### 2.9 zrender 6.1.0 看不懂的色彩語法（實測）
-
-```
-#10b981                       ✅
-rgba(16, 185, 129, 1)         ✅
-rgb(16,185,129)               ✅
-rgb(16 185 129)               ❌ undefined   ← 現代空白分隔語法
-oklch(0.7 0.15 160)           ❌ undefined
-color(display-p3 0.1 0.7 0.5) ❌ undefined   ← Canvas fillStyle fallback 也救不了
-```
-
-最後一行順帶否掉了 §8.2 第 22 項那個「用 Canvas 把 oklch 正規化成 hex」的構想——
-超出 sRGB 時它回的正是 `color(display-p3 …)`，zrender 一樣不吃。
+視覺稿畫了「62% + 取消」，做不出來——除非自己用 XHR 打 storage 的 REST。
+目前是結構性骨架 + 「上傳中…」，**沒有百分比也沒有取消**。這是刻意的：
+假的百分比比沒有百分比更糟。
 
 ---
 
@@ -116,70 +86,96 @@ color(display-p3 0.1 0.7 0.5) ❌ undefined   ← Canvas fillStyle fallback 也�
 
 | 決定 | 理由 |
 |---|---|
-| **日期時間維持原生 `<input type="date">` / `type="time"`** | `UInputDate` 是**分段文字欄位**不是選擇器，手機上叫出文字鍵盤。核心情境是「散場走出影廳用手機三十秒記完」，原生 input 叫出 OS 滾輪選擇器，這一局原生贏得明確。附帶好處是零轉換層——原生給的就是 `YYYY-MM-DD` / `HH:mm`，正好是 DB 的 `date` / `time` 要的形狀。**若 design session 要求視覺一致性，隨時可換**，成本約 20 行 |
-| **`/search` 用 `UInput` + 結果格線，不是 §5 Step 3 寫的 `USelectMenu`** | 那是公開**頁面**不是表單欄位。`USelectMenu` + `ignore-filter` 的規範用在 `/app/records/new` 的片名選擇（已照做） |
-| **`/film` 導向 `/search`，不建瀏覽索引頁** | 索引頁是新功能、要等設計定案。移除死路的成本是一行 |
-| **圖表色票定義在 TS，不用 `@theme static` + `getComputedStyle`** | 後者要賭 Tailwind 不會把 hex 正規化成 oklch，賭錯的症狀是「靜態填色正常、一 hover 就整條變空白」。定義在 TS 則 ECharts 拿到的必然是 hex |
-| **不裝 `nuxt-echarts`** | 建立在 experimental 的 `<NuxtIsland>` 上，且 ECharts SSR 強制固定 width/height，與響應式圖表衝突 |
-| **個人頁是 client 端分頁** | 真正的 server 端分頁需要 `/api/u/[username]` 支援 `offset`/`limit`，那支在 backend 手上 |
-| **票價 schema 不給 `.default(0)`** | `null`（沒資料）與 `0`（招待票）是兩件事。把「沒資料」寫成 0 會稀釋平均票價 |
+| **年表 `YearStrip` 與分布長條 `DistributionBars` 不用圖表庫** | 前者每一列要能被鍵盤走到、被螢幕閱讀器讀到，canvas 給不了；後者是「名稱自己一行、條在下面一行」的排版，那是 HTML 不是圖表，而且長中文影城名在 375px 下才不會被截斷。design 已認可 |
+| **時段熱點圖限寬 420px** | 桌機 band 有 830px，7 欄攤開會讓每格變成 110×22 的長條，方格語彙消失。舊專案的節距是 15px 方塊，桌機把寬度收回來比把圖拉滿更接近那個比例 |
+| **圖說在樣本 < 20 筆時不下「最」的斷言** | 「你最常在週六 10:00 進場，共 2 場」是從雜訊長出來的斷言，比不給洞察更糟。門檻與文案規則見 `SCREENS §9c.3` |
+| **`/app` 與 `/app/records` 分工而不是合併** | `/app` 是統計門面（SPEC 的第四個價值主張，Letterboxd 把它鎖在付費層），紀錄透過點格子開抽屜出現；`/app/records` 才是可以動手改的地方 |
+| **國別用原生 `<datalist>` 不用選單元件** | 必須可以自由輸入（片庫裡沒有的國家不該被擋），但也必須跟既有資料一致。建議清單從片庫的相異值長出來，天生一致也會自己成長。不建 ISO 對照表——政府資料用的是中文國名不是 ISO 碼 |
+| **`TicketCard` 的網格模式（`§4.3` 後半）沒做** | 四個呼叫端目前都是列表。要做時是加一個 `variant="grid"`，不是另開一個元件 |
+| **`BaseChart` 不用 ECharts 的 `setTheme()`，改 `:key` 重建** | `§5.3-10` 說 `setTheme()` 不會重算 `visualMap.pieces` 與顯式的 `itemStyle.color`，而我們每個顏色都是顯式的 ⇒ 整份 option 本來就得重來 |
+| **海報只在 `<640px` 隱藏，不是永遠不顯示** | `§4.3` 算的 277px 可用寬是「沒有海報也沒有操作鈕」的乾淨卡片；`/app/records` 多了兩顆鈕，375px 下內容欄只剩 133px。`SCREENS §2.3` 本來就允許小尺寸不顯示海報 |
 
 ---
 
-## 4. 懷疑但沒驗證的事（最容易失傳）
+## 4. 懷疑但沒驗證的事（最容易失傳，也最有價值）
 
-1. **中文注音 IME 在 `USelectMenu` 搜尋框的行為，從來沒有用實體鍵盤測過。**
-   主 session 用 CDP 模擬過，沒重現「選單被組字中間態清空」，但模擬不等於實機。
-   `useIMEGuard` 存在於 Nuxt UI v4，但實測整包 runtime 只有 `ChatPrompt.vue` 用它。
-   **這是繁中產品的高風險點。** 另外表單改用 `<UForm>` 之後送出時機從
-   `@submit.prevent` 換成 UForm 的 `@submit`，**注音選字中按 Enter 會不會誤觸送出**
-   也沒測過。
+1. **未登入從 `/search` 進 `/app/films/new` 的 `?next=` 行為完全沒驗過。**
+   要驗必須登出 David 的 session，我沒有動。`redirectOptions.saveRedirectToCookie: true`
+   理論上會保住整個路徑含 query，登入後回到這一頁且片名還在——**但那是推論不是實測**。
+   `SCREENS §11` 明文要求這個行為（「把人丟回搜尋首頁等於要他重打一次」）。
+   有測試帳號之後第一個該驗的就是它。
 
-2. **`BaseChart` 從來沒有帶著真實資料 render 過。** 只用一個假 option 驗過
-   SSR 不炸、`ClientOnly` fallback 有出現、高度用 inline style 生效。
-   **visualMap 的漸層、hover emphasis、dark mode 切換後是否重繪，全部沒看過。**
-   dark mode 我用 `:key` 強制重建元件，那是最不會漏的做法，但也最粗暴——
-   可能有閃爍或動畫重播的問題，得真的切一次才知道。
+2. **海報的「被拒」狀態（`§11` 四態的第 ④ 態）從來沒有真的發生過。**
+   沒有 `/admin` 介面，`approve_film(false)` 的駁回路徑沒有人走過。
+   現在畫面上那個「沒有存成功」分支是**上傳失敗**時的樣子，不是**被審核駁回**時的樣子——
+   後者需要一個地方把駁回理由存起來並讀回來，而 schema 裡目前沒有那個欄位。
 
-3. **`UserSpendSummary` 只驗到資料層。** `show_cost=true` 時它的 embed 查詢
-   （`viewing_record_cost` join `viewing_record!inner(user_id)`）沒有透過 UI 跑過。
-   `spend_is_partial` 的「部分票價未公開」提示也沒在畫面上看過。
+3. **上傳失敗的兩個分支（`retryPoster` / `continueWithoutPoster`）沒有被真的觸發過。**
+   程式路徑寫了，但我沒有製造過一次真的上傳失敗。
 
-4. **`server/middleware/strip-auth-on-cacheable.ts` 的路由清單必須與
-   `nuxt.config.ts` 的 `isr` / `prerender` routeRules 保持一致，但沒有任何測試強制它。**
-   新增可快取路由時漏掉同步，會靜默地把來訪者的 access_token 寫進 CDN 快取
-   （踩雷 #79）。這是我認為目前最危險的一條**隱性耦合**。
-   建議加一個測試：讀 `nuxt.config` 的 routeRules，斷言每條有 `isr`/`prerender`
-   的路由都被該 middleware 的 `isCacheable()` 命中。
-   （那支 middleware 在 `server/**`，屬 backend；但耦合的另一端在 `nuxt.config.ts`。）
+4. **拖曳上傳沒測過。** 只測了 `setInputFiles`（等同點擊選檔）。
+   `@drop` 的 handler 寫了但沒有人真的拖過一個檔案進去。
 
-5. **`/api/u/[username]` 一次回最多 200 筆，超過的使用者會缺資料而且無聲無息。**
-   David 現在 174 筆還沒踩到。這是會隨時間爆的。
+5. **出席圖的橫向捲動沒在真的觸控裝置上測過。** 只有 CDP 的 375px viewport。
+   「預先捲到最右」在桌機模擬下成立，慣性捲動與 `overflow-x` 在 iOS Safari 上的
+   行為沒有人看過。`§9.4` 還要求兩側加漸層遮罩表示還有內容，**那個遮罩沒做**。
 
-6. **`useScreeningFormats()` 在 SSR 的個人頁上會多一次資料庫往返。**
-   那張表只有 9 列且對 anon 全開，理論上很便宜，但沒量過。若成為問題，
-   正解是請 backend 在 `/api/u/[username]` 直接 join `screening_format.label`。
+6. **UGC 海報在 `/u/` 公開頁不會顯示。** `useMyRecords()` 會批次簽 signed URL，
+   但 `/u/` 走 `server/api/u/[username].get.ts`（backend 的檔），那一側回的仍是路徑。
+   已回報給主 session 派給 backend。
+
+7. **圖表在 1–19 筆的中間態沒有真的看過。** David 有 174 筆，`showCharts` 門檻是 10，
+   `INSIGHT_MIN` 是 20。我用「暫時讓查詢回空陣列」驗過 0 筆的空狀態，
+   但 1–9（只有年表與列表）與 10–19（有圖沒有斷言）兩段只有程式邏輯，沒有畫面證據。
+
+8. **`/api/u/[username]` 一次回最多 200 筆**（前一棒就寫過，仍然成立）。
+   現在多了一個後果：**`/u/` 的年表是從那 200 筆算出來的**，超過 200 筆的使用者
+   年表會缺格子，而且不會有任何提示。
+
+9. **熱點圖在觸控裝置上點一格會不會同時觸發 tooltip 與抽屜，沒測過。**
+   `emphasis: { disabled: true }` 關掉了 hover 換色，但 tooltip 還在。
+
+10. **`ugc-poster` bucket 的 2 MiB 上限沒有被真的撞到過。**
+    縮圖之後 700×1050 的 PNG 變成 333×500 的 JPEG（幾十 KB），
+    理論上不可能超標，但沒有人拿一張 8000×12000 的圖試過
+    ——`createImageBitmap` 在超大圖上可能先爆掉。
 
 ---
 
 ## 5. 半成品，明確標示
 
-- **`app/pages/app/index.vue`** — Step 1 的骨架，含 debug JSON 區塊。見 §1。
-- **`app/components/BaseChart.vue` + `app/utils/chart-theme.ts`** — 結構完成、SSR 安全性驗過，
-  但**沒有任何頁面在用它**（build 時會被 tree-shake 掉，所以 client bundle 裡看不到 echarts）。
-  `user_year_stats` RPC 已由 backend 在 `585357a` 做出來，型別應該已在
-  `app/types/database.types.ts` 裡，可以直接接。
-- **`app/pages/app/settings.vue`** — 程式寫完，UI 沒有人操作過。
+- **`BaseChart` 仍然註冊了沒人用的元件**：`LegendComponent`、`TitleComponent`
+  （圖例是自己用 HTML 畫的，標題在 `ChartBand` 上）。留著不會壞，但會進 bundle。
+- **`/app/films/new` 沒有「已比對到 TMDB 就不出現海報欄」的情境**：
+  這一頁只建 UGC 作品（`tmdb_id` 必為 null），所以海報欄永遠出現。
+  `§11` 第 4 節那個版面要等到有「編輯既有作品」的頁面才會用到。
+- **`app/components/UserSpendSummary.vue` 的 UI 仍然只在 `/u/` 上看過一次**，
+  `show_cost` 開啟後別人視角的樣子沒有人看過（需要第二個帳號）。
 
 ---
 
-## 6. 開發時的實用資訊
+## 6. 這一棒學到的驗證方法（比結論更值得留）
 
-- **真實瀏覽器驗證**：我借用主 session 的 `playwright-core`（在
-  `/private/tmp/.../-Users-david-Documents-Github-log/.../scratchpad/browser/`），
-  用 `chromium.launch({ channel: 'chrome' })` 跑。**Google OAuth 會擋 Playwright
-  啟動的瀏覽器**，要測登入後畫面得用 CDP 附著到 David 自己開的 Chrome。
-- **每個有畫面的 Step，交出去之前自己先跑一輪截圖。** 我前五個 Step 都只驗資料與
-  安全，結果第一個用眼睛看的人一次找出六個問題（版面錯誤、17,481px 的頁面、
-  日期黏連、未中文化、title 重複）。curl 掃 HTML 驗不到「長什麼樣子」。
-- 我的截圖放在 session scratchpad 的 `shots/`，session 關掉就沒了。
+- **真實瀏覽器附著**：`chromium.connectOverCDP('http://127.0.0.1:9222')` 附到 David
+  自己開的 Chrome。**絕對不要 `browser.close()`**（會關掉他的瀏覽器），斷開用
+  `process.exit(0)`。Google 會擋 Playwright 啟動的 Chrome，所以登入後的畫面只能這樣測。
+- **每一頁的固定三問**：`documentElement.scrollWidth > innerWidth`（橫向溢出）、
+  掃全部元素找 `rgb(255,255,255)`（暗色漏純白）、`scrollHeight`（有沒有變成一萬 px 的頁面）。
+  這三個查詢抓到的問題比任何功能測試都多。**亮暗兩版都要跑。**
+- **圖表要用像素對帳，不要用眼睛。** 合成所有 canvas 層、先填底色、再數特定顏色的
+  像素數量。我就是這樣證明「雙片連映的小點沒有被畫出來」，也是這樣證明修好了。
+- **IME 可以用 CDP 模擬**：`Input.imeSetComposition` 建組字中間態、
+  `Input.insertText` 上屏。不需要實體鍵盤。
+- **匿名曝險用 `fetch` 直接打 PostgREST 與 storage**，不要靠畫面判斷。
+  `node --env-file=.env` 可以直接讀專案的 key。
+
+---
+
+## 7. 給下一棒的建議順序
+
+1. **`/legal/**`** —— 規格（`SCREENS §15`）與視覺稿都就緒，而且它是 Phase 1 的法遵要件
+   （「未盡顯名標示義務者視為自始未取得授權」）。四個路由但只有三個是文件。
+2. **`/admin/**`** —— backend 的端點已經在了，缺介面。做完之後海報的「被拒」狀態
+   才有辦法驗（見 §4-2）。
+3. **`/app/settings` 的瀏覽器驗證** —— 它從第一棒到現在都沒有人操作過。
+4. **`/venue/[id]`** —— routeRule 已經在了，頁面不存在。
