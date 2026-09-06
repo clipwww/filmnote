@@ -261,6 +261,9 @@ export interface Database {
           created_at: string
           updated_at: string
           review_note: string | null
+          corrected_by: string | null
+          corrected_at: string | null
+          correction_note: string | null
         }
         Insert: {
           id?: string
@@ -287,6 +290,9 @@ export interface Database {
           created_at?: string
           updated_at?: string
           review_note?: string | null
+          corrected_by?: string | null
+          corrected_at?: string | null
+          correction_note?: string | null
         }
         Update: {
           id?: string
@@ -313,8 +319,18 @@ export interface Database {
           created_at?: string
           updated_at?: string
           review_note?: string | null
+          corrected_by?: string | null
+          corrected_at?: string | null
+          correction_note?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "film_corrected_by_fkey"
+            columns: ["corrected_by"]
+            isOneToOne: false
+            referencedRelation: "profile"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "film_created_by_fkey"
             columns: ["created_by"]
@@ -911,6 +927,10 @@ export interface Database {
           created_at: string
           updated_at: string
           selectable: boolean
+          curated_fields: string[]
+          corrected_by: string | null
+          corrected_at: string | null
+          correction_note: string | null
         }
         Insert: {
           id: string
@@ -933,6 +953,10 @@ export interface Database {
           created_at?: string
           updated_at?: string
           selectable?: boolean
+          curated_fields?: string[]
+          corrected_by?: string | null
+          corrected_at?: string | null
+          correction_note?: string | null
         }
         Update: {
           id?: string
@@ -955,8 +979,19 @@ export interface Database {
           created_at?: string
           updated_at?: string
           selectable?: boolean
+          curated_fields?: string[]
+          corrected_by?: string | null
+          corrected_at?: string | null
+          correction_note?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "venue_corrected_by_fkey"
+            columns: ["corrected_by"]
+            isOneToOne: false
+            referencedRelation: "profile"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "venue_last_import_id_fkey"
             columns: ["last_import_id"]
@@ -1217,6 +1252,29 @@ export interface Database {
         }
         Returns: number
       }
+      admin_correct_film: {
+        Args: {
+          p_film: string
+          p_title_zh: string
+          p_title_original: string
+          p_country: string
+          p_note: string
+          p_report_id: number
+        }
+        Returns: Json
+      }
+      admin_correct_venue: {
+        Args: {
+          p_venue: string
+          p_name: string
+          p_city: string
+          p_address: string
+          p_phone: string
+          p_note: string
+          p_report_id: number
+        }
+        Returns: Json
+      }
       admin_forward_counter_notice: {
         Args: {
           p_counter_id: number
@@ -1303,6 +1361,13 @@ export interface Database {
         }
         Returns: boolean
       }
+      home_poster_wall: {
+        Args: {
+          p_limit: number
+          p_seed: string
+        }
+        Returns: Record<string, unknown>[]
+      }
       is_admin: {
         Args: Record<PropertyKey, never>
         Returns: boolean
@@ -1373,6 +1438,13 @@ export interface Database {
       seed_films: {
         Args: {
           p_films: Json
+        }
+        Returns: number
+      }
+      seed_venues: {
+        Args: {
+          p_venues: Json
+          p_import_id: number
         }
         Returns: number
       }

@@ -116,9 +116,22 @@ async function seedVenues(db: SupabaseClient, runId: number) {
 
   let written = 0
   for (const batch of chunk(rows, ROW_BATCH)) {
-    const { error } = await db.from('venue').upsert(batch, { onConflict: 'id' })
+    /**
+     * ★ 走 `seed_venues()` RPC 而不是 `.upsert({ onConflict: 'id' })`（0012）。
+     *
+     * upsert 是**整列盲蓋**：它會把 name / company_name / hall_count / address /
+     * phone / city 六個欄位一律寫回上游的值。US-49/US-50 的人工更正因此會在
+     * 下一次影城匯入時**無聲消失**，而回報者早就被告知「已受理並修正」。
+     *
+     * PostgREST 的 upsert 沒有辦法逐列決定要更新哪些欄位，所以這個判斷
+     * （`curated_fields` 有沒有接管該欄位）**必須在 SQL 裡**。
+     */
+    const { error } = await db.rpc('seed_venues', {
+      p_venues: batch,
+      p_import_id: runId,
+    })
     if (error)
-      throw new Error(`venue upsert 失敗：${error.message}`)
+      throw new Error(`venue seed 失敗：${error.message}`)
     written += batch.length
     process.stdout.write(`\r  venue ${written}/${rows.length}`)
   }

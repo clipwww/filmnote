@@ -298,13 +298,13 @@ async function runAccountDeletionChecks(env: HttpEnv): Promise<void> {
   let userB: string | null = null
 
   const admin = { apikey: env.secret, Authorization: `Bearer ${env.secret}` }
-  const createUser = async (email: string): Promise<string | null> => {
+  const createUser = async (email: string): Promise<{ id: string | null, status: number }> => {
     const r = await fetch(`${env.url}/auth/v1/admin/users`, {
       method: 'POST',
       headers: { ...admin, 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password, email_confirm: true }),
     })
-    return r.ok ? (await r.json() as { id: string }).id : null
+    return { id: r.ok ? (await r.json() as { id: string }).id : null, status: r.status }
   }
   const tokenFor = async (email: string): Promise<string | null> => {
     const r = await fetch(`${env.url}/auth/v1/token?grant_type=password`, {
@@ -316,10 +316,16 @@ async function runAccountDeletionChecks(env: HttpEnv): Promise<void> {
   }
 
   try {
-    userA = await createUser(DELETE_EMAIL)
-    userB = await createUser(BYSTANDER_EMAIL)
-    if (!userA || !userB)
-      return skip('http/account-*', 'US-47 驗收', '建立測試帳號失敗')
+    const [resA, resB] = [await createUser(DELETE_EMAIL), await createUser(BYSTANDER_EMAIL)]
+    userA = resA.id
+    userB = resB.id
+    if (!userA || !userB) {
+      // ⚠️ 429 是 Supabase Auth 對建立帳號的節流。這支與 verify-account-delete
+      //    每跑一次就建 1–2 個帳號，短時間連跑好幾次就會撞到——那是**假紅燈**，
+      //    不是程式壞了。等一分鐘再跑就過。把狀態碼寫出來才分得出來。
+      return skip('http/account-*', 'US-47 驗收', `建立測試帳號失敗（HTTP ${resA.status}／${resB.status}）`
+        + `${resA.status === 429 || resB.status === 429 ? ' —— 這是 Supabase Auth 的節流，等一分鐘再跑' : ''}`)
+    }
 
     const tokenA = await tokenFor(DELETE_EMAIL)
     if (!tokenA)

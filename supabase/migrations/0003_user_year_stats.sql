@@ -20,6 +20,28 @@
 -- 可重複執行。
 -- =============================================================================
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 全期視角（p_year = null）—— David 要的「不分年份的全部統計」
+--
+-- ★ 這支**本來就支援**：p_year 有 `default null`，而 rec CTE 的條件是
+--   `p_year is null or extract(year …) = p_year`。實測 user_year_stats('clipwww', null)
+--   回的就是全期：174 筆／133 部／250 張／13 個年份／全期多刷 19 部。
+--   所以不需要另開一支「all_time」函式——**多一支就是多一份會漂移的定義**。
+--
+-- 全期尺度下有兩件事語意會變，2026-09-06 補上：
+--   ① `by_year`：全期貢獻圖要餵的東西。日層級在全期尺度畫不出來（96% 空格）。
+--   ② `monthly` vs `monthly_series`：見下方註解。原本只有前者，等於已經替
+--      David 選了「季節性」那一種而沒有人講出來。
+--
+-- ── 效能的形狀（母體 174 筆，量不出東西，所以講清楚假設）──────────────────
+-- 所有聚合都從**同一個 `rec` CTE** 出發，而 rec 是一次
+-- `viewing_record ⋈ target` 的掃描（走 `viewing_record (user_id)` 的索引）。
+-- 十一組聚合各自對 rec 做一次 group by，**不會各自回去掃 viewing_record**。
+-- ⇒ 成本是 O(該使用者的紀錄數)，與年份數、與全站紀錄數無關。
+-- 一萬筆時 rec 是一萬列，十一次 in-memory group by——那個量級不需要優化。
+-- ⚠️ 會爆掉的寫法是「每一組聚合各自 join 回 viewing_record」，那會變成
+--    十一次索引掃描。改動這支時請維持「單一 rec、多次 group by」的形狀。
+-- ─────────────────────────────────────────────────────────────────────────────
 create or replace function public.user_year_stats(
   p_username text,
   p_year integer default null      -- null = 不分年度，涵蓋全部
@@ -140,6 +162,44 @@ select case when not exists (select 1 from target) then null else jsonb_build_ob
               from rec r
               left join public.screening_format s on s.code = r.format_code
              group by 1) ff), '[]'::jsonb),
+
+  -- ── 全期視角專用（p_year is null 時才有內容）─────────────────────────
+  --
+  -- ★ 為什麼按年而不是按日：全期跨 2014–2026 十三年，日層級在單一年份就已經
+  --   96% 是空的（design 實測，那是它把貢獻圖改成「週」解析度的理由）。
+  --   `daily` 仍然照給——它的長度由**相異日期數**決定（實測 174 筆 → 165 筆），
+  --   不會隨年份數膨脹，所以留著讓前端自己選解析度是划算的。
+  --   但全期尺度下真正畫得出東西的是這一組。
+  --
+  -- ⚠️ p_year 不是 null 時這一欄是空陣列，不是缺鍵。前端不必分兩種形狀處理。
+  'by_year', case when p_year is not null then '[]'::jsonb else coalesce((
+    select jsonb_agg(jsonb_build_object(
+             'year', y, 'records', n, 'films', fc, 'tickets', tk,
+             'spend', sp,
+             -- ★ 逐年各自帶旗標。全期的 spend_is_partial 會把十三年混在一起
+             --   （只要有任何一年有未公開票價就是 true），那個 true 對前端沒有用；
+             --   要標示「這一年的總額不完整」只能逐年判斷。
+             'spend_is_partial', unknown > 0) order by y desc)
+      from (select extract(year from watched_on)::integer y,
+                   count(*)::integer n, count(distinct film_id)::integer fc,
+                   sum(ticket_count)::integer tk,
+                   coalesce(sum(cost), 0)::numeric(12, 2) sp,
+                   (count(*) - count(cost))::integer unknown
+              from rec group by 1) yy), '[]'::jsonb) end,
+
+  -- ★ 月度有兩種完全不同的意思，全期尺度下必須分開給（見 0013 的說明）：
+  --   · monthly        —— 十三年的「同月份」加總，12 格。回答「我幾月比較常看片」。
+  --   · monthly_series —— 156 個月的時間序列。回答「我這些年看片量的走勢」。
+  --   p_year 給了年份時兩者等價（都是那一年的 12 個月），此時 series 為空陣列。
+  'monthly_series', case when p_year is not null then '[]'::jsonb else coalesce((
+    select jsonb_agg(jsonb_build_object(
+             'month', m, 'records', n, 'tickets', tk,
+             'spend', sp, 'spend_is_partial', unknown > 0) order by m)
+      from (select to_char(watched_on, 'YYYY-MM') as m,
+                   count(*)::integer n, sum(ticket_count)::integer tk,
+                   coalesce(sum(cost), 0)::numeric(12, 2) sp,
+                   (count(*) - count(cost))::integer unknown
+              from rec group by 1) ms), '[]'::jsonb) end,
 
   -- 多刷排行（US-41）。只列同一年內看過兩次以上的。
   'repeats', coalesce((

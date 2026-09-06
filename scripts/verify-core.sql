@@ -89,6 +89,9 @@ begin
                            --    開放的 RPC 只改一邊，另一邊會翻紅——那是設計如此
                            --    （兩道獨立的門），但兩邊都要改。
                            'user_year_counts',
+                           -- 0013 首頁海報牆。SECURITY INVOKER，沿用 film_public
+                           -- 的 RLS ⇒ 未審核作品的海報不會出現在背景上。
+                           'home_poster_wall',
                            -- 本檔自己臨時建的探針（A5），不算破口
                            'zz_probe_fn')
      and (has_function_privilege('anon', p.oid, 'execute')
@@ -309,9 +312,15 @@ begin
   --    改成 CASCADE 的話，刪一個帳號會把他建過、而別人正在引用的作品一起帶走
   --    ——viewing_record.film_id 是 RESTRICT，實際結果是刪除整個失敗；
   --    改成 RESTRICT 的話，只要建過一部作品就永遠刪不掉帳號。
+  -- ⚠️ 第一版寫的是「film → profile 的 SET NULL 外鍵**數量**必須是 1」，
+  --    而 0012 加了 film.corrected_by（也指向 profile）之後它就紅了——
+  --    紅的理由與它要守的東西完全無關。斷言要**指名欄位**，不要數數量：
+  --    數量會被任何一個無關的新欄位改變，而那是假紅燈（§7 #104）。
   select count(*) into n from pg_constraint c
    where c.contype = 'f' and c.conrelid = 'public.film'::regclass
-     and c.confrelid = 'public.profile'::regclass and c.confdeltype = 'n';
+     and c.confrelid = 'public.profile'::regclass and c.confdeltype = 'n'
+     and (select a.attname from pg_attribute a
+           where a.attrelid = c.conrelid and a.attnum = c.conkey[1]) = 'created_by';
   if n <> 1 then
     fails := fails || format('E5 film.created_by 不是 ON DELETE SET NULL（刪帳號會炸掉別人引用中的作品）');
   end if;

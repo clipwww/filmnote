@@ -52,6 +52,9 @@ pnpm tsx --env-file=.env scripts/scan-git-secrets.ts      # push 前必跑
 | **`/api/og/**` 從來沒有真的跑起來過** | ✅ router param 的鍵是 `username.png`，兩支端點對每個請求都回 400（§7 #118） |
 | SSR payload 與 OG 的 HTTP 驗收 | ✅ `scripts/verify-http.ts`（11 條，含兩組對照） |
 | Step 11 憑證掃描 | ✅ `scripts/scan-git-secrets.ts`（掃**全部** 943 個物件，含 13 個不可達 blob） |
+| 「照著改」的覆蓋層 | ✅ `0012`：`admin_correct_film` / `admin_correct_venue` ＋ `seed_venues` RPC |
+| 全期統計（不分年份） | ✅ `0003` 加 `by_year` 與 `monthly_series`（那支**本來就支援**全期，§7 #122） |
+| 首頁海報牆 | ✅ `0013` `home_poster_wall()` ＋ `GET /api/posters` |
 
 **Step 11 的兩件已做**（第三件 CRON_SECRET 是 David 的部署設定）：
 
@@ -310,6 +313,45 @@ CSV 路徑沒有上游 ⇒ 必須自己複製這條規則。不做的話那五�
    **一支每次都報 27 筆的掃描等於沒有掃描**（§7 #104 的同一個家族）。
 4. 綠燈自己證明過：種一個**不可達**的假憑證 blob 進去（`git hash-object -w`
    只寫物件、不碰 ref），掃描以三條規則命中並標記 ⚠️不可達物件；移除後回綠。
+
+## 6d. 覆蓋層（0012）—— 三件容易誤解的事
+
+### ① 機制早就在了，缺的是安全的入口
+
+`seed_films()` 的 **update 路徑**只碰三個欄位（`title_zh` 有 `title_zh_source='gov'`
+的守門、`runtime_minutes` 是 `coalesce` 只補 NULL、`first_seen_roc_year` 是 `least`）；
+`country` / `title_original` **只在 INSERT 那一支寫**。`apply_tmdb_snapshot()` 同理。
+
+⇒ 直接 `update film set title_zh = …` 而忘了把 `title_zh_source` 一起改成 `'admin'`，
+下一次重跑 seed 就洗掉了，**而且沒有任何錯誤訊息**。所以修正必須走
+`admin_correct_film()`——它同時寫值與寫來源。
+
+### ② venue 那一半比 film 糟，因為完全沒有保護
+
+`seedVenues` 原本是 `db.from('venue').upsert(batch, { onConflict: 'id' })`
+——**整列盲蓋**，涵蓋 name / company_name / hall_count / address / phone / city。
+US-49/US-50 的影城更正一旦寫進去，下一次影城匯入就無聲消失，而回報者已經被
+告知「已受理並修正」。
+
+PostgREST 的 upsert **無法逐列決定要更新哪些欄位**，所以這個判斷必須在 SQL 裡。
+已改成走 `seed_venues()` RPC，依 `venue.curated_fields`（人工接管的欄位名）逐欄位判斷。
+⚠️ `status` / `selectable` / `sort_weight` / `closed_at` 本來就不在 upsert 的欄位
+清單裡，所以「標記歇業」從來不會被洗掉——`curated_fields` 的 check 刻意只允許
+那六個真的會被寫的欄位名，寫進 `status` 會讓人以為它受保護。
+
+### ③ 那兩筆編碼損毀的修正**不會**跟覆蓋層打架
+
+`利奧波德城（英國國家劇院現場）` 與 `Ｎ號棟鬧鬼` 的 `title_zh_source` 仍然是
+`'gov'`（`fix-corrupted-titles.ts` 刻意保持，理由是「那真的是政府核准的片名，
+我們只是把它修回來」）。看起來像是「下次 seed 會被洗回損毀字串」，**但不會**：
+`c84965b` 之後 `src/gov/rating.ts` 在**解析階段**就套用人工對照表
+（`isDefinitelyCorrupt ? (correction?.titleZh ?? '') : titleZhRawSource`），
+所以重匯時流出來的本來就是修正後的片名；沒有對照的損毀則變成空字串，
+`seed_films` 的 `nullif(…,'')` 讓它保留 DB 現值。兩條路都不會回退。
+
+⚠️ 但如果日後有人用 `admin_correct_film()` 去改那兩筆，`title_zh_source` 會變成
+`'admin'`，那一列就**永久脫離政府資料**。那是刻意的取捨，`admin_correct_film()`
+的回傳值有 `detached_from_upstream` 讓 UI 可以把它講出來。
 
 ## 6. 給下一棒的提醒
 

@@ -162,6 +162,16 @@ do $$ begin
     raise notice 'user_year_counts 尚不存在（0010 未套用），略過其 grant';
   end if;
 end $$;
+
+-- 0013 首頁海報牆。首頁未登入也要看得到，故對 anon 開放。
+-- SECURITY INVOKER ⇒ 沿用 film_public 的 RLS，未審核作品的海報不會外洩。
+do $$ begin
+  if to_regprocedure('public.home_poster_wall(integer, text)') is not null then
+    grant execute on function public.home_poster_wall(integer, text) to anon, authenticated;
+  else
+    raise notice 'home_poster_wall 尚不存在（0013 未套用），略過其 grant';
+  end if;
+end $$;
 -- ⚠️ approve_film 的簽名在 0011 從 (uuid, boolean) 變成 (uuid, boolean, text)
 --    ——加參數只能 drop + create（`create or replace` 會產生**重載**，兩支同名
 --    函式並存時 PostgREST 回 300 Multiple Choices），而 drop 會把這裡給過的
@@ -221,6 +231,21 @@ grant execute on function public.link_film_to_tmdb(uuid, integer),
   public.apply_tmdb_snapshot(uuid), public.purge_expired_tmdb_cache(),
   public.seed_films(jsonb) to service_role;
 
+-- 0012 的「照著改」覆蓋層。
+-- ⚠️ seed_venues 只給 service_role：它是匯入入口，而且 is_service_context()
+--    在裡面又擋了一次（與 seed_films 同一個模式）。
+do $$ begin
+  if to_regprocedure('public.admin_correct_film(uuid, text, text, text, text, bigint)') is not null then
+    grant execute on function
+      public.admin_correct_film(uuid, text, text, text, text, bigint),
+      public.admin_correct_venue(text, text, text, text, text, text, bigint)
+      to authenticated, service_role;
+    grant execute on function public.seed_venues(jsonb, bigint) to service_role;
+  else
+    raise notice '0012 的修正 RPC 尚不存在，略過其 grant';
+  end if;
+end $$;
+
 -- -----------------------------------------------------------------------------
 -- 3. 權限自我檢查 —— 新增 RPC 忘了 revoke 時讓 migration 失敗，而不是靜默裸奔
 -- -----------------------------------------------------------------------------
@@ -241,7 +266,9 @@ begin
                            --   RLS 仍逐列把關；改成 DEFINER 會讓這行變成全站資料外洩。
                            'user_year_stats',
                            -- 同上（0010）。只回筆數、完全不碰金額，且是 INVOKER。
-                           'user_year_counts')
+                           'user_year_counts',
+                           -- 0013。只回公開作品的海報路徑，且是 INVOKER。
+                           'home_poster_wall')
      and (has_function_privilege('anon', p.oid, 'execute')
           or has_function_privilege('public', p.oid, 'execute'));
   if bad is not null then raise exception '函式對 anon/PUBLIC 開放 EXECUTE：%', bad; end if;
@@ -273,7 +300,8 @@ begin
   -- 而不是等到有人發現總花費多了一個零。
   select string_agg(p.proname, ', ') into bad
     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-   where n.nspname = 'public' and p.proname in ('user_year_stats', 'user_year_counts')
+   where n.nspname = 'public'
+     and p.proname in ('user_year_stats', 'user_year_counts', 'home_poster_wall')
      and p.prosecdef;
   if bad is not null then
     raise exception '% 必須是 SECURITY INVOKER（聚合是推論通道，踩雷 #42）', bad;
