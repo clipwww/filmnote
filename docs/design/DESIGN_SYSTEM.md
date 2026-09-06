@@ -484,6 +484,52 @@ export default defineAppConfig({
 （頭像的 chip 缺口等）會露出一圈票根紙色。放進卡片就沒事；若真的要放在裸台紙上，
 該處改用 `ring-offset-muted`。
 
+#### 2026-09-06 frontend 實作補：兩件只有量 production 才看得到的事
+
+**① `--ui-color-neutral-*` 在 production build 裡一個都沒有被定義**（踩雷 #99）。
+
+上面那張表講的是「Nuxt UI 硬寫死 `#fff`」，但還有更下面一層：`neutral: 'paper'`
+產生的是 `--ui-text-muted: var(--ui-color-neutral-500)` 這一串，而
+**`--ui-color-neutral-*` 自己會被 Tailwind v4 的 `@theme` tree-shake 掉**
+——它只被另一個自訂屬性讀，沒有任何 utility 用到它。
+實測 `.output/public/_nuxt/entry*.css`：引用 10 次、定義 **0** 次。
+於是 `text-muted` / `text-dimmed` / `text-toned` / `bg-elevated` / `bg-accented` /
+`border-*` 全部解析失敗，文字退回黑色、soft 的中性按鈕連背景都沒有。
+**dev 不 tree-shake ⇒ 只有 production 掉色，而 build 是 exit 0、零警告。**
+
+解法在 `main.css` 未分層的 `:root` 把 10 個 `--ui-color-neutral-{50…900}` 顯式寫出來
+（順帶讓 `--color-paper-100…800` 不再被搖掉——修之前只有 25/50/900/950 活著）。
+
+⚠️ **這也改寫了上面的驗收方式**：截圖要在 `pnpm build` + `node .output/server/index.mjs`
+的產物上拍，dev 的截圖證不了顏色。
+
+**② Toggle 關閉態的邊界不足 3:1，新增 `--fn-switch-off-border`。**
+
+2026-09-06 David：「Toggle 元件未開啟時感覺被吞掉了」。量出來的病灶：
+
+| | 關閉態軌道 vs 底 | 滑塊 vs 軌道 | 開啟態 vs 底 |
+|---|---|---|---|
+| 亮 | paper-200 對台紙 **1.36:1** | **1.50:1** | amber-600 **4.68:1** ✅ |
+| 暗 | paper-700 對台紙 **1.77:1** | 9.62:1 | amber-400 **7.64:1** ✅ |
+
+WCAG 1.4.11 對非文字 UI 元件要求 **3:1**，關閉態兩層都不到。
+
+**解法是給那圈邊框上色，不是把軌道加深。** 軌道換 paper-400 雖然能到 3.03:1，
+但在亮色下會讀成「已填滿」＝「已開啟」——那是拿一個對比問題換一個**無聲的語意錯誤**，
+而這個開關管的是「要不要把票價公開給所有人」。
+
+| token | 亮 | 暗 | 對底的對比 |
+|---|---|---|---|
+| `--fn-switch-off-border` | `paper-400` | `paper-500` | 3.03:1 ／ 3.41:1 |
+
+兩個都是剛好越過 3:1 的**最淺一階**——再深就開始搶開啟態的注意力。
+Nuxt UI 的 switch `base` 本來就是 `border-2 border-transparent`（留給 focus ring 的偏移），
+所以 `app.config.ts` 只在 `data-[state=unchecked]` 把它染色，**尺寸與版面完全不動**。
+
+⚠️ 依 §1.6 通則，這個 token 在 `:root` 與 `.dark` 各給了一個值。
+
+---
+
 #### 驗收方式（未做完不算交付）
 
 做一頁把 `UCard` / `UModal` / `UDropdownMenu` / `UPopover` / `UToast` / `UInput` /

@@ -3,12 +3,18 @@ import { displayTitle } from '../app/utils/film-title'
 import { costText, dateBand, detailSegment, ticketMetaLine, venueSegment } from '../app/utils/ticket'
 
 describe('dateBand', () => {
-  it('拆出年月日與星期', () => {
-    expect(dateBand('2026-07-26')).toEqual({ year: '2026', month: '7', day: '26', weekday: '日' })
+  it('拆出年月日與星期，月與星期都是英文縮寫', () => {
+    expect(dateBand('2026-07-26')).toEqual({ year: '2026', month: 'Jul', day: '26', weekday: 'Sun' })
   })
 
-  it('月不補零、日補零', () => {
-    expect(dateBand('2026-01-06')).toMatchObject({ month: '1', day: '06' })
+  it('月是三字母縮寫、日補零到兩位', () => {
+    expect(dateBand('2026-01-06')).toMatchObject({ month: 'Jan', day: '06' })
+  })
+
+  // 縮寫寫死不用 Intl：`Sept` 與 `Sep` 在不同 ICU 版本上都出現過，
+  // 而這三個字母要在每一張卡上等寬對齊。
+  it('九月是 Sep 不是 Sept', () => {
+    expect(dateBand('2026-09-06')?.month).toBe('Sep')
   })
 
   it('星期在 UTC 以西的時區不位移', () => {
@@ -17,7 +23,7 @@ describe('dateBand', () => {
     const tz = process.env.TZ
     process.env.TZ = 'America/New_York'
     try {
-      expect(dateBand('2026-07-26')?.weekday).toBe('日')
+      expect(dateBand('2026-07-26')?.weekday).toBe('Sun')
     }
     finally {
       process.env.TZ = tz
@@ -63,8 +69,14 @@ describe('meta 的兩段（§4.3）', () => {
 
   it('第二段不含影城——否則 375px 下斷點會落在名稱中間', () => {
     const d = detailSegment(full)
-    expect(d).toBe('數位 16:00 2張 NT$520')
+    expect(d).toBe('數位 2張 NT$520')
     expect(d).not.toContain('威秀')
+  })
+
+  // 2026-09-06 起場次時間搬到日期帶。兩邊都印就是同一個值出現兩次，
+  // 而讀的人會以為那是兩個不同的時間。
+  it('第二段不含場次時間——它在日期帶上', () => {
+    expect(detailSegment(full)).not.toContain('16:00')
   })
 
   it('沒有影城時第一段整段不存在，不留一個孤零零的括號', () => {
@@ -86,7 +98,7 @@ describe('ticketMetaLine', () => {
       watchedTime: '16:00:00',
       ticketCount: 2,
       cost: 520,
-    })).toBe('林口威秀 (7廳) 2D 16:00 2張 NT$520')
+    })).toBe('林口威秀 (7廳) 2D 2張 NT$520')
   })
 
   it('缺的欄位整段消失，不留殘骸', () => {

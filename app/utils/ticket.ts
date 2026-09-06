@@ -6,32 +6,54 @@
  * `2D16:00`。所以 meta 行是一個字串、一次插值。
  */
 
-/** 日期帶（票根撕線那一側）要顯示的三段。 */
+/** 日期帶（票根撕線那一側）要顯示的幾段。 */
 export interface DateBand {
   year: string
-  /** 月，不補零——§4.3 的樣板是 `7` 不是 `07`。 */
+  /**
+   * 月份的英文縮寫：`Jul`。2026-09-06 David 指定。
+   *
+   * 順帶解決一件事：`Jul` 由 Inter 供應（拉丁排在字型堆疊第一位，§2.2），
+   * 而 `tabular-nums` 本來就只能由 Inter 提供 ⇒ 整條日期帶終於在同一套
+   * 字型的同一組度量裡，多張卡的數字真的對得齊。
+   */
   month: string
   /** 日，補零到兩位，配 tabular-nums 才對得齊。 */
   day: string
-  /** 星期的單字：日一二三四五六。 */
+  /**
+   * 星期的英文縮寫：`Sun`。
+   *
+   * ⚠️ 這裡**刻意不用中文的「日」**，理由不是統一風格：
+   * 月份變成 `Jul` 之後，帶子上出現 `Jul / 26 / 日` 這個組合，而「日」在中文裡
+   * 同時是「星期日」與「日期的單位」——緊貼在一個拉丁月份與一個兩位數後面，
+   * 它會被讀成後者。`Sun` 沒有這個歧義，整條帶子也只剩一套字型與一組度量。
+   * （代價是本站唯一一處以英文呈現的星期。若要改回中文，連月份一起改回去，
+   *   不要只改一半——混排的那一版正是被這一條換掉的。）
+   */
   weekday: string
 }
 
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const WEEKDAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
 /**
- * `2026-07-26` → `{ year: '2026', month: '7', day: '26', weekday: '日' }`。
+ * `2026-07-26` → `{ year: '2026', month: 'Jul', day: '26', weekday: 'Sun' }`。
  *
  * ⚠️ 刻意用 `Date.UTC` 算星期，不用 `new Date('2026-07-26').getDay()`。
  * 後者把字串當 UTC 午夜解析後再轉成**本地**時間，任何 UTC 以西的時區
  * （美洲全境）都會退一天，而且不會報錯。`watched_on` 存的是台北牆上時間的
  * 日期，本來就沒有時區可言，全程留在 UTC 算才不會位移。
+ *
+ * ⚠️ 縮寫用寫死的陣列，不用 `Intl.DateTimeFormat('en', { month: 'short' })`：
+ * 後者的輸出隨 ICU 版本而異（`Sept` 與 `Sep` 在不同 Node／瀏覽器上都出現過），
+ * 而這三個字母要在每一張卡、每一台機器上等寬對齊。
  */
 export function dateBand(date: string | null | undefined): DateBand | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date ?? '')
   if (!m)
     return null
   const [, y, mo, d] = m as unknown as [string, string, string, string]
-  const weekday = '日一二三四五六'[new Date(Date.UTC(+y, +mo - 1, +d)).getUTCDay()]!
-  return { year: y, month: String(+mo), day: d, weekday }
+  const dow = new Date(Date.UTC(+y, +mo - 1, +d)).getUTCDay()
+  return { year: y, month: MONTH_ABBR[+mo - 1]!, day: d, weekday: WEEKDAY_ABBR[dow]! }
 }
 
 /**
@@ -94,7 +116,9 @@ export function venueSegment(m: Pick<TicketMeta, 'venueName' | 'hallLabel'>): st
 export function detailSegment(m: Omit<TicketMeta, 'venueName' | 'hallLabel'>): string | null {
   const parts = [
     m.formatLabel,
-    m.watchedTime ? m.watchedTime.slice(0, 5) : null,
+    // ⚠️ 場次時間**不在這裡**：2026-09-06 起它搬到日期帶的最後一行
+    //（David：「觀影時間放到日期下面」）。兩邊都印就是同一個值出現兩次，
+    // 而讀的人會以為那是兩個不同的時間。要改回來的話兩邊一起改。
     m.ticketCount ? `${m.ticketCount}張` : null,
     costText(m.cost),
   ].filter((p): p is string => !!p && p.length > 0)

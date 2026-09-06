@@ -82,7 +82,7 @@ const filmHref = computed(() =>
     -->
     <div
       v-if="band"
-      class="-my-3 -ms-3 w-11 shrink-0 self-stretch bg-amber-50 py-3 text-center leading-tight tabular-nums sm:-ms-4 dark:bg-amber-950"
+      class="-my-3 -ms-3 w-13 shrink-0 self-stretch bg-amber-50 py-3 text-center leading-tight tabular-nums sm:-ms-4 dark:bg-amber-950"
     >
       <div v-if="showYear" class="text-[11px] text-muted">
         {{ band.year }}
@@ -95,6 +95,16 @@ const filmHref = computed(() =>
       </div>
       <div class="text-[11px] text-muted">
         {{ band.weekday }}
+      </div>
+      <!--
+        場次時間（2026-09-06 David：「觀影時間放到日期下面」）。
+        它同時從 meta 的第二段拿掉了（見 utils/ticket.ts 的 detailSegment），
+        兩邊都印就是同一個值出現兩次。
+        帶寬從 w-11(44px) 放到 w-13(52px)：`16:00` 在 11px 的 Inter tabular
+        實量約 30px，44px 扣掉左右內距會擠。
+      -->
+      <div v-if="shortTime(record.watchedTime)" class="text-[11px] text-muted">
+        {{ shortTime(record.watchedTime) }}
       </div>
     </div>
 
