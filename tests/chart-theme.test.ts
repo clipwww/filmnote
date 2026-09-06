@@ -47,23 +47,44 @@ describe('visualMap 的 pieces 不能留縫（§5.3-9）', () => {
     return undefined
   }
 
-  it('出席圖：0 / 1 / 2 / 3 全部畫得出來（2 是雙片連映，最容易掉的那格）', () => {
-    const pieces = attendancePieces(false)
+  /**
+   * ★ **兩個主題都要跑。**
+   *
+   * 這幾條原本只傳 `false`（亮色），但 `BaseChart` 換主題是靠 `:key` 強制
+   * **整份 option 重建**（`setTheme()` 不會重算 `visualMap.pieces` 與顯式的
+   * `itemStyle.color`，§5.3-10），而重建走的正是 `dark = true` 這條路。
+   * 也就是說：**使用者按下主題切換之後才會走到的分支，測試從來沒跑過。**
+   * 色票是兩組獨立的陣列，暗色那組長度或值只要有一個不對，
+   * 重建後就會出現「亮色好好的、切到暗色某些格子不見」——而 console 零錯誤。
+   */
+  const THEMES: [string, boolean][] = [['light', false], ['dark', true]]
+
+  it.each(THEMES)('出席圖（%s）：0 / 1 / 2 / 3 全部畫得出來（2 是雙片連映，最容易掉的那格）', (name, dark) => {
+    const pieces = attendancePieces(dark)
     for (const v of [0, 1, 2, 3, 9])
-      expect(paint(pieces, v), `值 ${v} 沒有 piece 認領`).toBeDefined()
-    expect(paint(pieces, 2)).toBe(CHART.light.att[2])
+      expect(paint(pieces, v), `${name}：值 ${v} 沒有 piece 認領`).toBeDefined()
+    expect(paint(pieces, 2)).toBe(dark ? CHART.dark.att[2] : CHART.light.att[2])
   })
 
-  it('熱點圖：0..max 每一個整數都有 piece 認領', () => {
+  it.each(THEMES)('熱點圖（%s）：0..max 每一個整數都有 piece 認領', (name, dark) => {
     for (const max of [1, 2, 3, 5, 8, 12, 40]) {
-      const pieces = heatPieces(false, max)
+      const pieces = heatPieces(dark, max)
       for (let v = 0; v <= max; v++)
-        expect(paint(pieces, v), `max=${max} 時值 ${v} 沒有 piece 認領`).toBeDefined()
+        expect(paint(pieces, v), `${name}：max=${max} 時值 ${v} 沒有 piece 認領`).toBeDefined()
     }
   })
 
-  it('熱點圖：超過 max 的值也畫得出來（最後一段是開放上界）', () => {
-    expect(paint(heatPieces(false, 8), 99)).toBe(CHART.light.heat[6])
+  it.each(THEMES)('熱點圖（%s）：超過 max 的值也畫得出來（最後一段是開放上界）', (name, dark) => {
+    expect(paint(heatPieces(dark, 8), 99)).toBe(dark ? CHART.dark.heat[6] : CHART.light.heat[6])
+  })
+
+  it.each(THEMES)('熱點圖（%s）：每一段的顏色都真的存在（暗色色票短一格就會是 undefined）', (name, dark) => {
+    for (const max of [1, 2, 3, 5, 8, 12, 40]) {
+      for (const piece of heatPieces(dark, max))
+        expect(piece.color, `${name}：max=${max} 有一段的顏色是 undefined`).toBeTruthy()
+    }
+    for (const piece of attendancePieces(dark))
+      expect(piece.color, `${name}：出席圖有一段的顏色是 undefined`).toBeTruthy()
   })
 
   it('熱點圖：0 是最淺、最深的一段是 heat[6]', () => {

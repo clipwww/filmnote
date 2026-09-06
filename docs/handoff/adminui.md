@@ -1,5 +1,9 @@
 # 交接筆記 — adminui（`/admin/**` 與 `/app/import`）
 
+> ⚠️ **這份只涵蓋 `/admin/**` 與 `/app/import`。** 同一個 session（名字叫
+> `adminui`）後來被改派到圖表與對外頁面，那一段的交接在
+> **`docs/handoff/charts.md`**。名字對不上範圍是歷史遺留。
+
 > 負責 `app/pages/admin/**` 與 `app/pages/app/import.vue`，共用層屬於 frontend。
 > 假設你讀得到 `SPEC` / `BUILD_PLAN` / `docs/design/**` / `git log`，這裡**不重複**。
 > 只寫關掉 session 就會消失的東西。
