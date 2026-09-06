@@ -2358,7 +2358,7 @@ TMDB 上四話各自獨立、沒有連映版條目，而一筆 `viewing_record` 
 > | 號段 | 擁有者 |
 > |---|---|
 > | #1–#84 | 已發出（歷史，不重新編號） |
-> | #85–#99 | frontend（已用到 #98） |
+> | #85–#99 | frontend（**已用完**，下一段待主 session 分配） |
 > | #100–#114 | backend |
 > | #115–#129 | design |
 > | #130–#144 | adminui（`/admin/**` 與 `/app/import`；主 session 讓出的前段，已用到 #135） |
@@ -2558,6 +2558,7 @@ diff /tmp/a /tmp/b                     # 除了 SSR 時戳外必須完全相同
 | 94 | **`34ch` 對中文不是 34 個字，是 17–20 個字。** `ch` 是**當前字型「0」的推進寬度**：Inter ≈ 0.6em、退到蘋方是半形 0.5em ⇒ `34ch` 落在 272–330px。DS §2.4 寫「`max-width: 34ch`（≈560px）」，兩個數字對不起來，而 §2.4 自己的推導是用 em 的（31.5 em ≈ 32 個漢字）。漢字是 1 em 全形 ⇒ 「34 個字」寫成 CSS 是 **`34em`（544px）**。⚠️ 這條的症狀是「看起來只是有點窄」，不會有任何錯誤 | 2026-09-06 實測（`/legal/**` 內文） |
 | 95 | **zod 4 的 `z.preprocess()` 推不出輸出型別，會把整個 `UForm` 的 state 型別炸成 `unknown`。** `UForm` 的 `:state` 是 `Partial<z.output<schema>>`；某個欄位用 `z.preprocess()` 之後 `z.output` 那一格是 `unknown`，typecheck 紅在 `:state` 那一行而不是 schema 那一行。改用 `.transform().pipe()` 即可。**同一組的另一半**：`z.literal(true)`（勾選型的法定聲明）會讓「還沒勾」這個合法中間狀態在型別上不存在，`:state` 一樣塞不進去 ⇒ 前端寫 `z.boolean().refine(v => v === true)`，把 `literal(true)` 留給伺服器 | 2026-09-06 實測（`/legal/dmca`） |
 | 96 | **Nuxt UI 的 `UCheckbox` 把原生 `<input type=checkbox>` 藏起來，Playwright 的 `.check()` 會逾時 30 秒。** 那個 input 帶 `data-hidden`、`aria-hidden="true"`、`tabindex="-1"`，點擊座標落在頁面容器上，錯誤訊息是「`<div class="mx-auto …">` intercepts pointer events」——看起來像版面把它蓋住了，其實是**選錯元素**。用 `getByRole('checkbox')`（reka-ui 真正可互動的那一個）。⇒ 這類假象會讓人去改版面而不是改測試 | 2026-09-06 實測（Chrome 152 / CDP） |
+| 99 | **★★ `text-muted` / `bg-elevated` / `border-default` 這一整組語意色，在 production build 裡是死的——而 dev 完全正常。** `app.config.ts` 的 `neutral: 'paper'` 讓 Nuxt UI 產生 `--ui-text-muted: var(--ui-color-neutral-500)` 這一串，但 **`--ui-color-neutral-*` 自己一個都沒有被定義**（實測 `.output/public/_nuxt/entry*.css`：引用 10 次、定義 0 次）。原因是 Tailwind v4 的 `@theme` 會 tree-shake 沒有被任何 **utility** 用到的變數，而這一串只被另一個自訂屬性讀 —— dev 不 tree-shake，所以**只有 production 掉色**。症狀：文字全部退回黑色、`soft` 的中性按鈕連背景都沒有、`USwitch` 只剩一顆點；而 `pnpm build` 是 exit 0、零警告，dev 的截圖全部是對的。⇒ 解法是在 `main.css` **未分層的 `:root`** 裡把 10 個 `--ui-color-neutral-*` 顯式寫出來（順帶讓 `--color-paper-100…800` 不再被 tree-shake——修之前只有 25/50/900/950 活著）。⚠️ **這一類問題只有量 production 產物才看得到**：驗收「顏色對不對」不能只在 dev 截圖，要 `pnpm build` 之後跑 `node .output/server/index.mjs` 再量一次 | 2026-09-06 實測（frontend 第三棒，`/app/settings` 驗收時發現；§1.6 已為 `--ui-radius` 記過同一個機制，但只修了那一個變數） |
 | 97 | **★ 瀏覽器驗證的兩個「看起來像瀏覽器掛了」其實不是。** ① `chromium.connectOverCDP()` 會列舉瀏覽器裡的**每一個** target，只要有人開著一個 `file://` 分頁就整個逾時 30 秒（前一棒記過 file:// 讀不到，這是它的另一面：**別人的分頁會弄壞你的附著**）。② Node 22 的 `fetch()` 打 Chrome 的 `http://127.0.0.1:9222/json/list` **永遠掛著不回**，同一個 URL `curl` 是 0.9ms 回 200；症狀是腳本一行輸出都沒有。⇒ 兩者的解法都是**只連一個分頁的裸 CDP**：用 `node:http`（`agent: false`）取 `/json/list`，再對那一個 target 的 `webSocketDebuggerUrl` 開 WebSocket 發 `Runtime.evaluate` / `Page.captureScreenshot`。不需要 Playwright，也不會被別人的分頁影響 | 2026-09-06 實測（`/legal/dmca` 成功畫面的驗收） |
 
 ## 7.5 資料匯入（來自 SPEC 實測）

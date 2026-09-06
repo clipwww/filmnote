@@ -43,6 +43,46 @@
    Nuxt UI 的 token 定義在 @layer theme，而未分層的樣式在串聯上
    永遠贏過任何 @layer。把這些搬進 @layer base 會靜默失效。 */
 
+/* ══ ★ 這一段是 production **唯一**能讓中性色活著的地方 ═══════════════════
+   2026-09-06 實測（frontend 第三棒，踩雷 #99）：
+
+   `app.config.ts` 寫 `neutral: 'paper'`，Nuxt UI 於是產生
+   `--ui-text-muted: var(--ui-color-neutral-500)` 這一串語意 token。
+   但 **`--ui-color-neutral-*` 自己在 production build 裡一個都沒有被定義**
+   ——實測 `.output/public/_nuxt/entry*.css` 裡它被引用 10 次、定義 0 次。
+   於是 `text-muted` / `text-dimmed` / `text-toned` / `text-highlighted` /
+   `bg-muted` / `bg-elevated` / `bg-accented` / `border-*` **全部解析失敗**，
+   文字退回黑色、面與框退回透明。
+
+   ── 為什麼 dev 看不出來 ────────────────────────────────────────────
+   Tailwind v4 的 `@theme` 會 tree-shake「沒有被任何 utility 用到」的變數，
+   而 dev 不做這件事。`--ui-color-neutral-500` 只被另一個自訂屬性讀，
+   沒有對應的 utility（沒有人寫 `text-ui-color-neutral-500`），所以
+   **dev 全綠、production 整站掉色**，而且 build 是 exit 0、零警告。
+   同一個機制 §1.6 已經為 `--ui-radius` 記過一次，但只修了那一個變數。
+
+   ⇒ 這一段把 10 個 `--ui-color-neutral-*` 顯式定義出來。它同時解決兩件事：
+     ① 補上缺的定義；
+     ② 這是一條**未分層**的規則，Tailwind 會把它算成「有人用到」，
+        於是 `--color-paper-100…800` 也不會再被 tree-shake 掉
+        （實測 build 前只有 25/50/900/950 活著）。
+
+   ⚠️ 不要把它搬進 `@theme`——搬進去就會被 tree-shake，回到原本的樣子。
+   ⚠️ 值一個都不要改：這裡只是把 `neutral: 'paper'` 本來就該產生的對應
+      補回來，不是重新配色。要改色請改上面的 `@theme` 色階。 */
+:root {
+  --ui-color-neutral-50: var(--color-paper-50);
+  --ui-color-neutral-100: var(--color-paper-100);
+  --ui-color-neutral-200: var(--color-paper-200);
+  --ui-color-neutral-300: var(--color-paper-300);
+  --ui-color-neutral-400: var(--color-paper-400);
+  --ui-color-neutral-500: var(--color-paper-500);
+  --ui-color-neutral-600: var(--color-paper-600);
+  --ui-color-neutral-700: var(--color-paper-700);
+  --ui-color-neutral-800: var(--color-paper-800);
+  --ui-color-neutral-900: var(--color-paper-900);
+}
+
 /* ⚠️ 這九行不能省——Nuxt UI 把它們硬寫死成 #fff 或派生錯階，
    只改 app.config.ts 的 neutral 只會暖化文字與邊框，底色仍是純白。 */
 :root {

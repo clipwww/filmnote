@@ -122,5 +122,18 @@ async function exportData() {
         匯出我的紀錄
       </UButton>
     </section>
+
+    <!--
+      三振狀態（SCREENS §15.5）。`strike_count = 0` 時元件自己不算繪任何東西
+      ——沒有事的人不需要被提醒有三振制度，所以這裡不加 v-if，
+      判斷留在元件裡跟資料在一起。
+    -->
+    <StrikeStatus />
+
+    <!--
+      US-47。排在最後，而且跟「匯出」相鄰不是巧合：
+      唯一能救回資料的動作就在它上面一格。
+    -->
+    <AccountDeletion v-if="username" :username="username" />
   </div>
 </template>
