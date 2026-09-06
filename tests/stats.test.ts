@@ -304,13 +304,13 @@ describe('點格子 → 底部片單', () => {
 
 describe('金額的呈現', () => {
   it('一般金額', () => {
-    expect(spendText(3130, 'TWD', false)).toBe('NT$3,130')
+    expect(spendText(2980, 'TWD', false)).toBe('NT$2,980')
   })
 
   it('★ 涵蓋不完整時「以上」跟著數字走，不是只靠底下一行小字', () => {
     // 使用者只截到一列的圖時，那個但書必須仍然在——
     // 看到一張「每年花費」而不知道那是部分資料，比沒有這張圖更糟。
-    expect(spendText(7236, 'TWD', true)).toBe('NT$7,236 以上')
+    expect(spendText(6890, 'TWD', true)).toBe('NT$6,890 以上')
   })
 
   it('★ NT$0 不等於隱藏——涵蓋完整的 0 是「免費」（SCREENS §12.1）', () => {

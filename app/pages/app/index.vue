@@ -97,7 +97,7 @@ const stripRows = computed(() =>
   yearStripRows(allStats.value?.daily ?? [], allStats.value?.available_years ?? []))
 
 /**
- * `2026 年看了 8 場、11 張票，花了 NT$3,130`（§4.4）。
+ * `2026 年看了 8 場、11 張票，花了 NT$2,980`（§4.4）。
  * 全期時第一段改成「總共看了」——它必須說得出自己涵蓋什麼範圍，
  * 否則同一句話在兩種視角下長得一樣而數字差十倍。
  */

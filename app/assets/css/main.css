@@ -162,8 +162,8 @@ body {
   /* ⚠️ frontend 實測補上（2026-09-06，Chrome 152）：§2.5 第 4 條說
      「text-autospace 初始值就是 normal，Chrome 140 起是預設行為」——**不成立**。
      Chrome 152 的 computed value 是 no-autospace，量到同一串
-     `2026年看了8場，花了NT$3,130` 是 231.1px；顯式寫 normal 才變成 239.1px。
-     不寫的話所有中英交界（`花了NT$3,130`、`林口MITSUI OUTLET PARK威秀影城`）
+     `2026年看了8場，花了NT$2,980` 是 231.1px；顯式寫 normal 才變成 239.1px。
+     不寫的話所有中英交界（`花了NT$2,980`、`林口MITSUI OUTLET PARK威秀影城`）
      都是黏在一起的，而 §2.5 又禁止在 HTML 裡手打空格補間距。 */
   text-autospace: normal;
 }

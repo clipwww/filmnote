@@ -1192,7 +1192,7 @@ tfoot td { font-weight: 700; background: var(--sunken); border-bottom: 0; }
                   <!-- 彙總：show_cost = false 時整段從 DOM 移除，不是畫成 0、不是打馬賽克 -->
                   <div id="aggregate" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--line);">
                     <h4 class="block-label" style="margin-bottom:4px;">年度總花費</h4>
-                    <p class="statline"><span class="num">2026</span> 年看了 <span class="big">8</span> 場、<span class="big">11</span> 張票，花了 <span class="big">NT$3,130</span></p>
+                    <p class="statline"><span class="num">2026</span> 年看了 <span class="big">8</span> 場、<span class="big">11</span> 張票，花了 <span class="big">NT$2,980</span></p>
                     <div class="table-scroll">
                       <!-- UTable -->
                       <table>
@@ -1200,19 +1200,19 @@ tfoot td { font-weight: 700; background: var(--sunken); border-bottom: 0; }
                           <tr><th>年份</th><th class="n">場次</th><th class="n">張數</th><th class="n">花費</th></tr>
                         </thead>
                         <tbody>
-                          <tr><td class="num">2026</td><td class="n">8</td><td class="n">11</td><td class="n">NT$3,130</td></tr>
-                          <tr><td class="num">2025</td><td class="n">9</td><td class="n">13</td><td class="n">NT$3,130</td></tr>
-                          <tr><td class="num">2024</td><td class="n">18</td><td class="n">23</td><td class="n">NT$7,236</td></tr>
-                          <tr><td class="num">2023</td><td class="n">14</td><td class="n">16</td><td class="n">NT$3,735</td></tr>
-                          <tr><td class="num">2022</td><td class="n">9</td><td class="n">11</td><td class="n">NT$2,507</td></tr>
-                          <tr><td class="num">2021</td><td class="n">11</td><td class="n">16</td><td class="n">NT$3,808</td></tr>
-                          <tr><td class="num">2020</td><td class="n">19</td><td class="n">26</td><td class="n">NT$6,260</td></tr>
-                          <tr><td class="num">2019</td><td class="n">25</td><td class="n">37</td><td class="n">NT$7,910</td></tr>
-                          <tr><td class="num">2018</td><td class="n">13</td><td class="n">23</td><td class="n">NT$4,730</td></tr>
-                          <tr><td class="num">2017</td><td class="n">18</td><td class="n">30</td><td class="n">NT$5,980</td></tr>
-                          <tr><td class="num">2016</td><td class="n">20</td><td class="n">29</td><td class="n">NT$8,280</td></tr>
+                          <tr><td class="num">2026</td><td class="n">8</td><td class="n">11</td><td class="n">NT$2,980</td></tr>
+                          <tr><td class="num">2025</td><td class="n">9</td><td class="n">13</td><td class="n">NT$2,980</td></tr>
+                          <tr><td class="num">2024</td><td class="n">18</td><td class="n">23</td><td class="n">NT$6,890</td></tr>
+                          <tr><td class="num">2023</td><td class="n">14</td><td class="n">16</td><td class="n">NT$4,120</td></tr>
+                          <tr><td class="num">2022</td><td class="n">9</td><td class="n">11</td><td class="n">NT$2,760</td></tr>
+                          <tr><td class="num">2021</td><td class="n">11</td><td class="n">16</td><td class="n">NT$3,520</td></tr>
+                          <tr><td class="num">2020</td><td class="n">19</td><td class="n">26</td><td class="n">NT$5,940</td></tr>
+                          <tr><td class="num">2019</td><td class="n">25</td><td class="n">37</td><td class="n">NT$6,150</td></tr>
+                          <tr><td class="num">2018</td><td class="n">13</td><td class="n">23</td><td class="n">NT$4,380</td></tr>
+                          <tr><td class="num">2017</td><td class="n">18</td><td class="n">30</td><td class="n">NT$6,270</td></tr>
+                          <tr><td class="num">2016</td><td class="n">20</td><td class="n">29</td><td class="n">NT$7,640</td></tr>
                           <tr><td class="num">2015</td><td class="n">2</td><td class="n">5</td><td class="n">NT$0</td></tr>
-                          <tr><td class="num">2014</td><td class="n">3</td><td class="n">3</td><td class="n">NT$1,167</td></tr>
+                          <tr><td class="num">2014</td><td class="n">3</td><td class="n">3</td><td class="n">NT$1,340</td></tr>
                         </tbody>
                         <tfoot>
                           <tr><td>全部</td><td class="n">169</td><td class="n">243</td><td class="n">NT$5x,xxx</td></tr>
@@ -1376,7 +1376,7 @@ tfoot td { font-weight: 700; background: var(--sunken); border-bottom: 0; }
         <h3><span class="n-badge num">3</span>彙總必須跟著消失</h3>
         <div class="body">
           <p>「年度總花費」「平均票價」這類彙總在票價沒有公開時<b>整個章節不存在</b>——不是畫成 <span class="num">0</span>、不是打馬賽克、不是「已隱藏」四個字。</p>
-          <p style="margin-top:8px;">理由是算術：<span class="num">2026</span> 年公開了「<span class="num">8</span> 場、<span class="num">NT$3,130</span>」，就算每一筆票價都藏起來，<span class="num">3,130 ÷ 8 ≈ 391</span>；再配上公開的張數（<span class="num">11</span> 張）就是 <span class="num">3,130 ÷ 11 ≈ 285</span>。<span class="num">2015</span> 年只有 <span class="num">2</span> 場，除下去幾乎等於直接把票價印出來。隱私會變成假的。</p>
+          <p style="margin-top:8px;">理由是算術：<span class="num">2026</span> 年公開了「<span class="num">8</span> 場、<span class="num">NT$2,980</span>」，就算每一筆票價都藏起來，<span class="num">2,980 ÷ 8 ≈ 373</span>；再配上公開的張數（<span class="num">11</span> 張）就是 <span class="num">2,980 ÷ 11 ≈ 271</span>。<span class="num">2015</span> 年只有 <span class="num">2</span> 場，除下去幾乎等於直接把票價印出來。隱私會變成假的。</p>
           <p class="note"><b class="note-tag">怎麼驗　</b>把上面的預覽切成「票價沒有公開」，然後在 DevTools 找 <code>#aggregate</code>——那個節點是真的被移除，不是 <code>display: none</code>。正式環境更前面一層：那些欄位根本不會離開資料庫。</p>
         </div>
       </div>
