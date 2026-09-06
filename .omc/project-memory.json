@@ -32,8 +32,8 @@
     "runtime": "Node.js 22"
   },
   "build": {
-    "buildCommand": "cd /Users/david/Documents/Github/filmnote\nnode -e '\nconst fs = require(\"fs\");\nconst p = \".omc/project-memory.json\";\nconst j = JSON.parse(fs.readFileSync(p, \"utf8\"));\nj.build.buildCommand = \"pnpm run build\";\nj.build.testCommand = \"pnpm test\";\nj.build.lintCommand = \"pnpm run lint\";\nj.build.devCommand = \"pnpm run dev\";\nfs.writeFileSync(p, JSON.stringify(j, null, 2) + \"\\n\");\nconsole.log(\"修正後：\", JSON.stringify(j.build.buildCommand), JSON.stringify(j.build.testCommand), JSON.stringify(j.build.lintCommand), JSON.stringify(j.build.devCommand));\n'",
-    "testCommand": "cd /Users/david/Documents/Github/filmnote\nnode -e '\nconst fs = require(\"fs\");\nconst p = \".omc/project-memory.json\";\nconst j = JSON.parse(fs.readFileSync(p, \"utf8\"));\nj.build.buildCommand = \"pnpm run build\";\nj.build.testCommand = \"pnpm test\";\nj.build.lintCommand = \"pnpm run lint\";\nj.build.devCommand = \"pnpm run dev\";\nfs.writeFileSync(p, JSON.stringify(j, null, 2) + \"\\n\");\nconsole.log(\"修正後：\", JSON.stringify(j.build.buildCommand), JSON.stringify(j.build.testCommand), JSON.stringify(j.build.lintCommand), JSON.stringify(j.build.devCommand));\n'",
+    "buildCommand": "cd /Users/david/Documents/Github/filmnote\nnode -e \"\nconst fs=require('fs');\nconst p='.omc/project-memory.json';\nconst j=JSON.parse(fs.readFileSync(p,'utf8'));\nj.build.buildCommand='pnpm run build';\nj.build.testCommand='pnpm test';\nj.build.lintCommand='pnpm run lint';\nj.build.devCommand='pnpm run dev';\nfs.writeFileSync(p, JSON.stringify(j,null,2)+'\\n');\nconsole.log('已修正 buildCommand（又被錄進一整串 heredoc）');\n\"\ngit grep -c -E '57,?873' 2>/dev/null || echo \"✅ 版控中已無殘留\"",
+    "testCommand": "cd /Users/david/Documents/Github/filmnote\necho \"=== 目錄結構（第一層）===\"; ls -d */ 2>/dev/null | tr '\\n' ' '; echo\necho \"=== 測試數 ===\"; pnpm test 2>&1 | grep -E 'Test Files|Tests' | head -2\necho \"=== node / pnpm ===\"; node -e \"const p=require('./package.json'); console.log('engines:', JSON.stringify(p.engines), '| pm:', p.packageManager)\"",
     "lintCommand": "pnpm run lint",
     "devCommand": "pnpm run dev",
     "scripts": {
@@ -119,15 +119,87 @@
       "type": "file"
     },
     {
+      "path": "docs/BUILD_PLAN.md",
+      "accessCount": 7,
+      "lastAccessed": 1788662539455,
+      "type": "file"
+    },
+    {
+      "path": "nuxt.config.ts",
+      "accessCount": 5,
+      "lastAccessed": 1788666479594,
+      "type": "file"
+    },
+    {
       "path": "scripts/import-mylog.ts",
       "accessCount": 4,
       "lastAccessed": 1788614983855,
       "type": "file"
     },
     {
+      "path": "server/utils/tmdb-refresh.ts",
+      "accessCount": 4,
+      "lastAccessed": 1788624817300,
+      "type": "file"
+    },
+    {
       "path": "src/import/mylog.ts",
+      "accessCount": 4,
+      "lastAccessed": 1788665042630,
+      "type": "file"
+    },
+    {
+      "path": "scripts/tmdb-backfill.ts",
       "accessCount": 3,
-      "lastAccessed": 1788614077958,
+      "lastAccessed": 1788631484544,
+      "type": "file"
+    },
+    {
+      "path": "server/utils/tmdb-snapshot.ts",
+      "accessCount": 3,
+      "lastAccessed": 1788631886894,
+      "type": "file"
+    },
+    {
+      "path": "docs/handoff/backend.md",
+      "accessCount": 3,
+      "lastAccessed": 1788665234979,
+      "type": "file"
+    },
+    {
+      "path": "server/api/cron/tmdb-refresh.get.ts",
+      "accessCount": 2,
+      "lastAccessed": 1788624673111,
+      "type": "file"
+    },
+    {
+      "path": "server/utils/cron-auth.ts",
+      "accessCount": 2,
+      "lastAccessed": 1788624741347,
+      "type": "file"
+    },
+    {
+      "path": "supabase/migrations/0004_tmdb_snapshot_completeness.sql",
+      "accessCount": 2,
+      "lastAccessed": 1788624946064,
+      "type": "file"
+    },
+    {
+      "path": "scripts/verify-dmca.sql",
+      "accessCount": 2,
+      "lastAccessed": 1788633520260,
+      "type": "file"
+    },
+    {
+      "path": "server/api/legal/counter-notice.post.ts",
+      "accessCount": 2,
+      "lastAccessed": 1788664442876,
+      "type": "file"
+    },
+    {
+      "path": "docs/design/SCREENS.md",
+      "accessCount": 2,
+      "lastAccessed": 1788672504589,
       "type": "file"
     },
     {
@@ -152,12 +224,6 @@
       "path": "src/import/tmdb-overrides.ts",
       "accessCount": 1,
       "lastAccessed": 1788615576720,
-      "type": "file"
-    },
-    {
-      "path": "docs/design/SCREENS.md",
-      "accessCount": 1,
-      "lastAccessed": 1788616818881,
       "type": "file"
     },
     {
@@ -197,15 +263,147 @@
       "type": "file"
     },
     {
-      "path": "docs/handoff/backend.md",
-      "accessCount": 1,
-      "lastAccessed": 1788621385362,
-      "type": "file"
-    },
-    {
       "path": "docs/handoff/design.md",
       "accessCount": 1,
       "lastAccessed": 1788621407439,
+      "type": "file"
+    },
+    {
+      "path": "server/utils/service-supabase.ts",
+      "accessCount": 1,
+      "lastAccessed": 1788624545707,
+      "type": "file"
+    },
+    {
+      "path": "server/api/cron/tmdb-purge.get.ts",
+      "accessCount": 1,
+      "lastAccessed": 1788624660653,
+      "type": "file"
+    },
+    {
+      "path": "vercel.json",
+      "accessCount": 1,
+      "lastAccessed": 1788624664210,
+      "type": "file"
+    },
+    {
+      "path": "tests/tmdb-snapshot.test.ts",
+      "accessCount": 1,
+      "lastAccessed": 1788624737237,
+      "type": "file"
+    },
+    {
+      "path": "supabase/migrations/0005_fix_purge_enum_cast.sql",
+      "accessCount": 1,
+      "lastAccessed": 1788631817478,
+      "type": "file"
+    },
+    {
+      "path": "server/types/pipeline-alias.d.ts",
+      "accessCount": 1,
+      "lastAccessed": 1788632086602,
+      "type": "file"
+    },
+    {
+      "path": "shared/pipeline-alias.d.ts",
+      "accessCount": 1,
+      "lastAccessed": 1788632307853,
+      "type": "file"
+    },
+    {
+      "path": "docs/design/mockups/shots/profile-light.png",
+      "accessCount": 1,
+      "lastAccessed": 1788632449239,
+      "type": "file"
+    },
+    {
+      "path": "docs/design/mockups/shots/profile-dark.png",
+      "accessCount": 1,
+      "lastAccessed": 1788632461993,
+      "type": "file"
+    },
+    {
+      "path": ".env.example",
+      "accessCount": 1,
+      "lastAccessed": 1788632728396,
+      "type": "file"
+    },
+    {
+      "path": "supabase/migrations/0006_dmca_admin_actions.sql",
+      "accessCount": 1,
+      "lastAccessed": 1788633280467,
+      "type": "file"
+    },
+    {
+      "path": "server/utils/rate-limit.ts",
+      "accessCount": 1,
+      "lastAccessed": 1788633685315,
+      "type": "file"
+    },
+    {
+      "path": "server/api/legal/notice.post.ts",
+      "accessCount": 1,
+      "lastAccessed": 1788633715076,
+      "type": "file"
+    },
+    {
+      "path": "supabase/migrations/0007_legal_document_hash.sql",
+      "accessCount": 1,
+      "lastAccessed": 1788634493255,
+      "type": "file"
+    },
+    {
+      "path": "server/api/admin/films/[id]/approve.post.ts",
+      "accessCount": 1,
+      "lastAccessed": 1788634574910,
+      "type": "file"
+    },
+    {
+      "path": "server/api/admin/films/merge.post.ts",
+      "accessCount": 1,
+      "lastAccessed": 1788634598666,
+      "type": "file"
+    },
+    {
+      "path": "scripts/verify-admin.sql",
+      "accessCount": 1,
+      "lastAccessed": 1788634890378,
+      "type": "file"
+    },
+    {
+      "path": "scripts/verify-core.sql",
+      "accessCount": 1,
+      "lastAccessed": 1788659863951,
+      "type": "file"
+    },
+    {
+      "path": "scripts/verify-all.ts",
+      "accessCount": 1,
+      "lastAccessed": 1788660085771,
+      "type": "file"
+    },
+    {
+      "path": "src/import/title-corrections.ts",
+      "accessCount": 1,
+      "lastAccessed": 1788660705360,
+      "type": "file"
+    },
+    {
+      "path": "scripts/fix-corrupted-titles.ts",
+      "accessCount": 1,
+      "lastAccessed": 1788660743118,
+      "type": "file"
+    },
+    {
+      "path": "supabase/migrations/0008_ugc_delete_and_country_null.sql",
+      "accessCount": 1,
+      "lastAccessed": 1788661012229,
+      "type": "file"
+    },
+    {
+      "path": "docs/design/mockups/shots/admin-dark.png",
+      "accessCount": 1,
+      "lastAccessed": 1788661145020,
       "type": "file"
     }
   ],
