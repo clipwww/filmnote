@@ -30,8 +30,11 @@
 --
 -- 全期尺度下有兩件事語意會變，2026-09-06 補上：
 --   ① `by_year`：全期貢獻圖要餵的東西。日層級在全期尺度畫不出來（96% 空格）。
---   ② `monthly` vs `monthly_series`：見下方註解。原本只有前者，等於已經替
---      David 選了「季節性」那一種而沒有人講出來。
+--   ② `monthly` 在全期時是**季節性**（12 個月份桶，跨年度加總）——主 session
+--      2026-09-06 裁決，`/app` 與 `/u/` 一致。同一個名字的圖在兩頁有兩種語意，
+--      使用者切過去會以為資料錯了。
+--   ③ `monthly_baseline`：設計稿的「歷年每月平均」虛線。**不受 p_year 影響**，
+--      所以單一年份的基準線與全期的季節性序列是同一組數字。
 --
 -- ── 效能的形狀（母體 174 筆，量不出東西，所以講清楚假設）──────────────────
 -- 所有聚合都從**同一個 `rec` CTE** 出發，而 rec 是一次
@@ -39,6 +42,13 @@
 -- 十一組聚合各自對 rec 做一次 group by，**不會各自回去掃 viewing_record**。
 -- ⇒ 成本是 O(該使用者的紀錄數)，與年份數、與全站紀錄數無關。
 -- 一萬筆時 rec 是一萬列，十一次 in-memory group by——那個量級不需要優化。
+--
+-- **實測 2026-09-06**（母體 174 筆、片庫 2,764 部）：
+--   `explain (analyze, buffers)` → Execution Time **9.96 ms**、shared hit **2,334**。
+--   `public.viewing_record` 在整支函式裡**只出現一次**（rec_all），所以那 2,334 個
+--   buffer 主要來自 countries / venues / repeats 對 film 的 join，
+--   而那是**片庫大小**的函數、不是使用者紀錄數的函數 ⇒ 使用者長到一萬筆時
+--   這個數字不會跟著長十倍。前一棒寫的「效能從未量測」這一條可以劃掉了。
 -- ⚠️ 會爆掉的寫法是「每一組聚合各自 join 回 viewing_record」，那會變成
 --    十一次索引掃描。改動這支時請維持「單一 rec、多次 group by」的形狀。
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -58,7 +68,15 @@ with target as (
    where p.username = public.resolve_username(p_username)
 ),
 -- RLS 在這裡生效：呼叫者看不到的紀錄不會出現，後面所有聚合自動正確。
-rec as (
+--
+-- ★ 這裡刻意分成 rec_all / rec 兩層，而不是把 p_year 寫進 where：
+--   「歷年每月平均」那條基準線**必須跨全部年份**算，即使呼叫端指定了年份
+--   （設計稿 `mockups/dashboard.html` 的圖說是「整年 N 場，比歷年平均的 X 場
+--   多／少」）。分成兩層之後，全期序列與單一年份的基準線**用的是同一組數字**，
+--   而不是兩套會漂移的計算——兩套一定會在某次修改後給出不一致的值，
+--   而那種不一致沒有人會發現，因為沒有人會把兩頁的數字擺在一起看。
+--   `viewing_record` 仍然只掃一次。
+rec_all as (
   select r.id, r.film_id, r.venue_id, r.watched_on, r.watched_time,
          coalesce(r.ticket_count, 1) as ticket_count,
          r.format_code,
@@ -68,12 +86,42 @@ rec as (
     -- left join：票價被 RLS 擋掉時保留紀錄本身，只是 cost 為 NULL。
     -- inner join 會讓「沒公開票價」連場次都消失，統計直接失真。
     left join public.viewing_record_cost c on c.record_id = r.id
-   where p_year is null or extract(year from r.watched_on)::integer = p_year
+),
+rec as (
+  select * from rec_all
+   where p_year is null or extract(year from watched_on)::integer = p_year
 ),
 -- 年份清單不受 p_year 影響——前端要用它畫年度切換器（US-42）。
 years as (
-  select distinct extract(year from r.watched_on)::integer as y
-    from public.viewing_record r join target t on t.id = r.user_id
+  select distinct extract(year from watched_on)::integer as y from rec_all
+),
+-- ── 「歷年每月平均」的分母 ───────────────────────────────────────────────
+--
+-- ⚠️ **平均線是「每月平均」不是「總數除以 12」，而分母也不是「有資料的年份數」。**
+--
+--   David 的資料是 2014-03-01 起。用 13（有資料的年份數）當分母的話：
+--     · 一月被除了 13 次，但 2014 年一月**在他開始記錄之前**，那一格從來沒有
+--       機會發生 ⇒ 一月的平均被系統性低估。
+--     · 八月同理：2026 年八月在資料範圍之外（最後一筆是 2026-07-26）。
+--
+--   所以分母用**曝光數**：從第一筆紀錄那個月到現在，這個月份實際經歷過幾次。
+--   實測 David：三月 13 次、一月 12 次（2014-01 在起點之前）、八月 13 次
+--   （2014-08 到 2026-08 都已經過了）。
+--
+--   窗口的結尾用 `greatest(最後一筆, 今天)`：使用者停止記錄之後經過的月份
+--   是**真的去了 0 次**，那是資訊，不該從分母裡拿掉。
+--   （反過來說，用「有那個月份紀錄的年份數」當分母會得到「有去的時候平均去幾次」
+--   ——那個數字永遠 ≥ 1，看起來像每個月都有去，是三個選項裡最會騙人的一個。）
+span as (
+  select date_trunc('month', min(watched_on))::date as m0,
+         greatest(date_trunc('month', max(watched_on))::date,
+                  date_trunc('month', current_date)::date) as m1
+    from rec_all
+),
+exposure as (
+  select extract(month from g)::integer as m, count(*)::integer as years_observed
+    from span, generate_series(span.m0, span.m1, interval '1 month') g
+   group by 1
 ),
 totals as (
   select count(*)::integer                                      as records,
@@ -187,19 +235,33 @@ select case when not exists (select 1 from target) then null else jsonb_build_ob
                    (count(*) - count(cost))::integer unknown
               from rec group by 1) yy), '[]'::jsonb) end,
 
-  -- ★ 月度有兩種完全不同的意思，全期尺度下必須分開給（見 0013 的說明）：
-  --   · monthly        —— 十三年的「同月份」加總，12 格。回答「我幾月比較常看片」。
-  --   · monthly_series —— 156 個月的時間序列。回答「我這些年看片量的走勢」。
-  --   p_year 給了年份時兩者等價（都是那一年的 12 個月），此時 series 為空陣列。
-  'monthly_series', case when p_year is not null then '[]'::jsonb else coalesce((
+  -- ── 月度：季節性（12 個月份桶，跨年度加總）─────────────────────────
+  --
+  -- ★ 主 session 2026-09-06 裁決：全期的「每個月」＝季節性，`/app` 與 `/u/` 一致。
+  --   走勢已經由年表（band 1）在說，而 156 個點在 375px 上讀不出來；
+  --   季節性回答的是年表與熱點圖都碰不到的一個維度——「我夏天看比較多嗎」。
+  --   ⇒ 上面的 `monthly` 在 p_year is null 時**就是**那個季節性序列
+  --     （group by 月份，rec 已經涵蓋全部年份），不需要另一個欄位。
+  --
+  -- `monthly_baseline` 是設計稿裡那條虛線「歷年每月平均」。
+  -- ★ 它**不受 p_year 影響**（來自 rec_all）：單一年份時它是對照基準，
+  --   全期時它與 monthly 的形狀一致而數值是平均——同一組數字的兩種用途。
+  'monthly_baseline', coalesce((
     select jsonb_agg(jsonb_build_object(
-             'month', m, 'records', n, 'tickets', tk,
-             'spend', sp, 'spend_is_partial', unknown > 0) order by m)
-      from (select to_char(watched_on, 'YYYY-MM') as m,
-                   count(*)::integer n, sum(ticket_count)::integer tk,
-                   coalesce(sum(cost), 0)::numeric(12, 2) sp,
-                   (count(*) - count(cost))::integer unknown
-              from rec group by 1) ms), '[]'::jsonb) end,
+             'month', e.m,
+             -- 分母：這個月份實際經歷過幾次（見上方 exposure 的推理）
+             'years_observed', e.years_observed,
+             'records', coalesce(a.n, 0),
+             'avg_records', round(coalesce(a.n, 0)::numeric / e.years_observed, 2),
+             'avg_tickets', round(coalesce(a.tk, 0)::numeric / e.years_observed, 2),
+             'avg_spend', round(coalesce(a.sp, 0)::numeric / e.years_observed, 2),
+             'spend_is_partial', coalesce(a.unknown, 0) > 0) order by e.m)
+      from exposure e
+      left join (select extract(month from watched_on)::integer m,
+                        count(*)::integer n, sum(ticket_count)::integer tk,
+                        coalesce(sum(cost), 0)::numeric(12, 2) sp,
+                        (count(*) - count(cost))::integer unknown
+                   from rec_all group by 1) a on a.m = e.m), '[]'::jsonb),
 
   -- 多刷排行（US-41）。只列同一年內看過兩次以上的。
   'repeats', coalesce((

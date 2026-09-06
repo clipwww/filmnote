@@ -53,7 +53,8 @@ pnpm tsx --env-file=.env scripts/scan-git-secrets.ts      # push 前必跑
 | SSR payload 與 OG 的 HTTP 驗收 | ✅ `scripts/verify-http.ts`（11 條，含兩組對照） |
 | Step 11 憑證掃描 | ✅ `scripts/scan-git-secrets.ts`（掃**全部** 943 個物件，含 13 個不可達 blob） |
 | 「照著改」的覆蓋層 | ✅ `0012`：`admin_correct_film` / `admin_correct_venue` ＋ `seed_venues` RPC |
-| 全期統計（不分年份） | ✅ `0003` 加 `by_year` 與 `monthly_series`（那支**本來就支援**全期，§7 #122） |
+| 全期統計（不分年份） | ✅ `0003` 加 `by_year` ＋ `monthly_baseline`（那支**本來就支援**全期，§7 #122） |
+| 月度＝季節性、平均線 | ✅ 主 session 裁決季節性；平均線的分母用**曝光數**（§7 #123） |
 | 首頁海報牆 | ✅ `0013` `home_poster_wall()` ＋ `GET /api/posters` |
 
 **Step 11 的兩件已做**（第三件 CRON_SECRET 是 David 的部署設定）：
@@ -352,6 +353,53 @@ PostgREST 的 upsert **無法逐列決定要更新哪些欄位**，所以這個�
 ⚠️ 但如果日後有人用 `admin_correct_film()` 去改那兩筆，`title_zh_source` 會變成
 `'admin'`，那一列就**永久脫離政府資料**。那是刻意的取捨，`admin_correct_film()`
 的回傳值有 `detached_from_upstream` 讓 UI 可以把它講出來。
+
+## 6e. 全期統計與平均線（0003）
+
+### `user_year_stats` 本來就支援全期，不要另開一支
+
+`p_year` 有 `default null`，`rec` 的條件是 `p_year is null or extract(year …) = p_year`。
+實測全期：174 筆／133 部／250 張／13 年／全期多刷 19 部。
+`by_year` 的加總與 `totals` 逐項吻合（174 筆、5x,xxx 元），而且與主 session 獨立
+查到的年表數字（3/2/20/18/13/25/21/11/9/14/21/9/8）完全一致。
+
+### 月度＝季節性（主 session 2026-09-06 裁決）
+
+`/app` 與 `/u/` 一致。**不做 156 個月的時間序列**——走勢已經由年表在說，
+而同一個名字的圖在兩頁有兩種語意會讓使用者以為資料錯了。
+
+### 平均線：一個欄位餵兩個用途
+
+`monthly_baseline` 是設計稿的「歷年每月平均」虛線，**不受 `p_year` 影響**
+（來自未過濾的 `rec_all`）：
+
+- 指定年份時 → 它是對照基準（「整年 N 場，比歷年平均的 X 場多／少」）
+- 全期時 → 它與 `monthly` 同形狀，數值是平均
+
+⚠️ **不要做成兩套計算。** 兩套一定會在某次修改後給出不一致的數字，而那種不一致
+沒有人會發現——因為沒有人會把兩頁的數字擺在一起看。
+`verify-core` 的 **H4** 就是釘這一條的（實測把基準線接到被 `p_year` 過濾的 `rec`
+上會立刻紅）。
+
+### 分母是**曝光數**，不是「有資料的年份數」（§7 #123）
+
+從第一筆紀錄那個月到 `greatest(最後一筆, 今天)`，這個月份實際經歷過幾次。
+David 實測：三月 13 次、一月 12 次（2014-01 在起點之前）、十月 12 次（2026-10 還沒到）。
+
+⚠️ **這種錯誤守不住靠一致性斷言。** 驗 `avg = records / years_observed` 只驗到內部
+一致——實測把分母一律改成 13，H1–H5 全綠而每個月的平均都偏。
+守住它的是 **H6**：十二個月份的曝光加總必須等於觀測窗口的月份數（151），
+分母寫成 13 會得到 156 而立刻紅。**這是一個與實作無關的不變量，不是實作的複本。**
+
+### 效能：量過了
+
+`explain (analyze, buffers)` 實測 2026-09-06（174 筆、片庫 2,764 部）：
+**9.96 ms、shared hit 2,334**。`public.viewing_record` 在整支函式裡**只出現一次**
+（`rec_all`），那 2,334 個 buffer 主要來自 countries／venues／repeats 對 `film` 的
+join——那是**片庫大小**的函數，不是使用者紀錄數的函數。
+⇒ 使用者長到一萬筆時這個數字不會跟著長十倍。
+**改動時請維持「單一 rec_all、多次 group by」的形狀**；會爆掉的寫法是讓每組聚合
+各自 join 回 `viewing_record`。
 
 ## 6. 給下一棒的提醒
 

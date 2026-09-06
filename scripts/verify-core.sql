@@ -399,6 +399,111 @@ begin
   end if;
 
   -- ===========================================================================
+  -- H. 月度季節性與「歷年每月平均」（0003）
+  --
+  --    這一組守的是一個**算錯了也完全看不出來**的東西：平均線的分母。
+  --    分母寫成 12、或寫成「有資料的年份數」、或寫成「有那個月份紀錄的年份數」，
+  --    畫出來都是一條合理的虛線，只是每個月都偏。
+  -- ===========================================================================
+  declare
+    v_user_name text;
+    v_all jsonb;
+    v_one jsonb;
+    v_year integer;
+  begin
+    select p.username into v_user_name from public.profile p order by p.created_at limit 1;
+    if v_user_name is null then
+      raise notice 'H 段略過：DB 內沒有 profile';
+    else
+      v_all := public.user_year_stats(v_user_name, null);
+      select (v_all->'available_years'->>0)::integer into v_year;
+      v_one := public.user_year_stats(v_user_name, v_year);
+
+      -- H1 全期的 monthly 就是季節性序列 ⇒ 加總必須等於總筆數。
+      --    少一格（例如把某個月份濾掉）在圖上看不出來，只有加總會露餡。
+      select coalesce(sum((e->>'records')::integer), 0) into n
+        from jsonb_array_elements(v_all->'monthly') e;
+      if n <> (v_all->'totals'->>'records')::integer then
+        fails := fails || format('H1 全期 monthly 加總 %s 與 totals.records %s 不符',
+                                 n, v_all->'totals'->>'records');
+      end if;
+
+      -- H2 基準線一定是 12 格，而且每一格的分母至少 1（否則是除以零或負數）。
+      if jsonb_array_length(v_all->'monthly_baseline') <> 12 then
+        fails := fails || format('H2 monthly_baseline 不是 12 格（實得 %s）',
+                                 jsonb_array_length(v_all->'monthly_baseline'));
+      end if;
+      select count(*) into n from jsonb_array_elements(v_all->'monthly_baseline') e
+       where (e->>'years_observed')::integer < 1;
+      if n <> 0 then
+        fails := fails || format('H2 有 %s 個月份的曝光分母小於 1', n);
+      end if;
+
+      -- H3 avg_records 必須真的等於 records / years_observed。
+      --    分母改錯時這一條不會紅（它只驗一致性），H4 才是驗分母語意的那一條。
+      select count(*) into n from jsonb_array_elements(v_all->'monthly_baseline') e
+       where round((e->>'records')::numeric / (e->>'years_observed')::numeric, 2)
+             is distinct from (e->>'avg_records')::numeric;
+      if n <> 0 then
+        fails := fails || format('H3 有 %s 個月份的 avg_records 與 records/years_observed 對不起來', n);
+      end if;
+
+      -- H4 ★ 基準線**不得受 p_year 影響**。
+      --    這是設計稿那條虛線的全部意義：單一年份時它是對照基準
+      --    （「整年 N 場，比歷年平均的 X 場多／少」），所以它必須跨全部年份算。
+      --    一旦有人把它接到被 p_year 過濾過的 rec 上，虛線就變成「今年自己的平均」
+      --    ——那條線會永遠貼著實線，而且**看起來很合理**。
+      if v_all->'monthly_baseline' is distinct from v_one->'monthly_baseline' then
+        fails := fails || format('H4 ★ 指定年份(%s)時的 monthly_baseline 與全期不同（虛線被 p_year 過濾了）', v_year);
+      end if;
+
+      -- H6 ★ 曝光分母的**語意**。
+      --
+      --    H2/H3 只驗一致性，H4 只驗「沒被 p_year 過濾」——三條都不會抓到
+      --    「分母寫成有資料的年份數」這個錯（實測：把 years_observed 一律改成 13
+      --    之後 H1–H5 全綠，而每個月的平均都偏）。
+      --
+      --    這裡用一個**與實作無關**的不變量：十二個月份的曝光數加起來，
+      --    必須恰好等於觀測窗口裡的月份總數。
+      --      David 實測：12+12+13×7+12+12+12 = 151
+      --      窗口 2014-03 → 2026-09 = (2026-2014)×12 + (9-3) + 1 = 151 ✅
+      --    分母改成「一律 13」會得到 156，立刻紅。
+      declare
+        v_months integer;
+        v_sum integer;
+      begin
+        select ((extract(year from w.m1) - extract(year from w.m0)) * 12
+                + (extract(month from w.m1) - extract(month from w.m0)) + 1)::integer
+          into v_months
+          from (select date_trunc('month', min(r.watched_on))::date as m0,
+                       greatest(date_trunc('month', max(r.watched_on))::date,
+                                date_trunc('month', current_date)::date) as m1
+                  from public.viewing_record r
+                  join public.profile p on p.id = r.user_id
+                 where p.username = v_user_name) w;
+
+        select coalesce(sum((e->>'years_observed')::integer), 0) into v_sum
+          from jsonb_array_elements(v_all->'monthly_baseline') e;
+
+        if v_months is not null and v_sum <> v_months then
+          fails := fails || format(
+            'H6 ★ 曝光分母加總 %s 與觀測窗口的月份數 %s 不符（平均線的分母算錯了，而畫出來看不出來）',
+            v_sum, v_months);
+        end if;
+      end;
+
+      -- H5 對照：指定年份時 monthly 的加總必須等於那一年的筆數。
+      --     沒有它，H4 在「兩邊都被過濾壞掉」時也會綠。
+      select coalesce(sum((e->>'records')::integer), 0) into n
+        from jsonb_array_elements(v_one->'monthly') e;
+      if n <> (v_one->'totals'->>'records')::integer then
+        fails := fails || format('H5 指定年份的 monthly 加總 %s 與該年 totals %s 不符',
+                                 n, v_one->'totals'->>'records');
+      end if;
+    end if;
+  end;
+
+  -- ===========================================================================
   -- 收尾
   -- ===========================================================================
   if array_length(fails, 1) is null then
