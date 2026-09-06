@@ -147,6 +147,14 @@ inline script 在 client 端決定。**切換器上線後這條仍然成立，�
 ## 5. 還沒做的
 
 1. **line / bar 的點擊展開紀錄清單**（David 要的）。現在只有出席圖與時段熱點圖有。
+   - ⚠️ **抽屜裡的 `TicketCard` 一定要傳 `show-year`。** 2026-09-06 David 回報
+     「開啟 drawer records 時看不出觀影年份」，主 session 修在 `0bee605`。
+     病灶是**抽屜的標題有兩種**：出席圖點一格是「2024/03/15 (週五)」有年，
+     時段圖點一格是「週四 21:00」**沒有年**——而那一格橫跨 2020 與 2019 兩年。
+     同一個抽屜元件、兩種標題 ⇒ **不能靠標題補年份，只能靠卡片自己帶**。
+     月度趨勢與分布長條的抽屜跨的年份**更多**，所以這條對接下來要做的四支更重要。
+     （`TicketCard` 的 `showYear` prop 早就存在但一直沒有呼叫端在用，
+     `0bee605` 是它第一次被真的用到；52px 的日期帶塞五行後比例仍然穩，已看過畫面。）
    - `MonthlyTrend` 是 ECharts ⇒ 走 `BaseChart` 已經有的 `@pick`。
    - **`DistributionBars` 不是圖表庫畫的，是 HTML 排版** ⇒ 加 `<button>` 語意，
      **不要**為了統一而把它改回 canvas（長中文影城名在 375px 下會被截斷，
@@ -176,6 +184,12 @@ inline script 在 client 端決定。**切換器上線後這條仍然成立，�
   那會關掉 David 的瀏覽器）。helper 在 scratchpad 的 `cdp.mjs`。
 - **要驅動主題切換**：`useNuxtApp().$colorMode.preference = 'dark'`。
   `window.$nuxt` 不存在，但 `window.useNuxtApp` 是函式。
+  ⚠️ **不要用 `classList.add('dark')` 自己加 class**——`@nuxtjs/color-mode` 會把它
+  改回去，量到的可能是切換過程中的中間態（frontend 交接 §6.5）。
+  我早期幾支驗證腳本用的是 classList，事後回頭確認過那幾次 class 確實生效
+  （`getComputedStyle(body).backgroundColor` 亮暗真的不同：`[248,237,220]` vs
+  `[29,22,16]`），所以那批結論仍然成立——但**新腳本一律走 `$colorMode.preference`**，
+  它是真正的切換路徑，也順便測到 `:key` 重建。
 - **四個 session 共用一個工作樹**，別人 migration 改到一半會讓 `verify:all` 變紅，
   而它看起來像你自己的迴歸。**第一件事是確認 David 的真實資料完好**
   （174 筆紀錄 / 1 個 profile / 1 個 auth user），再看 `git status` 有沒有
