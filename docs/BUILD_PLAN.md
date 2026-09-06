@@ -2358,7 +2358,7 @@ TMDB 上四話各自獨立、沒有連映版條目，而一筆 `viewing_record` 
 > | 號段 | 擁有者 |
 > |---|---|
 > | #1–#84 | 已發出（歷史，不重新編號） |
-> | #85–#99 | frontend（已用到 #97） |
+> | #85–#99 | frontend（已用到 #98） |
 > | #100–#114 | backend |
 > | #115–#129 | design |
 > | #130–#144 | adminui（`/admin/**` 與 `/app/import`；主 session 讓出的前段，已用到 #133） |
@@ -2388,6 +2388,7 @@ TMDB 上四話各自獨立、沒有連映版條目，而一筆 `viewing_record` 
 | 131 | **`pages/` 底下可以放非路由檔案，前綴用 `-`（`ignorePrefix`，Nuxt 4 預設值就是 `-`）。** `pages/` 掃的是 `.vue` **和** `.ts`，所以共用的 composable／子元件直接放進去會冒出 `/admin/-admin-shared` 這種路由。加了前綴之後掃描器跳過它，而**顯式相對 import 照樣可用**（那走 Vite 的解析，不看 nuxt 的 ignore 清單）。多 session 並行、共用層屬於別人時，這是把「只屬於這一區的共用碼」留在自己目錄裡的唯一乾淨作法。實測 2026-09-06：production build 只產出 `/admin`、`/admin/films`、`/admin/takedowns`、`/admin/reports` 四條 | 2026-09-06 實測 |
 | 91 | **★ `routeRules` 裡帶萬用字元的 `prerender: true` 等於沒有寫，而且 `nuxt build` 根本不會跑預先算繪。** 兩件事疊在一起：① nitro 組預先算繪佇列時明文濾掉含 `*` 的路徑（`filter(([path, o]) => o.prerender && !path.includes("*"))`），所以 `'/legal/**': { prerender: true }` 貢獻 0 條；② Nuxt 4.5.2 的 `nuxt build`（沒有 `--prerender`）與 `nitropack` 的 `build()` **都沒有呼叫** nitro 的 `prerender()`。實測 `pnpm build` 之後 `.output/public/` 裡一個 HTML 都沒有、日誌沒有 `Initializing prerenderer`，而 `nuxt.config.ts` 看起來是設好的。⇒ **這一類設定只能用產物驗收**（`find .output/public -name '*.html'`），看設定檔會得到相反的結論。要真的靜態化就在 `nitro.prerender.routes` 明列具體路徑 | 2026-09-06 實測（`/legal/**`，Step 8） |
 | 92 | **Vue 的 whitespace `condense` 在「文字 ↔ 元素」之間留下的是一個空格，不是零。** 前幾棒的教訓（`utils/ticket.ts` 檔頭）講的是**元素 ↔ 元素**之間會被摺掉；反過來這一半同樣會咬人：`…並通知對方。\n<span>不需要註冊…</span>` render 成「並通知對方。 不需要註冊」，中文句子中間多一個看得見的空隙，而 DS §2.5 又禁止手打空格補間距。最惡劣的形式是標點前面：`…你的帳號狀態，\n<a>設定</a>\n。` → 「狀態， 設定 。」。⇒ 中文句子夾行內元素時**整句排成一行**，或把行內元素拉出來自成一段 | 2026-09-06 實測（`/legal/dmca`、`/legal/copyright`） |
+| 98 | **★ Vue 對 hydration mismatch 的補救是不對稱的：文字會被改正，屬性不會。** `hydrateElement` 只 patch `on*` 事件，一般 attribute 只在 dev 印一行警告。踩雷 #79 的解法（`strip-auth-on-cacheable.ts` 對 `/`、`/film/**`、`/venue/**`、`/legal/**` 拔 session cookie）讓**已登入者在這幾頁必然 mismatch**，於是導覽列那顆 `v-if="user"` 按鈕變成：**文字換成「我的紀錄」，`href` 卻還停在 `/login`**——已登入的人按下去被丟去登入頁。console 只有一行 `Hydration completed but contains mismatches`，畫面看起來完全正常。⚠️ **把 `to` 改成綁定值讓它進 dynamicProps 沒有用**（實測過）；唯一乾淨的解法是讓兩邊的第一次算繪一致，也就是包 `<ClientOnly>` 並用 fallback 給出伺服器那一版。⇒ 任何「SSR 一律看不到身分、客戶端才知道」的元素都要這樣處理，不只是這一顆 | 2026-09-06 實測（`/`、`/film/*`、`/legal/*` 皆中，`/search` 因為不在拔 cookie 名單裡而正常） |
 
 
 ### 踩雷 #79 詳述：為什麼 #1 的理由涵蓋不到這個情況
