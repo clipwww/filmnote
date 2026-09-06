@@ -8,32 +8,26 @@ export type LegalDocumentRow = Database['public']['Tables']['legal_document']['R
 /**
  * `/legal/{terms,privacy,copyright}` 的內容來源（`SCREENS §15.1`）。
  *
- * ── ⚠️ `/legal/** → prerender: true` 目前**不生效**（2026-09-06 實測，踩雷 #91）
- * `nuxt.config.ts` 有那一條規則，但 `pnpm build` 之後 `.output/public/` 裡
- * **一個 HTML 都沒有**，建置日誌也沒有 `Initializing prerenderer`。兩個原因疊在一起：
- *   ① nitro 只把**不含萬用字元**的 routeRules 路徑放進預先算繪佇列
- *      （`filter(([path, o]) => o.prerender && !path.includes("*"))`），`/legal/**` 被濾掉；
- *   ② Nuxt 4.5.2 的 `nuxt build`（沒有 `--prerender`）根本不會呼叫 nitro 的
- *      `prerender()`——`nitropack` 的 `build()` 也沒有呼叫它。
- * ⇒ 這四頁**實際上是每次請求即時 SSR**。真要靜態化得在 nuxt.config 明列
- *   `nitro.prerender.routes`，那是共用檔，要先問主 session。
+ * ── 這四頁是即時 SSR，`cache-control: no-store`（2026-09-06 定案）────────
+ * 曾經是 `prerender: true`，但那一條**實測完全沒有生效**（踩雷 #91）。
+ * 查出來之後的裁決不是「把預先算繪修好」而是「本來就不該預先算繪」：
  *
- * ── 即時 SSR 其實是這一頁想要的行為，不是將就 ─────────────────────────
  * 條款改版是**插入新的一列**（0007 的 `legal_doc_immutable` 讓已被同意過的文件
- * 根本不能就地改），而 `legal_acceptance` 綁的是 `document_id`。如果資料庫已經
- * 有 v1.0、畫面卻停在建置當下的 v0.1，使用者按下同意的是新版、看到的是舊版
- * ——那正是 §15.1 說的「那筆同意紀錄對使用者就是不可查證的」，而且**完全無聲**：
- * 沒有錯誤、沒有 404，只有一份過期的條款。即時 SSR 沒有這個失敗模式。
+ * 根本不能就地改），而 `legal_acceptance` 綁的是 `document_id`。烤死在建置當下的
+ * 版本，會讓「使用者同意了某一版」與「畫面上顯示的那一版」分岔——那正是 §15.1
+ * 說的「那筆同意紀錄對使用者就是不可查證的」。而且這個失敗**完全無聲**：
+ * 沒有錯誤、沒有 404，只有一份過期的條款。條款頁一年改不了幾次，
+ * 快取省不到什麼，正確性遠比延遲重要。
  *
- * 代價是條款頁在資料庫不可達時會退成「讀不到」的空狀態（`LegalDocumentView`
- * 有處理，並留下 `/legal/dmca` 這條還走得通的路）。這是已知取捨，寫在回報裡。
+ * ⇒ 每一次請求都問一次資料庫，拿到的一定是現行版。
  *
- * ── 但程式仍然要在 prerender 打開的那一天是對的 ───────────────────────
- * 所以掛載後保留一次重新驗證，**只在這一頁真的是預先算繪出來的時候才跑**
- * （`payload.prerenderedAt` 只有預先算繪的頁面才有）。即時 SSR 時它不會發出任何請求。
- * 順帶修掉另一個只有 prerender 會踩到的細節：「哪一版是現行版」要拿 `effective_at`
- * 跟**現在**比，而建置期的「現在」是建置時間 ⇒ 排程在未來生效的版本，
- * 靜態檔會永遠選不到它。
+ * 代價寫在這裡，不要當成沒有：資料庫不可達時這一頁會退成「讀不到」的空狀態
+ *（`LegalDocumentView` 有處理，並留下 `/legal/dmca` 這條還走得通的路）。
+ * 這是拿可用性換正確性的一次明確取捨，不是疏漏。
+ *
+ * ⚠️ 這裡曾經有一段「掛載後再對一次資料庫」的重新驗證，**已經刪掉**：
+ * 它的前提是頁面可能是預先算繪出來的，而現在確定不是，留著只會讓後人
+ * 以為有預先算繪。要是哪天真的加回 `nitro.prerender.routes`，那一段要一起回來。
  */
 
 const COLUMNS = 'id,kind,version,effective_at,body_md,content_sha256'
@@ -59,7 +53,7 @@ export function pickCurrentVersion(
 export function useLegalDocument(kind: LegalDocKind) {
   const supabase = useSupabaseClient<Database>()
 
-  const { data: versions, refresh, error } = useAsyncData(
+  const { data: versions, error } = useAsyncData(
     `legal-${kind}`,
     async () => {
       const { data, error: queryError } = await supabase
@@ -75,15 +69,16 @@ export function useLegalDocument(kind: LegalDocKind) {
   )
 
   /**
-   * 建置期烤進去的是建置當下的時間；掛載後換成瀏覽器的現在。
-   * 兩者不同時，`current` 會自己重算——這就是上面說的「未來生效的版本」那一條。
+   * 「哪一版是現行版」要拿 `effective_at` 跟現在比。即時 SSR 之下伺服器的
+   * 「現在」就是請求當下，所以固定成一個值即可——不必再為了預先算繪的
+   * 建置時戳做修正。
    */
-  const now = ref(Date.now())
+  const now = Date.now()
 
   /** 使用者從歷史版本清單選了哪一版。null＝看現行版。 */
   const selectedId = ref<number | null>(null)
 
-  const current = computed(() => pickCurrentVersion(versions.value ?? [], now.value))
+  const current = computed(() => pickCurrentVersion(versions.value ?? [], now))
   const shown = computed(() =>
     (selectedId.value === null
       ? current.value
@@ -94,18 +89,6 @@ export function useLegalDocument(kind: LegalDocKind) {
   const parsed = computed<ParsedLegalDoc | null>(() =>
     shown.value ? parseLegalMarkdown(shown.value.body_md) : null,
   )
-
-  const nuxtApp = useNuxtApp()
-
-  onMounted(async () => {
-    now.value = Date.now()
-    // 即時 SSR 的頁面剛剛才查過資料庫，再查一次只是多一個往返。
-    if (!nuxtApp.payload.prerenderedAt)
-      return
-    // 失敗就維持烤好的那一份。條款頁的可用性優先於新鮮度——反過來會讓
-    // 資料庫的一次抖動變成一頁空白的法遵頁。
-    await refresh().catch(() => {})
-  })
 
   return { versions, current, shown, isHistorical, parsed, selectedId, error }
 }

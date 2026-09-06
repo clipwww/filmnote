@@ -21,14 +21,28 @@
  *     所以就算改成 SSR，伺服器端也一律看不到身分——這一段只能在 client 判斷。）
  */
 const user = useSupabaseUser()
+const config = useRuntimeConfig()
 
 /**
- * ⚠️ 寫死在這裡是**已知的暫時解**。`.env` 有 `COPYRIGHT_CONTACT_EMAIL`，
- * 但它沒有進 `runtimeConfig.public`，而 `nuxt.config.ts` 是共用檔、
- * 動之前要先問主 session。搬進 runtimeConfig 之前，改信箱要記得改這裡。
- * 值與 `BUILD_PLAN §6.1 ③` 和 `.env` 一致。
+ * 受理窗口的信箱。來源是 `runtimeConfig.public.copyrightContactEmail`
+ *（讀 `COPYRIGHT_CONTACT_EMAIL`，見 `nuxt.config.ts` 的註解）。
+ *
+ * ⚠️ 它的 fallback 是空字串，而**空字串的症狀是「頁面上少一行字」**——
+ * 看起來無害，實際上是 §90-4 第 3 款的「公告受理窗口」少掉一個管道。
+ * 所以這裡做兩件事：
+ *   ① 句子跟著變（沒有信箱時不留下「請寄到下面這個信箱」這種指向空氣的句子）；
+ *   ② 伺服器端每次算繪都吼一次，讓它出現在部署日誌裡。
+ * 不在畫面上顯示錯誤：這一頁的讀者是著作權人，我們自己的設定錯誤不該變成他的問題，
+ * 而 `/legal/dmca` 那個表單本身就是一個合格的窗口，那條路永遠在。
  */
-const CONTACT_EMAIL = 'copyright@filmnote.tw'
+const contactEmail = computed(() => String(config.public.copyrightContactEmail || '').trim())
+
+if (import.meta.server && !contactEmail.value) {
+  console.error(
+    '[legal/copyright] COPYRIGHT_CONTACT_EMAIL 是空的 ⇒ 著作權受理窗口的信箱沒有公告出去。'
+    + '這是著作權法 §90-4 第 3 款的要件之一，請補上環境變數。',
+  )
+}
 
 useSeoMeta({
   title: '著作權政策',
@@ -50,11 +64,14 @@ useSeoMeta({
           「…請寄到 copyright@… ，或直接用…」——標點前面多一個空隙。
           自成一行順帶讓人比較好選取複製，這一行是受理窗口，被複製的次數不會少。
         -->
-        <p class="mt-3.5 max-w-[34em]">
+        <p v-if="contactEmail" class="mt-3.5 max-w-[34em]">
           著作權相關的通知請寄到下面這個信箱，或直接用侵權通知表單——表單會把著作權法第 90 條之 6 要求記載的事項一次收齊，處理起來會快一點。
         </p>
-        <p class="mt-2">
-          <a :href="`mailto:${CONTACT_EMAIL}`" class="text-primary hover:underline">{{ CONTACT_EMAIL }}</a>
+        <p v-else class="mt-3.5 max-w-[34em]">
+          著作權相關的通知請用下面的侵權通知表單——它會把著作權法第 90 條之 6 要求記載的事項一次收齊。不需要註冊，也不需要登入。
+        </p>
+        <p v-if="contactEmail" class="mt-2">
+          <a :href="`mailto:${contactEmail}`" class="text-primary hover:underline">{{ contactEmail }}</a>
         </p>
         <UButton to="/legal/dmca" variant="soft" class="mt-4">
           填侵權通知表單
