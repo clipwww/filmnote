@@ -2,11 +2,11 @@
 import type { TableColumn } from '@nuxt/ui'
 import type { MyRecord } from '~/composables/useMyRecords'
 import type { Database } from '~/types/database.types'
-import { shortTime } from '~/utils/format-datetime'
-import { costText, dateBand, venueSegment } from '~/utils/ticket'
+import { watchedAtText } from '~/utils/format-datetime'
+import { costText, venueSegment } from '~/utils/ticket'
 
 /**
- * `/app/records` — 全部紀錄（`SCREENS.md §10`）。
+ * `/app/records` — 個人紀錄管理（`SCREENS.md §10`）。
  *
  * ── 2026-09-06：從票根卡列表改成表格 ───────────────────────────────────
  * David：「紀錄管理用 Table + 一些簡易 Filter」。這是**這一頁的呈現改變，
@@ -17,7 +17,16 @@ import { costText, dateBand, venueSegment } from '~/utils/ticket'
  * 兩種呈現各自對的地方：
  *   · 票根卡是**一筆一筆看**——公開頁、單筆分享、確認框。
  *   · 表格是**橫著比**——「我在哪家戲院花最多」「哪些沒填票價」要對齊欄位才看得出來。
- * `/app/records` 的定位是「可以動手改東西的地方」（§10），所以它是後者。
+ *
+ * ── 2026-09-06（第二次）：這一頁的定位從「全部紀錄」改成「個人紀錄管理」──
+ * David：「這邊比較像是個人的資料維護後台」。頁名、日期格式、備註與公開狀態欄、
+ * 操作欄固定，四件事都是同一個定位的結果：
+ *   · **頁名**：「全部紀錄」講的是範圍，「個人紀錄管理」講的是你在這裡做什麼。
+ *   · **日期**用機器可讀的 `YYYY/MM/DD HH:mm`（見 `#watchedOn-cell` 的註解）。
+ *   · **備註與公開狀態**要看得到——維護資料時「這筆為什麼特別」與「誰看得到」
+ *     跟票價一樣是要對帳的欄位，藏起來就得一筆一筆點進編輯頁才知道。
+ *   · **操作欄固定**：九欄在窄螢幕上必然要橫捲，而「刪掉／編輯」是每一列都要
+ *     按得到的東西，捲出畫面等於這張表在手機上只能看不能改。
  *
  * ── 篩選維度是從真實資料長出來的 ───────────────────────────────────────
  * 年份／影城／版本／有無票價。前三個的選項直接從**當年**的紀錄取相異值——
@@ -28,7 +37,7 @@ import { costText, dateBand, venueSegment } from '~/utils/ticket'
  * 而這一頁的容器是隨內容長的。改用原本就有的分批載入——單一年份大多在 30 筆
  * 以內，攤開也不會變成一萬 px 的頁面。
  */
-useSeoMeta({ title: '全部紀錄' })
+useSeoMeta({ title: '個人紀錄管理' })
 
 const supabase = useSupabaseClient<Database>()
 const toast = useToast()
@@ -99,16 +108,86 @@ watch(filtered, () => {
 const visible = computed(() => filtered.value.slice(0, shown.value))
 const hasMore = computed(() => filtered.value.length > shown.value)
 
+/* ── 備註（可展開）─────────────────────────────────────────────────────
+ * ⚠️ 備註是自由文字：實測 174 筆裡 73 筆有備註、平均 14.3 字、最長 67 字、
+ * **5 筆含換行**。所以截斷不能假設它是單行——收起時先把所有空白（含換行）
+ * 摺成一個空格，展開時才用 `whitespace-pre-wrap` 還原原本的斷行。
+ *
+ * ⚠️ 展開一定要是 `<button>`：`title` 屬性在觸控裝置上沒有 hover，
+ * `<div @click>` 則是鍵盤到不了。這裡是唯一能讀到全文的路徑，不能只給滑鼠。
+ *
+ * ⚠️ 用字數門檻決定「要不要給按鈕」，不用 CSS 的 ellipsis：CSS 截斷了但沒有
+ * 按鈕的話，那一筆的全文就永遠讀不到；反過來，短備註給了按鈕，按下去畫面
+ * 不會變，看起來像壞掉。門檻取 16 個全形字，**跟欄寬（max-w-56＝224px）對齊**——
+ * 兩邊對不上就會變成「我截一次、CSS 再截一次」，畫面上是兩個省略號。
+ */
+const MEMO_PREVIEW = 16
+const expandedMemos = ref(new Set<string>())
+
+/** 摺成單行：換行在收起態會被畫成一個看不見的斷點，讀起來像少了字。 */
+function memoOneLine(memo: string) {
+  return memo.replace(/\s+/g, ' ').trim()
+}
+function memoIsLong(memo: string) {
+  // `[...s]` 而不是 `.length`：emoji 是兩個 UTF-16 碼元，用 slice 會切出半個字。
+  return /\n/.test(memo) || [...memoOneLine(memo)].length > MEMO_PREVIEW
+}
+function memoPreview(memo: string) {
+  const chars = [...memoOneLine(memo)]
+  return chars.length > MEMO_PREVIEW ? `${chars.slice(0, MEMO_PREVIEW).join('')}…` : chars.join('')
+}
+function isMemoOpen(id: string) {
+  return expandedMemos.value.has(id)
+}
+function toggleMemo(id: string) {
+  const next = new Set(expandedMemos.value)
+  if (!next.delete(id))
+    next.add(id)
+  expandedMemos.value = next
+}
+
 /* ── 表格 ─────────────────────────────────────────────────────────────── */
+/**
+ * ⚠️ 操作欄用 `UTable` 內建的 column pinning（`:column-pinning`），但**必須把
+ * 底色蓋成不透明**：Nuxt UI 的 `pinned` 變體給的是 `bg-default/75`，捲動時
+ * 底下的欄位會透出來疊在按鈕上。`bg-default!` 的 `!` 是必要的——
+ * 半透明那一版來自元件主題，沒有 important 不保證蓋得掉（踩雷 #186）。
+ *
+ * ⚠️ 而 `bg-default` 是**票根紙**（`--ui-bg`＝paper-25／暗 paper-900），
+ * `body` 是**台紙**（paper-50／paper-950）。兩者不同色 ⇒ sticky 格的底色必須跟
+ * 表格自己的底一致，所以整張表也塗 `bg-default`，否則亮色下會出現一條淺帶。
+ *
+ * ── ⚠️ 操作欄釘**右**緣，而且「靜止時蓋住備註 93px」是**已知且被接受的**代價 ──
+ * `position: sticky` 的固定欄**沒有辦法「佔位」，只能「疊上去」**（踩雷 #188）：
+ * 內容比容器寬時，它會蓋住當下落在容器邊緣的那一欄。試過兩條路，兩條都量過：
+ *   · 「捲動容器尾端補一段等寬 padding」＝**無效**，沒有預留出空間，只是換成
+ *     蓋住別欄（實測：公開狀態 68px + 備註 25px，比蓋一欄還糟）。
+ *   · 「改釘左緣」＝靜止時遮蔽真的變 0px，但**捲動時換成日期與作品被蓋**
+ *     （實測捲到底：47px／45px），片名會少掉開頭幾個字而且沒有任何記號
+ *     （截尾有「…」，截頭沒有），列的身分在捲動中消失。
+ * **David 2026-09-06 看過兩版之後選釘右**：接受靜止時備註被蓋 93px
+ * （備註多的年份只露約一個字），換取捲動時零遮蔽、以及影城與作品一個字都不截。
+ * ⚠️ 所以**不要把它改成釘左，也不要為了消滅那 93px 去截欄寬**——
+ * 那兩條路都被走過而且被否決了，理由在 `SCREENS §10.5` 與踩雷 #188。
+ */
 const columns: TableColumn<MyRecord>[] = [
-  { accessorKey: 'watchedOn', header: '日期' },
-  { id: 'film', header: '作品' },
-  { id: 'venue', header: '影城' },
+  { accessorKey: 'watchedOn', header: '日期', meta: { class: { td: 'w-40', th: 'w-40' } } },
+  { id: 'film', header: '作品', meta: { class: { td: 'w-72', th: 'w-72' } } },
+  { id: 'venue', header: '影城', meta: { class: { td: 'w-64', th: 'w-64' } } },
   { accessorKey: 'formatLabel', header: '版本' },
   { accessorKey: 'ticketCount', header: '張' },
   { accessorKey: 'cost', header: '票價' },
-  { id: 'actions', header: '' },
+  { id: 'visibility', header: '公開狀態' },
+  // ⚠️ 備註要**指定寬度**不能只給 max-w：九欄的自動配寬會把它壓到 86px，
+  //    展開後變成一行兩個字、十一行高的一條——實測看到才發現，數字量不出來。
+  { accessorKey: 'memo', header: '備註', meta: { class: { td: 'w-56', th: 'w-56' } } },
+  {
+    id: 'actions',
+    header: '操作',
+    meta: { class: { td: 'bg-default! border-s border-default', th: 'bg-default! border-s border-default' } },
+  },
 ]
+const columnPinning = { right: ['actions'] }
 
 /* ── 刪除（破壞性動作一律二次確認，§10 品質底線）───────────────────────── */
 const pending = ref<MyRecord | null>(null)
@@ -140,10 +219,11 @@ async function confirmRemove() {
 </script>
 
 <template>
-  <div class="mx-auto max-w-5xl px-4 py-8">
+  <!-- 九欄的表格在 max-w-5xl 裡每一欄都被壓扁；這一頁是對帳用的，寬度給它。 -->
+  <div class="mx-auto max-w-6xl px-4 py-8">
     <div class="flex items-center justify-between gap-4">
       <h1 class="text-2xl font-bold tracking-tight">
-        全部紀錄
+        個人紀錄管理
       </h1>
       <UButton to="/app/records/new" icon="i-lucide-plus">
         記一場
@@ -202,89 +282,150 @@ async function confirmRemove() {
       </div>
 
       <!--
-        ⚠️ 表格在自己的容器裡橫向捲，頁面 body 永遠不橫向捲（§10）。
-        375px 放不下七欄是必然的，硬塞只會讓每一欄都斷成兩三行。
+        ⚠️ 橫向捲的容器是 `UTable` 自己的 root（主題本來就給了 `overflow-auto`），
+        **不是外面再包一層 `overflow-x-auto`**。sticky 認的是最近的捲動祖先：
+        `min-w-*` 掛在 root 上時 root 自己不捲、捲的是外層 div ⇒ 操作欄會黏在
+        「整張表的右緣」而不是「畫面的右緣」，看起來就像 sticky 沒生效（踩雷 #185）。
+        所以最小寬度掛在 `base`（真正的 <table>），root 保持可捲。
+
+        ── 這張表在 1280 也橫捲，那是選的不是將就（2026-09-06 主 session 裁決）──
+        中間版本為了「1280 剛好塞得下九欄」，把影城欄截到 192px，長店名變成
+        「林口MITSUI OUTLET …」而**廳別被吃掉**。那個方向是反的，兩個理由：
+          · 固定操作欄本來就是這次要做的東西，而它存在的目的正是**讓橫捲變得可用**。
+            為了迴避一個剛被做成可用的橫捲，去截掉使用者親手填的資料，是本末倒置。
+          · `SPEC` 的核心價值第 2 條是「記得住你在哪看的——連版本與廳別都留得下來」。
+            廳別被截掉正好打在那句話上。
+        ⇒ 欄寬以「不截使用者填的東西」為準，1280 與 375 都靠橫捲 + 固定操作欄解決。
+        ⚠️ 連帶：**公開狀態欄移到備註左邊**。固定欄在沒捲動時一定會蓋住最後一個
+        資料欄，而被蓋住的那一欄不該是「一眼掃哪幾筆是公開的」那一欄；備註本來
+        就是「瞄一眼、要看全文再展開」的欄位，由它來當那個位置的代價最小。
       -->
-      <div class="mt-4 overflow-x-auto rounded-sm border border-default">
-        <UTable :data="visible" :columns="columns" class="min-w-3xl">
-          <template #watchedOn-cell="{ row }">
-            <!-- 日期帶的同一套寫法：Jul / 26 Sun / 16:00（David 2026-09-06）。
-                 跟票根卡一致——使用者不會覺得同一份資料在兩頁該長得不一樣。 -->
-            <div class="leading-tight tabular-nums whitespace-nowrap">
-              <div class="text-highlighted">
-                {{ `${dateBand(row.original.watchedOn)?.month ?? ''} ${row.original.watchedOn.slice(8)}` }}
-                <span class="text-muted">{{ dateBand(row.original.watchedOn)?.weekday }}</span>
-              </div>
-              <div class="text-[12px] text-muted">
-                {{ shortTime(row.original.watchedTime) ?? '—' }}
-              </div>
-            </div>
-          </template>
+      <UTable
+        :data="visible"
+        :columns="columns"
+        :column-pinning="columnPinning"
+        class="mt-4 rounded-sm border border-default bg-default"
+        :ui="{ base: 'min-w-5xl', th: 'whitespace-nowrap' }"
+      >
+        <template #watchedOn-cell="{ row }">
+          <!--
+            ⚠️ 標準格式 `YYYY/MM/DD HH:mm`，**刻意不用票根卡那一套**
+            （`Jul` / `26 Sun` / `16:00`）。這裡曾經寫著「跟票根卡一致——使用者
+            不會覺得同一份資料在兩頁該長得不一樣」，2026-09-06 David 推翻了它：
+            「這邊比較像是個人的資料維護後台」。分界線是頁面的性質，不是資料——
+            回顧用的頁面（`/app`、`/u/`、`/film/`）留票根語彙，維護後台用機器
+            可讀、可對帳、可跟訂票紀錄比對的標準格式。
+            ⚠️ 沒有場次時間的那幾列只印日期，不補佔位（見 `watchedAtText()`）。
+          -->
+          <span class="text-highlighted tabular-nums whitespace-nowrap">
+            {{ watchedAtText(row.original.watchedOn, row.original.watchedTime) }}
+          </span>
+        </template>
 
-          <template #film-cell="{ row }">
-            <div class="min-w-0 max-w-72">
-              <NuxtLink
-                v-if="row.original.film?.slug"
-                :to="`/film/${row.original.film.slug}`"
-                class="block truncate text-highlighted hover:underline underline-offset-4"
-              >
-                {{ row.original.film?.titleZh || row.original.film?.titleOriginal || '（作品不明）' }}
-              </NuxtLink>
-              <span v-else class="block truncate text-muted">
-                {{ row.original.film?.titleZh || '（作品待審核）' }}
-              </span>
-              <span
-                v-if="row.original.film?.titleOriginal && row.original.film.titleOriginal !== row.original.film.titleZh"
-                class="block truncate text-[12px] text-muted"
-              >
-                {{ row.original.film.titleOriginal }}
-              </span>
-            </div>
-          </template>
-
-          <template #venue-cell="{ row }">
-            <div class="max-w-64 truncate">
-              {{ venueSegment(row.original) ?? '—' }}
-            </div>
-          </template>
-
-          <template #formatLabel-cell="{ row }">
-            <span class="whitespace-nowrap">{{ row.original.formatLabel ?? '—' }}</span>
-          </template>
-
-          <template #ticketCount-cell="{ row }">
-            <span class="tabular-nums">{{ row.original.ticketCount ?? '—' }}</span>
-          </template>
-
-          <!-- 票價三態必須看得出差別（§4.3）：null 是「沒有」、0 是「免費」。 -->
-          <template #cost-cell="{ row }">
-            <span class="tabular-nums" :class="costText(row.original.cost) ? '' : 'text-dimmed'">
-              {{ costText(row.original.cost) ?? '—' }}
+        <template #film-cell="{ row }">
+          <div class="min-w-0 max-w-72">
+            <NuxtLink
+              v-if="row.original.film?.slug"
+              :to="`/film/${row.original.film.slug}`"
+              class="block truncate text-highlighted hover:underline underline-offset-4"
+            >
+              {{ row.original.film?.titleZh || row.original.film?.titleOriginal || '（作品不明）' }}
+            </NuxtLink>
+            <span v-else class="block truncate text-muted">
+              {{ row.original.film?.titleZh || '（作品待審核）' }}
             </span>
-          </template>
+            <span
+              v-if="row.original.film?.titleOriginal && row.original.film.titleOriginal !== row.original.film.titleZh"
+              class="block truncate text-[12px] text-muted"
+            >
+              {{ row.original.film.titleOriginal }}
+            </span>
+          </div>
+        </template>
 
-          <template #actions-cell="{ row }">
-            <div class="flex justify-end gap-1">
-              <UButton
-                :to="`/app/records/${row.original.id}/edit`"
-                variant="ghost"
-                color="neutral"
-                icon="i-lucide-pencil"
-                size="sm"
-                aria-label="編輯這筆"
-              />
-              <UButton
-                variant="ghost"
-                color="error"
-                icon="i-lucide-trash-2"
-                size="sm"
-                aria-label="刪掉這筆"
-                @click="pending = row.original"
-              />
-            </div>
-          </template>
-        </UTable>
-      </div>
+        <template #venue-cell="{ row }">
+          <div class="max-w-64 truncate">
+            {{ venueSegment(row.original) ?? '—' }}
+          </div>
+        </template>
+
+        <template #formatLabel-cell="{ row }">
+          <span class="whitespace-nowrap">{{ row.original.formatLabel ?? '—' }}</span>
+        </template>
+
+        <template #ticketCount-cell="{ row }">
+          <span class="tabular-nums">{{ row.original.ticketCount ?? '—' }}</span>
+        </template>
+
+        <!-- 票價三態必須看得出差別（§4.3）：null 是「沒有」、0 是「免費」。 -->
+        <template #cost-cell="{ row }">
+          <span class="tabular-nums" :class="costText(row.original.cost) ? '' : 'text-dimmed'">
+            {{ costText(row.original.cost) ?? '—' }}
+          </span>
+        </template>
+
+        <!--
+          ⚠️ 語意：預設是**公開**，`isPrivate` 才是例外（`visibility` 這個 enum
+          只有 public／private 兩個值，所以這是忠實的二元，沒有第三態被摺進來）。
+          ⚠️ **不靠顏色表達**——色盲與螢幕閱讀器拿不到顏色。兩態都有文字，
+          icon 只是第二個訊號（形狀：地球／鎖）。兩態同字重也是刻意的：
+          實測 174 筆全部是公開，把「公開」做成醒目樣式等於整欄都在喊。
+        -->
+        <template #visibility-cell="{ row }">
+          <span class="inline-flex items-center gap-1.5 whitespace-nowrap">
+            <UIcon
+              :name="row.original.isPrivate ? 'i-lucide-lock' : 'i-lucide-globe'"
+              class="size-4 shrink-0 text-dimmed"
+              aria-hidden="true"
+            />
+            {{ row.original.isPrivate ? '私密' : '公開' }}
+          </span>
+        </template>
+
+        <!--
+          ⚠️ 沒有備註的那 101 筆（174 筆裡的 58%）**整格留白**，不畫「—」。
+          一整欄的破折號會蓋過真正有備註的那 73 筆，而這一欄的用處正是
+          「哪幾筆有話要說」。留白本身就是答案，不需要一個符號來宣告它。
+        -->
+        <template #memo-cell="{ row }">
+          <div v-if="row.original.memo?.trim()" class="min-w-0 max-w-56">
+            <button
+              v-if="memoIsLong(row.original.memo)"
+              type="button"
+              class="block max-w-full cursor-pointer rounded-xs text-start hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              :class="isMemoOpen(row.original.id) ? '' : 'underline decoration-dotted decoration-default underline-offset-4'"
+              :aria-expanded="isMemoOpen(row.original.id)"
+              :aria-label="isMemoOpen(row.original.id) ? '收起備註' : '展開備註全文'"
+              @click="toggleMemo(row.original.id)"
+            >
+              <span v-if="isMemoOpen(row.original.id)" class="block whitespace-pre-wrap break-words">{{ row.original.memo }}</span>
+              <span v-else class="block truncate">{{ memoPreview(row.original.memo) }}</span>
+            </button>
+            <span v-else class="block truncate">{{ memoOneLine(row.original.memo) }}</span>
+          </div>
+        </template>
+
+        <template #actions-cell="{ row }">
+          <div class="flex justify-end gap-1">
+            <UButton
+              :to="`/app/records/${row.original.id}/edit`"
+              variant="ghost"
+              color="neutral"
+              icon="i-lucide-pencil"
+              size="sm"
+              aria-label="編輯這筆"
+            />
+            <UButton
+              variant="ghost"
+              color="error"
+              icon="i-lucide-trash-2"
+              size="sm"
+              aria-label="刪掉這筆"
+              @click="pending = row.original"
+            />
+          </div>
+        </template>
+      </UTable>
 
       <!-- 篩到 0 筆時要說得出「放寬哪一個」，不然使用者只看到一張空表（DS §8）。 -->
       <p v-if="!filtered.length" class="mt-4 text-sm text-muted">

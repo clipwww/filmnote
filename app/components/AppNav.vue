@@ -87,7 +87,7 @@ const items = computed<DropdownMenuItem[][]>(() => {
   const groups: DropdownMenuItem[][] = [
     [
       { label: '儀表板', icon: 'i-lucide-layout-dashboard', to: '/app' },
-      { label: '全部紀錄', icon: 'i-lucide-list', to: '/app/records' },
+      { label: '個人紀錄管理', icon: 'i-lucide-list', to: '/app/records' },
       { label: '記一場', icon: 'i-lucide-plus', to: '/app/records/new' },
       { label: '新增作品', icon: 'i-lucide-clapperboard', to: '/app/films/new' },
       { label: '匯入舊紀錄', icon: 'i-lucide-upload', to: '/app/import' },

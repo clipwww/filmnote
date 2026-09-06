@@ -1359,7 +1359,7 @@ const moneyText = (n: number) => `NT$${Math.round(n).toLocaleString('zh-Hant-TW'
       </p>
       <div class="mt-6 flex flex-wrap gap-3">
         <UButton to="/app/records">
-          去看全部紀錄
+          去個人紀錄管理
         </UButton>
         <UButton to="/app" variant="ghost" color="neutral">
           回儀表板
