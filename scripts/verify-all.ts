@@ -692,6 +692,41 @@ const skipped = results.filter(r => r.skipped)
 console.log(`\n── 合計 ── 通過 ${results.length - failed.length - skipped.length}`
   + `／略過 ${skipped.length}／失敗 ${failed.length}`)
 
+/**
+ * ⚠️ 這支涵蓋不到的斷言，每次都印出來。
+ *
+ * 這個 repo 的信條是「**被略過的斷言等於不存在**」（見 §7 #79 那一族）。
+ * 下面這幾支之所以不併進 `verify:all`，都是同一個理由：**它們會改動真實資料或
+ * 真實的隱私旗標**，而 `verify:all` 必須是一支「隨時可以跑、跑完什麼都沒變」的指令。
+ *
+ * 但「有理由不併進來」跟「可以被忘記」是兩件事。清單寫在文件裡會腐爛——
+ * 沒有人會為了確認清單是不是最新的而去讀它。印在這裡則是**每一次驗收都會看到**，
+ * 而且新增一支手動腳本時，改這裡比改一份文件更難漏掉。
+ *
+ * ⇒ 新增「會改動真實資料」的驗證腳本時，**把它加進這個清單**。
+ */
+const MANUAL_ONLY = [
+  {
+    cmd: 'pnpm tsx --env-file=.env scripts/verify-account-delete.ts',
+    guards: 'US-47 帳號刪除的端到端（11 條）',
+    why: '會真的刪掉帳號',
+  },
+  {
+    cmd: 'pnpm tsx --env-file=.env scripts/verify-spend-visibility.ts',
+    guards: '/u/ 的票價對三種觀看者各自看得到什麼',
+    why: '會暫時翻動真實的 show_cost 隱私旗標',
+  },
+  {
+    cmd: 'pnpm tsx --env-file=.env scripts/scan-git-secrets.ts',
+    guards: 'git 歷史裡的憑證（含 --batch-all-objects 才掃得到的不可達物件）',
+    why: 'push 前才需要；repo 是 public 的，這一支漏掉的代價無法回收',
+  },
+]
+
+console.log('\n── ⚠️ 這支涵蓋不到的（要有人記得跑）──')
+for (const m of MANUAL_ONLY)
+  console.log(`  ○ ${m.cmd}\n      守的是：${m.guards}\n      不併進來的理由：${m.why}`)
+
 if (failed.length) {
   console.log('\n失敗的斷言：')
   for (const f of failed)
