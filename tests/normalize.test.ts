@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { extractCity, unifyTaiwanChar } from '#pipeline/normalize/city'
-import { inspectOriginalTitle, isCorruptedEncoding, isExcelDateArtifact } from '#pipeline/normalize/defensive'
+import { hasPrivateUseChars, hasReplacementChars, inspectOriginalTitle, inspectTitleZh, isCorruptedEncoding, isExcelDateArtifact } from '#pipeline/normalize/defensive'
 import { parseRuntimeMinutes } from '#pipeline/normalize/runtime'
 import { extractVersionNote, normalizeTitle } from '#pipeline/normalize/title'
 
@@ -119,5 +119,49 @@ describe('縣市正規化', () => {
 
   it('unifyTaiwanChar 只換字不做其他處理', () => {
     expect(unifyTaiwanChar('臺中市臺灣大道')).toBe('台中市台灣大道')
+  })
+})
+
+describe('編碼損毀：私用區字元', () => {
+  // U+F8F8 是實測那兩筆（LEOPOLDSTADT / BLDG. N）落到的碼位。
+  // ★ 測試裡也一律用逃脫寫法。把私用區字元字面貼進原始碼，它會在編輯器／
+  //   終端機／剪貼簿之間被吃掉，而且肉眼看不出來已經壞了——寫這組測試時
+  //   就被吃掉過一次，正則變成一個什麼都比對不到的字元類別而 tsc 不會抱怨。
+  const PUA = '\uF8F8'
+
+  it('抓得到 BMP 私用區', () => {
+    expect(hasPrivateUseChars(`利${PUA}${PUA}德城`)).toBe(true)
+  })
+
+  it('抓得到增補平面的私用區（需要 u 旗標，否則代理對會漏判）', () => {
+    expect(hasPrivateUseChars(`a\u{F0001}b`)).toBe(true)
+    expect(hasPrivateUseChars(`a\u{100001}b`)).toBe(true)
+  })
+
+  it('乾淨的中文片名不誤判', () => {
+    expect(hasPrivateUseChars('利奧波德城（英國國家劇院現場）')).toBe(false)
+    expect(hasPrivateUseChars('Ｎ號棟鬧鬼')).toBe(false)
+    expect(hasPrivateUseChars('劇場版「鬼滅之刃」無限城篇')).toBe(false)
+    expect(hasPrivateUseChars('')).toBe(false)
+    expect(hasPrivateUseChars(null)).toBe(false)
+  })
+
+  it('★ 私用區與替換字元是不同的失敗模式，不可合成一條規則', () => {
+    // 解碼「成功」但落到私用區 —— 字串在編碼上完全合法
+    expect(hasPrivateUseChars(`利${PUA}德城`)).toBe(true)
+    expect(hasReplacementChars(`利${PUA}德城`)).toBe(false)
+    // 解碼明確失敗 —— 資訊在那一刻就沒了
+    expect(hasReplacementChars('利�德城')).toBe(true)
+    expect(hasPrivateUseChars('利�德城')).toBe(false)
+  })
+
+  it('inspectTitleZh 依確定度回報最確定的那一種', () => {
+    expect(inspectTitleZh(`利${PUA}德城`)).toBe('private-use')
+    expect(inspectTitleZh('利�德城')).toBe('replacement')
+    expect(inspectTitleZh('?????')).toBe('question-marks')
+    expect(inspectTitleZh('孩子，你好嗎?')).toBe('suspect-question-mark')
+    expect(inspectTitleZh('利奧波德城')).toBeNull()
+    // 同時有私用區與問號時，回報比較確定的那一個
+    expect(inspectTitleZh(`利${PUA}德城?`)).toBe('private-use')
   })
 })

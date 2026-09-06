@@ -13,14 +13,13 @@
 pnpm tsx --env-file=.env scripts/verify-all.ts
 ```
 
-15 條通過、**1 條紅**。紅的那條是真的（見第 3 節），不是壞掉的測試。
-跑完不留任何資料——它會自己建臨時帳號、自己刪掉、最後再斷言一次真的乾淨。
+**16 條全綠。** 跑完不留任何資料——它會自己建臨時帳號、自己刪掉，最後再斷言
+一次真的乾淨（`cleanup/no-residue`）。
+
+別名已加進 `package.json`（`ff91ae8`），所以直接 `pnpm verify:all` 就行。
 
 這支是這個專案最該先讀的東西：**每一條斷言都對應一個真的踩過的坑**，
 而且每條旁邊都寫了守的是哪個 §7 編號或 Step 編號。看到某條紅了，先讀那句話。
-
-`package.json` 還沒有別名（共用檔需主 session 核可）。核可後加：
-`"verify:all": "tsx --env-file=.env scripts/verify-all.ts"`。
 
 ---
 
@@ -62,28 +61,41 @@ Turnstile（需 David 的站台金鑰，上線前項目）。
 
 ---
 
-## 3. 唯一還紅的斷言：兩筆片名資料損毀
+## 3. 編碼損毀：已修好，但守門員的設計比那兩筆重要
 
-`verify-core.sql` 的 D1。**這是真的資料壞掉，不是測試壞掉。**
+`film` / `certificate` 各有 2 列的中文片名含 Unicode 私用區字元（U+F8F8），
+Big5→Unicode 轉換失敗的殘留，**已經在公開頁上顯示了不知道多久**。
 
-| 民國年 | 字號 | 原文片名 | 現在的 title_zh |
-|---|---|---|---|
-| 111 | 第111250號 | `LEOPOLDSTADT` | `利<U+F8F8><U+F8F8>铪i德城（英國國家劇院現場）` |
-| 111 | 第111403號 | `BLDG. N` | `Ｎ<U+F8F8><U+F8F8>妠刉x鬼` |
+| 民國年 | 字號 | 原文 | 修正後 | 信心 |
+|---|---|---|---|---|
+| 111 | 第111250號 | `LEOPOLDSTADT` | 利奧波德城（英國國家劇院現場） | confirmed |
+| 111 | 第111403號 | `BLDG. N` | Ｎ號棟鬧鬼 | **probable** |
 
-U+F8F8 是 Unicode 私用區，Big5→Unicode 轉換失敗的殘留。**損毀在上游**：
-若是我們把 Big5 當 UTF-8 解，會得到 `�` 而不是私用區字元——私用區代表有人
-「成功地」把它映射到那裡了。`film` 與 `certificate` 各 2 列，會直接顯示在公開頁上。
+第二筆的 `probable` 要留意：只有單一台灣來源（LiTV），且該來源寫「N**号**棟鬧鬼」
+用的是日文漢字。政府核准的正式寫法未經核對。**若日後在政府 CSV 找到佐證，以政府
+資料為準**，理由都寫在 `src/import/title-corrections.ts` 的 `reason` 欄。
 
-兩部都**沒有 tmdb_id**，所以 `src/normalize/defensive.ts` 記載的解法
-（「有 TMDB 中文標題就用它」）走不通。**正確片名需要人工指定**，我沒有猜——
-猜錯就是把一個錯的片名放上公開頁。建議比照 `src/import/tmdb-overrides.ts` 建一張
-人工對照表，`reason` 欄寫明「上游私用區字元損毀」。
+修復：`pnpm tsx --env-file=.env scripts/fix-corrupted-titles.ts --apply`（冪等，
+預設試跑，且會交叉核對原文片名——`permit_no` 跨年度不唯一，配錯就是寫上一個錯片名）。
 
-`defensive.ts` 目前只偵測 `?` 型損毀，**沒有任何守門員擋私用區字元**——
-在補上之前，D1 這條斷言就是那個守門員。
+### 真正的重點：兩種編碼損毀是**不同的失敗模式**
 
----
+- **問號型**（既有的 `isCorruptedEncoding`）：解碼器失敗了**而且說了**，把無法轉換
+  的位元組寫成 `?`。資訊在那一刻就沒了。
+- **私用區型**（新增的 `hasPrivateUseChars`）：解碼器**成功了**——某張映射表把它
+  對應到私用區。字串在編碼上完全合法，**任何 UTF-8 檢查都不會抱怨**。
+  這正是它能一路走到公開頁的原因，也是為什麼兩者不能合成一條規則。
+
+`inspectTitleZh()` 把四種型態分開回報，並在註解裡寫清楚**偵測到之後該怎麼辦**：
+有人工對照就用它；**沒有對照就保留該列但把 `title_zh` 寫空**，不要寫進損毀字串
+（會在公開頁顯示一個錯的片名），也不要擋下不匯入（片庫少一部片 ⇒ 使用者搜不到 ⇒
+自己建 UGC ⇒ 日後要人工合併）。寫空字串還會**自己痊癒**：`apply_tmdb_snapshot()`
+對 `title_zh = ''` 的列會用 TMDB 標題補上。
+
+⚠️ **尚未接上匯入管線。** `src/gov/rating.ts` 是主 session 的檔案，我只被授權動
+`defensive.ts` 與新建 `src/import/title-corrections.ts`。守門員存在但還沒有人呼叫它
+——目前擋住新損毀的是 `verify-core.sql` 的 D1（事後偵測），不是匯入時。
+接上的方式見第 6 節。
 
 ## 4. 刻意的取捨（別再決定一次）
 
@@ -126,6 +138,9 @@ public，那不是半回復，是把從未公開過的作品 publish 出去。
   anon 也讀得到，但那個欄位仍是 null ⇒ `film_public.ugc_poster_path` 是 null ⇒
   畫面退回文字卡片，**海報明明公開可讀卻不會顯示**。這是 frontend 的整合缺口。
 - **`user_year_stats` 的效能仍未量測**（母體只有 174 筆，量不出東西）。先量再優化。
+- **`title_zh = ''` 的顯示層未處理。** `displayTitle('')` 回空字串，而目前 DB 裡沒有
+  任何一列是空的，所以還沒壞。上面那條「損毀就寫空」的規則一旦真的觸發，畫面會出現
+  空標題——顯示層應該退回 `title_original`。已回報 frontend。
 
 ---
 
@@ -135,6 +150,10 @@ public，那不是半回復，是把從未公開過的作品 publish 出去。
    前兩棒各被提醒過一次，其中一棒誤判過。David 只跟主 session 對話。
 2. **§7 編號用號段制**，backend 是 **#100–#114**（我用到 #104）。用完跟主 session
    要下一段。不要為了連號重排。
-3. **測試資料一律用可辨識前綴、跑完清掉、在回報的「異動」欄寫出來。**
+3. **接上編碼損毀的守門員**（需要主 session 授權 `src/gov/rating.ts`）：
+   在 `parseRatingRow` 裡把 `hasSuspectQuestionMark(titleZhRaw)` 那一段換成
+   `inspectTitleZh(titleZhRaw)`，並依第 3 節的規則處理。在那之前，新的損毀只會被
+   `verify:all` 的 D1 事後抓到，而不是在匯入時擋下。
+4. **測試資料一律用可辨識前綴、跑完清掉、在回報的「異動」欄寫出來。**
    DB 裡應該永遠只有一個 profile（`clipwww`，David 本人，174 筆真實紀錄）。
    `film_merge_log` 那 16 筆是第一棒匯入時的，不是誰留下的垃圾。
