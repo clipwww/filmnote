@@ -62,7 +62,7 @@ export interface YearStats {
    */
   monthly_baseline?: {
     month: number
-    /** 分母：這個月份實際經歷過幾次。**不是年份數。** */
+    /** 分母：這個月份實際經歷過幾次（**不是年份數**）。 */
     years_observed: number
     records: number
     avg_records: number
@@ -257,7 +257,10 @@ export const MONTHS_PER_YEAR = 12
  * **寧可不畫那條線，也不要畫一條除以錯的數字的線**。
  */
 export function monthlyBaselineSeries(
-  baseline: YearStats['monthly_baseline'],
+  // 只讀 `month` 與 `avg_records` 兩個欄位，所以收結構型別而不是
+  // `YearStats['monthly_baseline']`——`/u/` 的端點只轉發這兩欄（金額一律不出門），
+  // 綁死完整型別會逼那支端點把 `avg_spend` 也帶出來。
+  baseline: { month: number, avg_records: number }[] | null | undefined,
 ): number[] | null {
   if (!baseline?.length)
     return null
@@ -418,6 +421,63 @@ export function dayTitle(date: string): string {
 export function slotTitle(weekday: number, rowLabel: string): string {
   const name = WEEKDAY_LABELS[weekday - 1] ?? ''
   return `週${name}　${rowLabel}`
+}
+
+/* ─────────────────────── 圖說（`/app` 與 `/u/` 共用） ─────────────────────── */
+
+/**
+ * ★ 樣本數不足時**不要下「最」的斷言**（`SCREENS §9c.3`）。
+ *
+ * 「你最常在週六 10:00 進場，共 2 場」——2 場、樣本 8 筆。那是從雜訊長出來的
+ * 斷言，比不給洞察更糟，因為它看起來像一個發現。
+ * **0 筆不畫圖、1–19 筆畫圖但不給斷言、20 筆以上才有洞察。**
+ */
+export const INSIGHT_MIN = 20
+
+/**
+ * 時段熱點圖的圖說。
+ *
+ * ⚠️ **這一段刻意放在 `utils` 而不是各自寫在兩個頁面裡。** `/app` 與 `/u/` 畫的是
+ * 同一張圖，圖說各留一份的話**一定會漂移**——而漂移之後沒有人會發現，
+ * 因為沒有人會把兩頁的同一張圖擺在一起看（`backend.md §6e` 對
+ * 「一個欄位餵兩個用途」講的是同一件事）。
+ *
+ * `scopeLabel` 是「全部年度」或「2019 年」：**每一句圖說都要說得出自己涵蓋
+ * 什麼範圍**，否則同一句話在兩種檢視視角下長得一樣而數字差十倍。
+ */
+export function hourInsightText(rows: YearStats['weekday_hour'], scopeLabel: string): string | null {
+  const n = rows.reduce((sum, r) => sum + r.records, 0)
+  if (!n)
+    return null
+  if (n < INSIGHT_MIN) {
+    const slots = new Set(rows.map(r => `${r.weekday}:${r.hour}`)).size
+    return `${scopeLabel}的 ${n} 場分佈在 ${slots} 個時段。`
+  }
+  const share = weekendEveningShare(rows)
+  if (share >= 50)
+    return `你 ${share}% 的場次在週五到週日的晚上。`
+  const peak = peakSlot(rows)
+  if (!peak)
+    return null
+  const hour = MIDNIGHT_HOURS.includes(peak.hour)
+    ? MIDNIGHT_LABEL
+    : `${String(peak.hour).padStart(2, '0')}:00`
+  return `你最常在週${WEEKDAY_LABELS[peak.weekday - 1]} ${hour} 進場，共 ${peak.records} 場。`
+}
+
+/** 影城分布的圖說。同上，兩頁共用。 */
+export function venueInsightText(
+  venues: YearStats['venues'],
+  totalRecords: number,
+  scopeLabel: string,
+): string | null {
+  const top = homeVenue(venues)
+  if (!totalRecords || !top)
+    return null
+  // 樣本不足就只敘述，不說「你的主場」——8 場裡的 6 場不構成「主場」
+  if (totalRecords < INSIGHT_MIN)
+    return `${scopeLabel}的 ${totalRecords} 場分佈在 ${venues.length} 個場所。`
+  return `你的主場是 ${top.name}，${top.share}% 的場次在這裡。`
 }
 
 /** 最常進場的那一格。`weekendEveningShare` 在週末佔比不高時沒有洞察力，改講這個。 */

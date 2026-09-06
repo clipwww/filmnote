@@ -31,6 +31,7 @@ import process from 'node:process'
 import { Client, types as pgTypes } from 'pg'
 import { monthlyBaselineSeries } from '../app/utils/stats'
 import { runSsrAndOgChecks } from './verify-http'
+import { runPublicProfileChecks } from './verify-u-public'
 
 // 與 scripts/db.ts 同：不要讓 node-postgres 把 date/timestamp 轉成 JS Date，
 // 那個顯示層會讓人得出完全相反的結論（交接筆記 2.1）。
@@ -660,6 +661,24 @@ if (!sqlOnly) {
  *   它原本只能單獨跑，於是 `strip-auth-on-cacheable.ts` 的註解宣稱有一張安全網、
  *   而 verify:all 從來沒跑過它（§7 #124）。
  */
+/**
+ * ── `/u/**` 的匿名驗收（需要 pnpm dev）──────────────────────────────────────
+ * 硬約束三：**抽屜的清單必須用不帶 cookie 的請求實際驗一次，不要只相信 RLS。**
+ * RLS 對，不代表這一頁對——資料還要經過端點的欄位挑選與頁面的 render，
+ * 任何一層多帶一個欄位出來 RLS 都還是綠的。
+ */
+console.log('\n── /u/** 匿名驗收（需要 pnpm dev）──')
+{
+  // 拿一個真的 username。寫死或用「DB 裡唯一一筆 profile」都會在資料一變就靜默空轉。
+  const who = await sql(`select username from public.profile
+                          where username is not null
+                          order by created_at limit 1`)
+  await runPublicProfileChecks({
+    record: (id, ok, detail, guards) => record(id, guards ?? '/u/** 的匿名視角', ok, detail),
+    skip: (id, why, guards) => skip(id, guards ?? '/u/** 的匿名視角', why),
+  }, (who[0]?.username as string | undefined) ?? null)
+}
+
 console.log('\n── SSR payload 與 OG（需要 pnpm dev）──')
 await runSsrAndOgChecks({
   record: (id, ok, detail, guards) =>

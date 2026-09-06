@@ -39,10 +39,17 @@ for (const spec of targets) {
       return bg === 'rgb(255, 255, 255)'
     }).length,
     posters: document.querySelectorAll('img[src*="image.tmdb.org"]').length,
+    // ★ 主題的證據，不是「我以為我切到暗色了」。
+    //   2026-09-06 實測（records）：David 的瀏覽器裡留著 nuxt-color-mode 偏好，
+    //   而那個偏好會**蓋掉** Emulation 的 prefers-color-scheme 模擬——量到
+    //   prefersDark=true 而 documentElement.className 其實是 light，
+    //   然後所有檢查照樣全綠。⇒ 任何一份提到亮／暗的量測都要附這兩個值。
+    htmlClass: document.documentElement.className,
+    bodyBg: getComputedStyle(document.body).backgroundColor,
   }))
 
   await page.screenshot({ path: `${OUT}/${name}.png`, fullPage: false })
-  console.log(`${name.padEnd(22)} 高=${String(box.scrollH).padStart(6)}px  橫向溢出=${box.scrollW > box.clientW ? '有 ⚠️' : '無'}  純白元素=${box.white}  海報=${box.posters}`)
+  console.log(`${name.padEnd(22)} 高=${String(box.scrollH).padStart(6)}px  橫向溢出=${box.scrollW > box.clientW ? '有 ⚠️' : '無'}  純白元素=${box.white}  海報=${box.posters}  html.class="${box.htmlClass}"  body=${box.bodyBg}`)
 }
 
 await page.close()

@@ -83,13 +83,6 @@ const averageLegendLabel = computed(() => {
   return `${Math.min(...ys)}–${Math.max(...ys)} 每月平均`
 })
 
-/** 圖例的色塊要跟 canvas 裡的線同色，所以從同一組色票取。 */
-// composable 必須在 setup 作用域呼叫，不能包在 computed 的 getter 裡
-const legendColorMode = useColorMode()
-const legendPalette = computed(() => chartPalette(legendColorMode.value === 'dark'))
-const legendInk = computed(() => legendPalette.value.text0)
-const legendAvg = computed(() => legendPalette.value.heat[2])
-
 /**
  * §9.3 的中間態：**圖表 band 在資料 ≥10 筆才出現。**
  * 不到門檻時只顯示年表與票根列表，並寫出「再記 N 場就會出現時段分析」——
@@ -97,15 +90,6 @@ const legendAvg = computed(() => legendPalette.value.heat[2])
  */
 const CHART_THRESHOLD = 10
 
-/**
- * ★ 樣本數不足時**不要下「最」的斷言**（`SCREENS §9c.3`）。
- *
- * 「你最常在週六 10:00 進場，共 2 場」——2 場、樣本 8 筆。那是從雜訊長出來的
- * 斷言，比不給洞察更糟，因為它看起來像一個發現。門檻 20 筆：
- * **0 筆不畫圖、1–19 筆畫圖但不給斷言、20 筆以上才有洞察。**
- * 不足門檻時改成純敘述，不出現「最常」「主場」「你的」。
- */
-const INSIGHT_MIN = 20
 const totalRecords = computed(() => allStats.value?.totals?.records ?? 0)
 const showCharts = computed(() => totalRecords.value >= CHART_THRESHOLD)
 
@@ -176,43 +160,18 @@ const countryItems = computed(() =>
 /** 圖說裡指稱目前檢視範圍的那個詞。全期時不能寫成「null 年」。 */
 const scopeLabel = computed(() => (activeYear.value === null ? '全部年度' : `${activeYear.value} 年`))
 
-const home = computed(() => homeVenue(stats.value?.venues ?? []))
-const venueInsight = computed(() => {
-  const n = totals.value?.records ?? 0
-  if (!n || !home.value)
-    return null
-  // 樣本不足就只敘述，不說「你的主場」——8 場裡的 6 場不構成「主場」
-  if (n < INSIGHT_MIN)
-    return `${scopeLabel.value}的 ${n} 場分佈在 ${(stats.value?.venues ?? []).length} 個場所。`
-  return `你的主場是 ${home.value.name}，${home.value.share}% 的場次在這裡。`
-})
-
 /**
- * 熱點圖的圖說。
- *
- * §9 的樣板寫「你 71% 的場次在週五到週日的晚上」，但那是全部資料的形狀，
- * 換一組資料不一定成立。所以週末佔比過半才講它，否則改講尖峰時段。
+ * ⚠️ 圖說的組法在 `utils/stats.ts`，**`/u/` 用的是同一支**。
+ * 兩頁各留一份一定會漂移，而漂移之後沒有人會發現——沒有人會把兩頁的
+ * 同一張圖擺在一起看。
  */
-const hourInsight = computed(() => {
-  const rows = stats.value?.weekday_hour ?? []
-  const n = rows.reduce((sum, r) => sum + r.records, 0)
-  if (!n)
-    return null
-  if (n < INSIGHT_MIN) {
-    const slots = new Set(rows.map(r => `${r.weekday}:${r.hour}`)).size
-    return `${scopeLabel.value}的 ${n} 場分佈在 ${slots} 個時段。`
-  }
-  const share = weekendEveningShare(rows)
-  if (share >= 50)
-    return `你 ${share}% 的場次在週五到週日的晚上。`
-  const peak = peakSlot(rows)
-  if (!peak)
-    return null
-  const hour = MIDNIGHT_HOURS.includes(peak.hour)
-    ? MIDNIGHT_LABEL
-    : `${String(peak.hour).padStart(2, '0')}:00`
-  return `你最常在週${WEEKDAY_LABELS[peak.weekday - 1]} ${hour} 進場，共 ${peak.records} 場。`
-})
+const venueInsight = computed(() =>
+  venueInsightText(stats.value?.venues ?? [], totals.value?.records ?? 0, scopeLabel.value))
+
+/** 熱點圖的圖說。組法與 `/u/` 共用（見 `venueInsight` 上方的註解）。 */
+const hourInsight = computed(() =>
+  hourInsightText(stats.value?.weekday_hour ?? [], scopeLabel.value))
+
 const hourNote = computed(() => {
   const n = stats.value?.totals?.records_without_time ?? 0
   return n > 0 ? `${n} 筆沒有記時間，沒有進這張圖。` : null
@@ -477,7 +436,7 @@ const demoCells = Array.from({ length: 7 * 26 }, (_, i) => {
           <!-- 圖例自己用 HTML 畫（見 frontend 交接 §3：canvas 的圖例拿不到鍵盤與螢幕閱讀器） -->
           <p class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
             <span class="inline-flex items-center gap-1.5">
-              <span class="inline-block h-0.5 w-4 align-middle" :style="{ background: legendInk }" />
+              <ChartLegendSwatch kind="ink" />
               {{ activeYear === null ? '全部年度加總' : `${activeYear} 年` }}
             </span>
             <!--
@@ -486,7 +445,7 @@ const demoCells = Array.from({ length: 7 * 26 }, (_, i) => {
                 同一條 y 軸上會貼著底趴平，而且它不再具有對照功能。
             -->
             <span v-if="showAverage" class="inline-flex items-center gap-1.5">
-              <span class="inline-block h-0 w-4 border-t border-dashed align-middle" :style="{ borderColor: legendAvg }" />
+              <ChartLegendSwatch kind="baseline" />
               {{ averageLegendLabel }}
             </span>
           </p>
