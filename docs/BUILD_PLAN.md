@@ -2286,7 +2286,29 @@ TMDB 上四話各自獨立、沒有連映版條目，而一筆 `viewing_record` 
 
 ### Step 11 — 部署 Vercel
 
+> ## ⚠️ 第一次 `git push` 之前必須先做的三件事
+>
+> 這個 repo **至今沒有任何 remote，從未 push 過**。以下三件在 push 之前都還可以低成本反悔，
+> push 之後就不行了（要 force push、而且別人的 clone 會分岔）。
+>
+> 1. **重新確認 14MB 的中文字型是否該進版控。**
+>    `server/assets/fonts/NotoSansTC-{Regular,Bold}.ttf` 各約 7MB，OG 圖的伺服器端算圖需要它。
+>    進版控換到的是「建置不依賴一個會腐爛的 Google Fonts 網址」——而那個網址壞掉的樣子是
+>    **OG 圖突然全部變成豆腐格**，一個要等到有人分享連結才會被發現的失敗。
+>    決定維持現狀就不必動；要改成建置時下載，**現在改比 push 之後改便宜得多**。
+> 2. **確認 git 歷史裡沒有殘留憑證。**
+>    2026-09-06 已清過一次（`.env.example` 裡的失效 Google OAuth client secret，
+>    以塗銷標記取代而非整行刪除，好讓那個「移除 secret」的 commit 仍然名副其實）。
+>    push 前再掃一次：`git cat-file --batch-all-objects --batch-check` 列出全部 blob 後 grep，
+>    **不要只掃可達物件**——`refs/original` 與未 gc 的鬆散物件都可能留著。
+> 3. **`CRON_SECRET` 的名字。** 見下方環境變數那條，那是唯一一個「名字錯了排程照跑、
+>    cron 面板顯示成功、但每次請求都是 401」的設定。
+
 **做**：Framework Preset = Nuxt.js；Build Command 保持 `nuxt build`（**絕不能是 `nuxt generate`**，踩雷 #2）；**不設 `NITRO_PRESET`**（踩雷 #11）；Node 22.x/24.x；環境變數照 2.7；Supabase Redirect URLs 補 `https://*-<team-slug>.vercel.app/**` 與正式網域。
+
+⚠️ **環境變數 `CRON_SECRET` 必須是這個名字**，不能只設 `NUXT_CRON_SECRET`。Vercel 只有在專案環境變數叫 `CRON_SECRET` 時，才會在觸發 cron 時帶上 `Authorization: Bearer <值>`。名字錯了排程照跑、cron 面板顯示成功，但 `/api/cron/*` 每次都回 401 —— 而海報快取會安靜地逾期。
+
+⚠️ **OG 圖的路由必須跑 Node runtime，不能是 Edge。** Vercel Edge 的 bundle 上限是 1MB（Hobby）／4MB（Pro），放不下 6.76MB 的字型。**這件事在本機完全測不出來。**
 
 **怎麼確認它對了**
 
