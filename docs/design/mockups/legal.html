@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>影記 — /legal/** 四頁版面</title>
+<style>
+[hidden]{display:none!important}
+:root{
+  color-scheme:light;
+  --paper-25:#FDF9F1;--paper-50:#F8EDDC;--paper-100:#EADDCA;--paper-200:#DACCB9;
+  --paper-300:#C5B5A3;--paper-400:#948777;--paper-500:#776A5D;--paper-600:#5F5348;
+  --paper-700:#4A4036;--paper-800:#3D332C;--paper-900:#29211A;--paper-950:#1D1610;
+  --amber-50:#FFF1C2;--amber-100:#F9E4A4;--amber-400:#C9A62B;--amber-600:#866500;--amber-950:#2D1D02;
+  --bg:var(--paper-50);--surface:var(--paper-25);--sunken:var(--paper-100);
+  --line:var(--paper-200);--line-strong:var(--paper-300);
+  --t0:var(--paper-900);--t1:var(--paper-700);--t2:var(--paper-500);--t3:var(--paper-400);
+  --accent:var(--amber-600);--accent-soft:var(--amber-50);--accent-on:var(--paper-25);
+  --font:'Inter','PingFang TC','Noto Sans CJK TC','Noto Sans TC','Microsoft JhengHei',sans-serif;
+  line-break:strict;text-autospace:normal;
+}
+:root.dark{
+  color-scheme:dark;
+  --bg:var(--paper-950);--surface:var(--paper-900);--sunken:var(--paper-800);
+  --line:var(--paper-800);--line-strong:var(--paper-700);
+  --t0:var(--paper-50);--t1:var(--paper-200);--t2:var(--paper-400);--t3:var(--paper-500);
+  --accent:var(--amber-400);--accent-soft:var(--amber-950);--accent-on:var(--paper-900);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--t1);font-family:var(--font);font-size:16px;
+  line-height:1.75;font-variant-numeric:tabular-nums}
+.page{max-width:1040px;margin:0 auto;padding:24px 20px 80px}
+h2.sec{font-size:19px;color:var(--t0);margin:52px 0 4px;padding-bottom:8px;
+  border-bottom:1px solid var(--line);font-feature-settings:'palt' 1}
+p.n{font-size:13px;line-height:1.55;color:var(--t2);margin:4px 0 16px;max-width:74ch}
+code{font-family:var(--font);color:var(--t0);font-size:.92em}
+.demo{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:28px 32px;margin-top:12px}
+
+/* ── 文件頁 ── */
+.doc-head h1{font-size:28px;line-height:1.35;color:var(--t0);margin:0;font-feature-settings:'palt' 1}
+.doc-meta{font-size:13px;color:var(--t2);margin-top:6px}
+.doc-meta a{color:var(--accent)}
+.doc-body{display:grid;grid-template-columns:180px minmax(0,1fr);gap:40px;margin-top:28px}
+@media(max-width:720px){.doc-body{grid-template-columns:1fr}}
+.toc{font-size:13px;line-height:2;align-self:start;position:sticky;top:16px}
+.toc a{display:block;color:var(--t2);text-decoration:none;padding-left:10px;
+  border-left:2px solid transparent}
+.toc a.on{color:var(--t0);border-left-color:var(--accent);background:var(--accent-soft)}
+.prose{max-width:34ch}
+.prose h3{font-size:17px;color:var(--t0);margin:28px 0 6px;font-weight:600}
+.prose h3:first-child{margin-top:0}
+.prose p{margin:0 0 14px}
+.ghost{color:var(--t3)}
+
+/* ── 表單 ── */
+.f{margin-bottom:22px;max-width:44ch}
+.f>label{display:block;font-size:13px;color:var(--t1);margin-bottom:4px}
+.req{color:var(--accent);font-weight:600}.opt{color:var(--t3)}
+.inp{width:100%;font:inherit;font-size:16px;color:var(--t0);background:var(--surface);
+  border:1px solid var(--line-strong);border-radius:4px;padding:9px 12px}
+.inp::placeholder{color:var(--t3)}
+textarea.inp{min-height:88px;line-height:1.7;resize:vertical}
+.hint{font-size:13px;line-height:1.5;color:var(--t2);margin-top:4px}
+.hint.warn{color:var(--accent)}
+.aside{border-inline-start:2px solid var(--line-strong);padding:2px 0 2px 12px;margin:20px 0;
+  font-size:13px;line-height:1.6;color:var(--t2);max-width:48ch}
+.aside b{color:var(--t1)}
+.aside.loud{border-inline-start-color:var(--accent)}
+.aside.loud b{color:var(--t0)}
+.btn{border:0;border-radius:4px;padding:10px 18px;font:inherit;font-size:15px;font-weight:600;
+  background:var(--accent);color:var(--accent-on);cursor:pointer}
+.btn.ghost{background:transparent;color:var(--t1);border:1px solid var(--line-strong);font-weight:400}
+.chk{display:flex;gap:10px;align-items:flex-start;max-width:48ch}
+.chk input{margin-top:6px;width:18px;height:18px;accent-color:var(--accent);flex:none}
+.chk span{font-size:14px;line-height:1.65;color:var(--t1)}
+/* 解析回顯的唯讀票根 */
+.tc{display:grid;grid-template-columns:44px minmax(0,1fr);background:var(--sunken);
+  border:1px solid var(--line);border-radius:4px;overflow:hidden;max-width:44ch;margin-top:8px}
+.tc .d{background:var(--accent-soft);border-inline-end:1px solid var(--line);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px 0}
+.tc .d b{font-size:18px;color:var(--t0)}.tc .d s{font-size:12px;color:var(--t2);text-decoration:none}
+.tc .m{padding:10px 14px;min-width:0}
+.tc .m .zh{font-size:16px;font-weight:600;color:var(--t0)}
+.tc .m .mt{font-size:13px;color:var(--t1)}
+.ok{display:flex;flex-direction:column;gap:6px;background:var(--accent-soft);
+  border-inline-start:2px solid var(--accent);border-radius:0 4px 4px 0;padding:16px 18px;max-width:48ch}
+.ok .no{font-size:30px;font-weight:600;color:var(--t0);line-height:1.2}
+.deadline{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:15px;
+  max-width:48ch;margin-top:8px}
+.deadline b{color:var(--t0);font-weight:600}
+table{border-collapse:collapse;width:100%;font-size:13px;line-height:1.6;margin-top:8px}
+th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--t2);font-weight:600}
+/* ── 頁尾顯名 ── */
+.foot{border-top:1px solid var(--line);margin-top:32px;padding-top:18px;font-size:13px;color:var(--t2)}
+.foot .brand{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.wordmark{height:24px;display:inline-block}
+.tmdb{height:14px;display:block;vertical-align:middle;margin-left:6px}
+.foot p{margin:0 0 6px;max-width:74ch}
+.foot .links a{color:var(--accent);margin-right:16px}
+</style>
+</head>
+<body><div class="page">
+
+<h2 class="sec">/legal/** — 四頁不是同一套版面</h2>
+<p class="n">
+  <code>terms</code> 與 <code>privacy</code> 是長文；<code>copyright</code> 是長文加表格；
+  <code>dmca</code> 是<strong>表單，不是文件</strong>（<code>legal_doc_kind</code> enum 裡沒有 dmca）。
+  <strong>四頁一律未登入可達、不在任何牆後、可被索引。</strong>規格見 <code>SCREENS §15</code>。
+</p>
+
+<h2 class="sec">① 文件頁（terms / privacy）— 目錄 + 34ch 內文</h2>
+<div class="demo">
+  <div class="doc-head">
+    <h1>服務條款</h1>
+    <div class="doc-meta">v1.2　·　2026-03-01 生效　·　<a href="#">看歷史版本</a></div>
+  </div>
+  <div class="doc-body">
+    <nav class="toc">
+      <a href="#s1" class="on">1　我們提供什麼</a>
+      <a href="#s2">2　你的內容</a>
+      <a href="#s3">3　著作權</a>
+      <a href="#s4">4　三振與終止</a>
+      <a href="#s5">5　退出與資料</a>
+    </nav>
+    <div class="prose">
+      <h3 id="s1">1　我們提供什麼</h3>
+      <p class="ghost">（法律文字由主 session 與 David 提供，這裡只示意版面。）內文行長固定 34ch，中文讀起來一行約 32 個字，不沿用拉丁設計的 65ch。</p>
+      <h3 id="s2">2　你的內容</h3>
+      <p class="ghost">標題階層只到 h3。每一條都可以深連結（<code>#s2</code>），因為侵權通知、客服回覆與 admin 備註都會需要指向特定一條。</p>
+      <h3 id="s3">3　著作權</h3>
+      <p class="ghost">不使用 Nuxt UI 的 prose 預設樣式——那是為技術文件調的，字級與行高跟本站的紙不同調，而且會把 <code>code</code> 渲染成等寬字。</p>
+    </div>
+  </div>
+</div>
+<p class="n">
+  <strong>版本與生效日必須在標題正下方。</strong><code>legal_acceptance</code> 是綁 <code>document_id</code> 記的，
+  使用者同意的是<strong>某一版</strong>；畫面上看不到版本，那筆同意紀錄對他就是不可查證的。<br>
+  桌機目錄 sticky 在左；手機收成標題下的可展開區塊，預設收合——法律文件的閱讀行為是掃讀與跳讀。
+</p>
+
+<h2 class="sec">② <code>/legal/copyright</code> — 長文加表格，且是顯名標示的正式落點</h2>
+<div class="demo">
+  <div class="doc-head">
+    <h1>著作權政策</h1>
+    <div class="doc-meta">v1.0　·　2026-03-01 生效　·　<a href="#">看歷史版本</a></div>
+  </div>
+  <div class="prose" style="max-width:none;margin-top:24px">
+    <h3>海報是怎麼處理的</h3>
+    <table>
+      <tr><th>來源</th><th>做法</th><th>你能不能上傳</th></tr>
+      <tr><td>TMDB 有這部片（約 92%）</td><td>直接連 TMDB 的圖，我們不轉存</td><td>不能，也不需要</td></tr>
+      <tr><td>你自己新增的作品</td><td>你可以選填上傳，長邊縮到 500px</td><td>可以</td></tr>
+      <tr><td>都沒有</td><td>顯示成一張票根，不是破圖</td><td>—</td></tr>
+    </table>
+    <h3 style="margin-top:26px">三振</h3>
+    <p class="ghost">條款要寫明「三次涉有侵權情事應終止全部或部分服務」（§90-4 要件），
+      並且<strong>連到使用者自己的三振狀態</strong>——條款寫了但查不到自己有幾次，第三次就是突襲。</p>
+    <p><a href="#" style="color:var(--accent)">看我目前的狀態 →</a>　<span class="ghost">（連到 /app/settings；未登入時這行不出現）</span></p>
+  </div>
+  <div class="foot">
+    <div class="brand">
+      <span class="wordmark" data-brand="filmnote"
+            style="height:24px;line-height:24px;font-size:24px;font-weight:700;color:var(--t0);
+                   font-feature-settings:'palt' 1">影記</span>
+      <span style="font-size:13px;color:var(--t3)">← 24px。目前是佔位，見 DS §9.2</span>
+    </div>
+    <p>本站部分資料採用文化部影視及流行音樂產業局「電影片分級及相關資訊」與「全國電影院資料」開放資料，依政府資料開放授權條款第 1 版提供。</p>
+    <p>This product uses the TMDB API but is not endorsed or certified by TMDB.<svg class="tmdb" data-brand="tmdb" viewBox="0 0 185.04 133.4" style="display:inline-block"><defs><linearGradient id="g" y1="66.7" x2="185.04" y2="66.7" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#90cea1"/><stop offset=".56" stop-color="#3cbec9"/><stop offset="1" stop-color="#00b3e5"/></linearGradient></defs><rect width="185.04" height="133.4" rx="10" fill="url(#g)"/></svg></p>
+    <p class="links"><a href="#">服務條款</a><a href="#">隱私權</a><a href="#">著作權政策</a><a href="#">侵權通知</a></p>
+  </div>
+</div>
+<p class="n">
+  ⚠️ 上面那個 TMDB 方塊是<strong>形狀佔位</strong>（真的素材在 <code>docs/design/assets/tmdb-blue-square.svg</code>），
+  但<strong>尺寸與比例是真的</strong>：高 14px、比例 1.39:1，對 24px 高的字標是高度 58%、面積 22%，
+  三條份量規則都過（<code>DS §9.1</code>）。兩個元素都帶了 <code>data-brand</code>，那是驗收用的。
+</p>
+
+<h2 class="sec">③ <code>/legal/dmca</code> — 全站唯一對匿名開放寫入的表單</h2>
+<p class="n">
+  著作權人幾乎不會是我們的使用者，要求註冊等於關掉這個窗口，而窗口沒開就不符 §90-4 第 3 款。
+  <strong>欄位漏一個，通知在法律上可能不生效</strong>——所以必填標示要重、聲明要讀得到。
+</p>
+<div class="demo">
+  <h1 style="font-size:28px;color:var(--t0);margin:0 0 6px">侵權通知</h1>
+  <p style="max-width:44ch;margin:0 0 4px">如果這個網站上有內容侵害你的著作權，用這張表告訴我們。我們收到後會盡快處理並通知對方。</p>
+
+  <div class="aside loud">
+    <b>先看這一段，它會影響你怎麼填：</b><br>
+    送出之後，<b>你在這個網站上讀不到自己送過什麼</b>——這張表只寫入、不提供查詢，
+    因為任何查詢介面都等於揭露「哪些內容被通知過、屬於誰」。<br>
+    我們會把<b>完整內容寄到你填的信箱</b>，後續也一律走 email。<b>所以信箱一定要填對。</b>
+  </div>
+
+  <div class="f"><label>你的姓名或單位 <span class="req">必填</span></label><input class="inp" placeholder="王小明 ／ ○○影業股份有限公司"></div>
+  <div class="f"><label>電子郵件 <span class="req">必填</span></label>
+    <input class="inp" value="legal@example.com">
+    <p class="hint warn">這是我們唯一能回覆你的方式，送出後不能改。</p></div>
+  <div class="f"><label>電話 <span class="opt">選填</span></label><input class="inp" placeholder="02-1234-5678"></div>
+  <div class="f"><label>你主張被侵權的著作 <span class="req">必填</span></label>
+    <textarea class="inp" placeholder="寫到能辨識是哪一個著作。例如：電影《○○○》的官方海報，著作權人為○○影業。"></textarea></div>
+  <div class="f" style="max-width:48ch"><label>侵權內容的網址 <span class="req">必填</span></label>
+    <input class="inp" value="https://filmnote.tw/u/clipwww/records/8f2a">
+    <p class="hint">我們認出這是這一筆，如果不對請改網址：</p>
+    <div class="tc"><div class="d"><b>26</b><s>七月</s></div>
+      <div class="m"><div class="zh">劇場版 吉伊卡哇 人魚島的秘密</div>
+        <div class="mt">clipwww　·　2026-07-26</div></div></div>
+  </div>
+  <div class="f" style="max-width:48ch">
+    <label>聲明 <span class="req">必填</span></label>
+    <div class="chk"><input type="checkbox" checked>
+      <span>我聲明：本通知所述內容確實侵害我的著作權，我是該著作權人或經合法授權代為主張的人，
+      且本通知的內容<strong>基於善意且屬實</strong>。我了解不實通知可能須負法律責任。</span></div>
+  </div>
+  <div style="display:flex;gap:12px;margin-top:26px"><button class="btn">送出通知</button><button class="btn ghost">取消</button></div>
+</div>
+<p class="n">
+  <strong>三個刻意的設計：</strong>
+  ①「你讀不到自己送過什麼」寫在<strong>表單最上面</strong>，不是送出後才說——它會改變使用者怎麼填信箱。
+  ② 網址貼上後<strong>用唯讀票根卡回顯</strong>：讓 <code>target_film_id</code> / <code>target_record_id</code>
+  真的被填進去，也大幅減少誤報（很多誤報是網址貼錯）。解析不到就留空並照常收件，不要擋。
+  ③ 善意聲明<strong>把全文寫在勾選框旁邊</strong>，不縮成「我同意」——那是 §90-6 的要件，
+  必須讓填的人真的讀到自己在聲明什麼。
+</p>
+
+<h2 class="sec">④ 送出後 ／ 回復通知</h2>
+<div class="demo">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:36px" class="two">
+    <div>
+      <h3 style="font-size:17px;color:var(--t0);margin:0 0 10px">送出後</h3>
+      <div class="ok">
+        <span style="font-size:13px;color:var(--t1)">受理編號</span>
+        <span class="no">#1043</span>
+        <span style="font-size:14px;color:var(--t1)">確認信已寄到 <b style="color:var(--t0)">legal@example.com</b>，裡面有這份通知的完整內容。</span>
+        <span style="font-size:13px;color:var(--t2)">這一頁重新整理之後就找不到了，請留存編號。</span>
+      </div>
+      <p class="n" style="margin-top:12px">
+        <strong>不做公開的進度查詢頁。</strong>用編號就能查等於揭露「哪些內容被通知過、屬於誰」。
+      </p>
+    </div>
+    <div>
+      <h3 style="font-size:17px;color:var(--t0);margin:0 0 10px">回復通知（內容被取下的人）</h3>
+      <p style="font-size:14px;margin:0 0 10px">入口<strong>不在這一頁</strong>，在他自己的紀錄上——票根卡保留位置、內容換成「這筆紀錄因著作權通知已移除」+ 申訴連結。</p>
+      <div class="deadline">
+        <span>對方要在</span><b>2026-09-22（10 個工作日）</b>
+        <span>前提出訴訟證明</span><span></span>
+        <span>否則你的內容會在</span><b>2026-09-26（14 個工作日）</b>
+        <span>前回復</span><span></span>
+      </div>
+      <p class="n" style="margin-top:12px">
+        使用者最在意的只有一個問題：<strong>我的東西什麼時候會回來</strong>。這兩個日期就是答案，
+        放畫面最上面。<br>
+        ⚠️ 兩個值由 <code>counter_notice_deadlines()</code> trigger 算，
+        <strong>UI 只顯示，絕不在前端自己再算一次工作日</strong>。
+      </p>
+    </div>
+  </div>
+</div>
+
+</div></body></html>
