@@ -1,25 +1,26 @@
-# backend 交接筆記（第二棒）
+# backend 交接筆記（第三棒）
 
 寫給接手 `server/**`、`supabase/migrations/**`、`scripts/**`、`app/types/database.types.ts` 的人。
 
-前一棒的筆記還在 git 歷史裡（`afca297`），它的第 2 節「踩過的坑」與第 4 節
-「懷疑但沒驗證的」仍然有效，這份不重複。SPEC、BUILD_PLAN、git log 有的也不重複。
+前兩棒的筆記還在 git 歷史裡（`afca297`、`c84965b`）。**第二棒那一份的第 2 節仍然是這個
+專案最該先讀的東西**，這份不重複它，只補上這一棒新學到的。SPEC、BUILD_PLAN、git log
+有的也不重複。
 
 ---
 
-## 0. 先做這件事
+## 0. 先做這兩件事
 
 ```bash
-pnpm tsx --env-file=.env scripts/verify-all.ts
+pnpm verify:all                                          # 25 條，全綠
+pnpm dev                                                 # 另一個終端機
+pnpm tsx --env-file=.env scripts/verify-account-delete.ts # 11 條，全綠
 ```
 
-**16 條全綠。** 跑完不留任何資料——它會自己建臨時帳號、自己刪掉，最後再斷言
-一次真的乾淨（`cleanup/no-residue`）。
+第二支是這一棒新加的，**它需要一個跑著的 dev server**，沒有就自己略過（不會假綠）。
+為什麼不併進 `verify:all`：後者必須在沒有 dev server 的環境也能全綠，塞進去只會讓它
+變成「常常被略過的那一條」，而常常被略過的斷言等於不存在。
 
-別名已加進 `package.json`（`ff91ae8`），所以直接 `pnpm verify:all` 就行。
-
-這支是這個專案最該先讀的東西：**每一條斷言都對應一個真的踩過的坑**，
-而且每條旁邊都寫了守的是哪個 §7 編號或 Step 編號。看到某條紅了，先讀那句話。
+`verify:all` 從 16 條長到 25 條，新增的九條全部屬於 US-47。
 
 ---
 
@@ -27,210 +28,168 @@ pnpm tsx --env-file=.env scripts/verify-all.ts
 
 | 範圍 | 狀態 |
 |---|---|
-| Step 9 TMDB 六個月刷新排程 | ✅ 2,480 部全部有快照、2,452 張海報 |
-| Step 8 DMCA 資料層與兩支 API | ✅ 0006 + `/api/legal/{notice,counter-notice}` |
-| Step 7 管理端點 | ✅ `/api/admin/films/[id]/approve`、`/api/admin/films/merge` |
-| `legal_document.content_sha256` | ✅ 0007，三層機制（見第 4 節） |
-| 驗收入口 | ✅ `scripts/verify-all.ts`（`pnpm verify:all`，16 條全綠） |
-| 編碼損毀守門員 | ✅ `inspectTitleZh()` + `src/import/title-corrections.ts` |
-| 作者刪除自建 UGC 作品 | ✅ 0008，三條件同時成立才放行 |
-| `country` 空字串正規化 | ✅ 0008，35 列 → NULL，並加 check 讓它長不回來 |
-| `/u/[username]` 的 UGC 海報 | ✅ 批次 `createSignedUrls` |
-| OG 分享圖產生器 | ✅ 版面①②與缺字降級態，相依已加（a2a18f0） |
+| **US-47 帳號刪除** | ✅ `0009` + `POST /api/account/delete` + 9 條 HTTP 斷言 + 11 條端點斷言 |
+| DMCA 證據保留（帳號刪除時） | ✅ `0009` §1，FK CASCADE → SET NULL ＋ `subject_ref` |
+| `deletion_requested_at` 拆除 | ✅ `0009` §2（見第 3 節，這是**產品決定**，請覆核） |
+| `/api/u/[username]` 的 200 筆上限 | ✅ `0010` `user_year_counts()` ＋ 端點 `limit`/`offset` |
+| `title_original = ''` 正規化 | ✅ `0010`，16 列 → NULL，並加 check 讓它長不回來 |
+| §7 踩雷 #46 | ✅ 結案：`delete from auth.users` **postgres 可執行**，不需要 Edge Function |
 
-**沒做**：`/legal/**` 與 `/admin` 頁面（frontend）、條款正文（主 session 與 David）、
-Turnstile（需 David 的站台金鑰，上線前項目）。
+**沒做**：Step 11 部署前檢查（字型是否進版控的複核、git 歷史憑證掃描）、
+OG 端點在真實部署上的實測——那三件都要等真的要 push 的時候。
 
 ---
 
-## 2. 最重要的一件事：這個專案的錯，幾乎都是「檢查機制本身失效」
+## 2. US-47：四個必須知道的決定
 
-我這一棒抓到的六個問題，**沒有一個是程式邏輯寫錯**，全部是「所有靜態檢查都是綠的，
-但東西不會動」或「驗收看起來過了，其實什麼都沒驗到」：
+實作的形狀在 `0009` 的註解裡寫得很細，這裡只列**為什麼是這樣、以及哪些是可以被推翻的**。
 
-1. `purge_expired_tmdb_cache()` 從建立起就沒成功執行過（CASE 三個分支全是常值 ⇒
-   text 指派給 enum，執行期才炸）。`create function` **不檢查函式體**。
-   → 現在每支 migration 結尾都有冒煙測試，會真的呼叫一次。**請維持這個習慣。**
-2. 79 部作品有 `tmdb_id` 卻沒有快照列 ⇒ 永遠進不了刷新佇列，而排程回報「全部刷完」。
-3. `business_days_after` 只 revoke 沒 grant ⇒ 使用者提不出回復通知。
-   INVOKER trigger 呼叫的 helper 也需要對觸發者開 EXECUTE（§7 #84）。
-4. `set local role` 模擬不了 `is_service_context()`（`session_user` 直連永遠是
-   postgres）⇒ 拿它測 `merge_films` 授權會得到假的「破口重現」（§7 #100）。
-5. BUILD_PLAN 的驗收指令指向一個**從來不存在**的 bucket ⇒ 照著 curl 會 404，
-   然後「不得 200」判定通過。**驗收表面全綠，實際什麼都沒驗**（§7 #102）。
-6. `scripts/db.ts` 吞掉所有 `raise notice` ⇒ 9999 的「xxx 尚不存在，略過其 grant」
-   無聲通過，授權被跳過而套用者以為一切正常。已修。
+### 2.1 單階段，不是兩階段（★ 產品決定，David 尚未覆核）
 
-> **推論不要寫成實測。** §7 #71 原本把「批次變慢」寫成「會被節流」，我用 2,339 次
-> 請求 0 節流推翻它。回報的數字必須是真的量到的。
+`profile_private.deletion_requested_at` 從 `0001` 就存在，暗示原設計是「先標記、後執行」。
+**我把它拆了**，理由三條：
 
----
+1. 隱私權政策寫的是「你**隨時**可以刪除帳號與所有資料」，沒有提到緩衝期。要走兩階段
+   就得同時改那份文件，而這一輪的方向是修實作、不改文件。
+2. 兩階段的第二階段只能靠 Vercel Cron，而 Cron 在這個專案裡**從未真的觸發過**。
+   把「資料到底有沒有被刪掉」壓在一個未經實證的機制上，失敗的樣子是：
+   使用者以為刪了、資料還在，而且沒有人會發現。
+3. 誤刪的緩衝改由端點的二次確認負責（要輸入自己的 username），它是同步的、看得見的。
 
-## 3. 編碼損毀：已修好，但守門員的設計比那兩筆重要
+`verify-core.sql` 的 **E4** 會擋住這個欄位長回來。**要改回兩階段，就把 E4 換掉**——
+但那一行必須跟「真的會執行第二階段的東西」一起進來，不要只把欄位加回去。
 
-`film` / `certificate` 各有 2 列的中文片名含 Unicode 私用區字元（U+F8F8），
-Big5→Unicode 轉換失敗的殘留，**已經在公開頁上顯示了不知道多久**。
+### 2.2 UGC 作品：核准過的留下、沒核准過的跟著走（★ 產品決定）
 
-| 民國年 | 字號 | 原文 | 修正後 | 信心 |
-|---|---|---|---|---|
-| 111 | 第111250號 | `LEOPOLDSTADT` | 利奧波德城（英國國家劇院現場） | confirmed |
-| 111 | 第111403號 | `BLDG. N` | Ｎ號棟鬧鬼 | **probable** |
+判準只有一份：`account_purgeable_films(uuid)`。端點與 RPC 都問它。
 
-第二筆的 `probable` 要留意：只有單一台灣來源（LiTV），且該來源寫「N**号**棟鬧鬼」
-用的是日文漢字。政府核准的正式寫法未經核對。**若日後在政府 CSV 找到佐證，以政府
-資料為準**，理由都寫在 `src/import/title-corrections.ts` 的 `reason` 欄。
+- **已核准**（進了公共片庫）⇒ 留下，`created_by` 切成 NULL。它對所有人可見，別人可以
+  拿它記錄觀影；刪掉就不是收回自己的東西，是破壞別人的資料
+  （`viewing_record.film_id` 是 `on delete restrict`，真的會炸）。
+- **未核准且沒有任何人引用** ⇒ 跟著刪。它從來沒進過公共片庫。
+- **未核准但別人引用了**（`approve_film(false)` 可以把已核准的打回 pending）⇒ 留下。
 
-修復：`pnpm tsx --env-file=.env scripts/fix-corrupted-titles.ts --apply`（冪等，
-預設試跑，且會交叉核對原文片名——`permit_no` 跨年度不唯一，配錯就是寫上一個錯片名）。
+> ⚠️ 保留的海報**留在 bucket 裡**（那是片庫條目的一部分），但 `storage.objects.owner`
+> 會被切成 NULL。要刪的那些作品，海報由端點在呼叫 RPC **之前**清掉——順序不能反，
+> 見 2.4。
 
-### 真正的重點：兩種編碼損毀是**不同的失敗模式**
+### 2.3 舊 username 進隔離，不釋出（★ 產品決定）
 
-- **問號型**（既有的 `isCorruptedEncoding`）：解碼器失敗了**而且說了**，把無法轉換
-  的位元組寫成 `?`。資訊在那一刻就沒了。
-- **私用區型**（新增的 `hasPrivateUseChars`）：解碼器**成功了**——某張映射表把它
-  對應到私用區。字串在編碼上完全合法，**任何 UTF-8 檢查都不會抱怨**。
-  這正是它能一路走到公開頁的原因，也是為什麼兩者不能合成一條規則。
+刪除時把該使用者所有的 `username` 列改成 `kind='reserved', profile_id=null,
+released_at=now()`。效果：
 
-`inspectTitleZh()` 把四種型態分開回報，並在註解裡寫清楚**偵測到之後該怎麼辦**：
-有人工對照就用它；**沒有對照就保留該列但把 `title_zh` 寫空**，不要寫進損毀字串
-（會在公開頁顯示一個錯的片名），也不要擋下不匯入（片庫少一部片 ⇒ 使用者搜不到 ⇒
-自己建 UGC ⇒ 日後要人工合併）。寫空字串還會**自己痊癒**：`apply_tmdb_snapshot()`
-對 `title_zh = ''` 的列會用 TMDB 標題補上。
+- `resolve_username()` join 不到 profile ⇒ 回 NULL ⇒ 301 自然停掉（不會指向不存在的人）
+- `rename_username()` 擋掉 reserved ⇒ **別人搶不走這個名字**，外面流傳的 `/u/{name}`
+  連結不會有一天指到另一個人身上
+- `released_at` 記下進隔離的時間，日後若決定「N 天後釋出」有依據可用
 
-⚠️ **尚未接上匯入管線。** `src/gov/rating.ts` 是主 session 的檔案，我只被授權動
-`defensive.ts` 與新建 `src/import/title-corrections.ts`。守門員存在但還沒有人呼叫它
-——目前擋住新損毀的是 `verify-core.sql` 的 D1（事後偵測），不是匯入時。
-接上的方式見第 6 節。
+代價是每刪一個帳號，reserved 清單就多幾列。這個規模下可忽略。
+**必須早於刪 profile**，否則 `username` 會被 CASCADE 帶走。
 
-## 4. 刻意的取捨（別再決定一次）
+### 2.4 端點的順序：先清 bucket，再刪資料庫
 
-**取下不搬檔案。** BUILD_PLAN §5 Step 7 描述雙 bucket 搬檔，那是提案 1 的設計，
-`0001` §14 已改成單一 private bucket + RLS 讀取把關。審核因此**不需要任何 storage
-操作**——`approve_film()` 一改狀態，`ugc_poster_read` 就讓海報公開。這比搬檔好：
-搬檔是複製+刪除兩步，中間失敗會留下兩份或零份；改狀態要嘛成功要嘛沒發生，
-而且**駁回是真的可逆**。主 session 已在 `3f612e3` 修掉那段散文。
+移除海報要走 `ugc_poster_delete` policy，而那條 policy 的判準是「film 那一列存在，
+且 `created_by` 是我」。RPC 一跑完，film 沒了、`created_by` 也沒了 ⇒ **作者再也刪不掉
+自己的海報**，檔案永遠留在 bucket 裡，而使用者被告知「所有資料都刪掉了」。
+**這個失敗不會有任何錯誤訊息。**
 
-**`content_sha256` 由 trigger 算，不由寫入端給。** 寫入端給的雜湊只證明「寫入的人
-算了一個雜湊」，而會去改條款正文的人正是最有動機一起改雜湊的人。但光有雜湊不夠
-（改正文雜湊跟著變，永遠一致），所以是三層：文件雜湊由 DB 算 ＋ `legal_acceptance`
-存下同意當刻的快照 ＋ 已被同意的文件禁止再改正文。缺任何一層都只是看起來有做。
+所以失敗方向必須指向「還沒破壞任何東西」：bucket 清不乾淨就整支 500 中止，
+資料庫一列都沒動，使用者可以重試。`verify-account-delete.ts` 的
+「★ 海報真的離開 bucket」就是守這一條的，我實測把那段跳過，它會變紅。
 
-**作者只能刪「自己建的 + 仍 pending + 沒有任何 viewing_record 引用」的 UGC 作品。**
-第三個條件是硬的，而且不能只靠 FK 的 `on delete restrict`：靠 FK 擋，使用者拿到的是
-一句沒有上下文的 23503，而且是送出去之後才失敗；寫進 policy 則是這一列從一開始就
-不在可刪除的集合裡，UI 可以據此不顯示刪除鍵。更重要的是**引用它的紀錄可能是別人的**
-——UGC 作品一經核准就對所有人可見，那時刪除就不是收回自己的東西，是破壞別人的資料。
-
-**`country` 用 NULL 表示「沒有資料」，不用空字串。** 0008 一併拿掉 `default ''`
-並加 check，否則只跑一次 UPDATE 是那種「修好了但會自己長回來」的修法；`seed_films`
-的 `coalesce(…,'')` 也改成 `nullif`，不然重跑 seed 就把成果洗掉還會撞上新的 check。
-
-**取下時拍下 `(visibility, moderation_state)` 快照**（`takedown_action`）。回復必須
-「原樣寫回」而不是寫死成 public/visible：一部 `private` 的待審 UGC 作品若一律回復成
-public，那不是半回復，是把從未公開過的作品 publish 出去。
-
-**管理端點一律用呼叫者自己的 client，不用 service role。** 授權寫在 RPC 的
-`is_staff()` 裡，端點只負責把 42501 翻成 403。用 service role 等於把授權判斷從
-資料庫搬到 TypeScript 再寫一次，而兩份判斷一定會漂移（踩雷 #26）。
-
-**被取下的使用者看得到 claimant 的姓名與 email。** David 在三個選項中裁定全揭露
-（§90-6 要求轉送通知，當事人要提回復乃至應訴都必須知道對方是誰）。**不要自作主張
-改成遮蔽。** 要遮只能另開 view——不能用欄位級 revoke（踩雷 #33）。
+另外：`storage.remove()` 對被 policy 擋下的路徑**不回錯誤**，只是回傳的陣列比較短。
+端點會比對數量，不比對的話會安靜地放過沒刪掉的檔案。
 
 ---
 
-## 5. 未驗證 / 已知限制（最容易失傳的部分）
+## 3. 這一棒抓到的四個「假綠燈」（比程式本身重要）
 
-- **Vercel Cron 從未真的觸發過。** 本機測不了，要部署後看 cron 面板。
-  `vercel.json` 的兩條排程是照文件寫的，未經實證。
-- **`/api/legal/counter-notice` 的登入後 happy path 沒走過 HTTP。** 拿不到真的
-  OAuth session；`verify-dmca.sql` 的 I 段補上它依賴的那條 RLS 鏈。
-- **TMDB 從未回過 429。** 2,339 次請求 0 節流，所以 429 路徑是靠
-  `outcomeForError()` 的單元測試釘住的，不是實測。
-- **rate limit 是行程內記憶體。** Vercel 上每個實例各一份、冷啟動歸零。擋手滑和
-  粗糙腳本可以，擋不住分散式濫發。`takedown_notice` 是全站唯一對匿名開放寫入的表。
-- **`film.ugc_poster_path` 由上傳流程負責寫入。** 實測發現：海報上傳成功、審核後
-  anon 也讀得到，但那個欄位仍是 null ⇒ `film_public.ugc_poster_path` 是 null ⇒
-  畫面退回文字卡片，**海報明明公開可讀卻不會顯示**。這是 frontend 的整合缺口。
-- **`user_year_stats` 的效能仍未量測**（母體只有 174 筆，量不出東西）。先量再優化。
-- **`/u/[username]` 的 UGC 海報 signed URL 只簽 1 小時，且未在真實瀏覽器看過。**
-  用的是匿名 client，所以未審核作品的海報**簽不出來**——那是刻意的（這支端點的輸出
-  對所有人相同），簽不出來就當作沒有海報。
-- **`title_zh = ''` 的顯示層未處理。** `displayTitle('')` 回空字串，而目前 DB 裡沒有
-  任何一列是空的，所以還沒壞。上面那條「損毀就寫空」的規則一旦真的觸發，畫面會出現
-  空標題——顯示層應該退回 `title_original`。已回報 frontend。
+第二棒歸納的「這個專案的錯幾乎都是檢查機制本身失效」在這一棒又發生了四次，
+而且**每一次都是我自己剛寫的檢查**。方法很簡單：**寫完斷言就故意把它守的東西弄壞一次，
+看是不是那一條變紅。** 四次裡有兩次是這樣抓到的。
+
+1. **兩條防護互相遮蔽（§7 #110）。** `0009` 冒煙測試第一版：把「別人引用中就不刪」
+   整段拿掉，測試**照樣全綠**——因為那部作品是 `approved`，早被前一個條件擋掉了。
+   反過來拿掉 `review_state` 那條也一樣綠。要四部作品才把兩條防護分開。
+2. **在後面的 migration 覆寫前面修過的函式（§7 #109）。** `0009` 抄了 `0001` 的
+   `apply_three_strikes()` 函式體，靜默回退了 `0006` 的修正。抓到它的是
+   `verify-dmca.sql` 的 F 段——那條斷言是第二棒留下的，這次證明它是活的。
+3. **`fails := fails || '字串'` 只在該變紅的那一刻才炸（§7 #114）。** 三條新斷言都寫錯，
+   平常全綠，弄壞它時整支腳本 error 而不是回報「有 N 條沒過」。
+4. **9999 §2 的 blanket revoke 會撤銷別處給的 grant（§7 #112）。** `0010` 在自己檔內
+   `grant execute … to anon`，重跑 9999 後 `has_function_privilege` 從 true 變 false。
+   我是真的去查了那個布林值才發現的——推論會告訴你「我 grant 過了」。
 
 ---
 
-## 7. OG 分享圖：satori 的實際行為（design 標記為未驗證的那題）
+## 4. `/api/u/[username]` 現在的契約（給 frontend）
 
-design 在 `DS §2.7` 把中文字型那題結掉了（打包完整 Noto Sans TC、不子集），
-但誠實標記「satori 吃不吃 woff2 沒驗過，我是用 .ttf 繞開」。**現在有答案了：**
-
-> **satori 不吃 woff2。** 實測錯誤訊息：`Unsupported OpenType signature wOF2`。
-> 所以「Google Fonts 對非瀏覽器 UA 直接回 .ttf」**不是繞開，那是唯一的路。**
-> 字型必須是 .ttf / .otf。
-
-其餘實測（2026-09-06）：
-- 我另外寫了一份 cmap parser（`server/utils/og-cmap.ts`，無相依）交叉驗證 design 的
-  數字，**完全一致**：20,745 個碼位、中文片名缺字 5/2669、原文片名 344/2669（12.9%）、
-  影城名 0。兩份獨立實作得到同一組數字，那批數字可以信。
-- satori 會把文字轉成 `<path>` 輪廓，所以 **resvg 那一步不需要字型**。
-- 字型兩個字重共 14 MB，進版控後 `.output/server` 是 **34 MB**——Vercel Node
-  250 MB 放得下，**Edge 1/4 MB 放不下**，實測印證 design 的約束①。
-
-### 相依與原生模組（下一棒推不出來的部分）
-
-`satori@0.33.4` 與 `@resvg/resvg-js@2.6.2` 在 **`dependencies`**，已改回靜態 import。
-
-實測 `pnpm build` 後的 `.output`：
-- **兩個套件都被外部化**，都出現在 `.output/server/package.json` 的 dependencies。
-  ⇒ 它們**必須在 `dependencies` 而非 `devDependencies`**，否則正式環境以
-  `--prod` 安裝時裝不到，症狀是本機全綠、**部署後 OG 端點 500**。
-- ⚠️ **`.output/server/node_modules/@resvg/` 裡只有 `resvg-js-darwin-arm64`**
-  ——也就是**建置當下那台機器**的二進位，而 Vercel 跑的是 linux-x64。
-  ⇒ **不要部署本機建好的 `.output`**（`vercel deploy --prebuilt`）。
-  讓 Vercel 自己跑建置就沒事，因為它會在 linux 上追蹤到 linux 的 .node。
-
-### 兩個字重都要（實測，不是猜的）
-
-**satori 缺字重時不做 fake bold，而且不吭聲。** 只載入 Regular 時
-`fontWeight: 700` 與 400 渲染出完全一樣的輪廓——沒有警告，只是階層消失。
-所以 Bold 那 7MB 是買到東西的。想省字型就得改用尺寸／顏色拉階層。
-
-### 怎麼看它畫出來長什麼樣
-
-```bash
-pnpm add satori @resvg/resvg-js     # 核可後
-pnpm tsx scripts/og-preview.ts      # 產四張真圖到 .data/og-preview/
+```
+GET /api/u/{username}?limit=200&offset=0
 ```
 
-OG 圖是「要看到才知道對不對」的東西——版面歪了、字級太小、色階分不開、
-**畫出豆腐格**，單元測試一條都抓不到。我用它抓到三個：
+- `limit` 預設 **200**（刻意不變小，見端點註解）、上限 200；`offset` 預設 0。
+  垃圾參數會被 clamp，不會 400。
+- 新增 `page: { limit, offset, returned, total, hasMore }`。
+- `counts.records / films / venues / byYear` **語意沒變，但值變正確了**：
+  以前是「從這一頁算出來的」，現在是全量聚合（`user_year_counts()`，SECURITY INVOKER，
+  讀 `viewing_record_public` ⇒ 母體與列表完全一致）。
+- `counts.byYear` 每一項多了 `films`（該年相異作品數）。
 
-1. 年表色階第一版 13 個年份全是同一個棕色（起點取太深）
-2. 顯名列上方一大塊死區（本體沒有垂直置中）
-3. **預覽圖上真的出現了一個豆腐格**——`-EPISODE ⬚-`。原因是缺字檢查在呼叫端、
-   截斷在 `clampHero()`，兩件事分開 ⇒ 少做一件就畫方框，而且**完全不報錯**。
-   已改成 `safeHero(title, codepoints)` 一支到底（先驗缺字、再截斷、缺字就整行
-   換掉），`clampHero` 只留給單元測試。**產生英雄行一律用 `safeHero()`。**
+實測 174 筆：`?limit=10` 時年表仍然是完整 13 年、加總 174；
+以 `limit=17` 翻完全部拿到 174 筆、相異 174 筆（無重複無遺漏）。
+排序加了 `id` 當最後的破平手——只以日期排序時跨頁順序不保證，分頁會重複或漏列。
 
-第 3 點值得記住的不是那個 bug，而是它的形狀：**把「必須先做的檢查」與「要做的事」
-分成兩支函式，就等於把正確性交給呼叫端記得**。這個專案已經在別的地方踩過同一件事
-（§7 #84 的 trigger helper、#106 的 policy 與 grant）。
+**聚合拿不到時不會退回「從這一頁算」**，而是把 `page.total` 設成 `null`。
+那個退路的失敗樣子正是這次要修掉的東西：年表看起來是好的，只是少了幾年。
 
 ---
 
-## 6. 給下一棒的四個提醒
+## 5. 未驗證 / 已知限制
+
+第二棒那份第 5 節的每一條**都還有效**（Vercel Cron 從未觸發、TMDB 從未回過 429、
+rate limit 是行程內記憶體、`film.ugc_poster_path` 由上傳流程寫入而常常是 null…）。
+以下是這一棒新增或有變動的：
+
+- **`/api/legal/counter-notice` 的登入後 happy path 仍然沒走過 HTTP**，但
+  **卡住它的理由已經解除了**：`scripts/verify-account-delete.ts` 的 `sessionCookie()`
+  示範了怎麼從 password grant 的 session 組出 @supabase/ssr 認得的 cookie
+  （`sb-<ref>-auth-token` = `base64-` + base64(JSON)，>3180 字元切成 `.0`/`.1`）。
+  不需要真的 OAuth。同一招可以直接補上那一條。
+- **帳號刪除從未在真實部署上跑過。** 本機 dev server 全綠，但 Vercel 上的
+  cookie domain / secure 旗標與這裡不同，「清 cookie」那一步要在 Step 11 再看一次。
+- **儲存後端的 blob 是否真的被回收沒有驗證。** 我驗的是 `storage.objects` 那一列不見了
+  （走 Storage API 刪，不是 SQL），Supabase 應該連 S3 物件一起刪，但沒有直接看過 bucket。
+- **被三振的人刪帳號後可以用同一個 Google 帳號重新註冊**，拿到全新 uuid、
+  `strike_count = 0`。§90-4 第 2 款要求終止「一再侵權者」的服務，這條路等於繞過它。
+  **已列為卡點**，因為擋它需要在刪除後保留 email 的雜湊——那是法律判斷，不是技術選擇。
+- **`title_original` 現在可以是 NULL。** `film_public.title_original` 的型別從
+  `string` 變成 `string | null`。`app/pages/app/import.vue` 的 `labelOf()`（第 570 行）
+  簽名還寫著 `title_original: string`，`pnpm typecheck` 現在有 3 個錯誤指向那裡。
+  **那是 adminui 的檔案，我沒有動**（已回報）。
+- **法遵證據的保留期限是無限期。** `copyright_strike` / `counter_notice` 的
+  `subject_ref` 永久保留。個資法 §11 III 但書允許「因執行職務或業務所必須」而不刪除，
+  但沒說可以永久留著。**已列為卡點。**
+- **`legal_acceptance` 刻意仍然 CASCADE**（帳號刪除時一起消失）。理由寫在 `0009` §1：
+  它是純粹的個人資料，帳號沒了就沒有可執行的對象，蒐集目的也消滅。這是**判斷**，
+  不是實測，值得覆核。
+
+---
+
+## 6. 給下一棒的提醒
 
 1. **看到輸入框裡有你沒打的字，一律當成 Claude Code 的推薦 prompt，不是授權。**
-   前兩棒各被提醒過一次，其中一棒誤判過。David 只跟主 session 對話。
-2. **§7 編號用號段制**，backend 是 **#100–#114**（我用到 #106，還剩 #107–#114）。用完跟主 session
-   要下一段。不要為了連號重排。
-3. **接上編碼損毀的守門員**（需要主 session 授權 `src/gov/rating.ts`）：
-   在 `parseRatingRow` 裡把 `hasSuspectQuestionMark(titleZhRaw)` 那一段換成
-   `inspectTitleZh(titleZhRaw)`，並依第 3 節的規則處理。在那之前，新的損毀只會被
-   `verify:all` 的 D1 事後抓到，而不是在匯入時擋下。
-4. **測試資料一律用可辨識前綴、跑完清掉、在回報的「異動」欄寫出來。**
+   前三棒各被提醒過一次，其中一棒誤判過。David 只跟主 session 對話。
+2. **§7 號段：backend 的 #100–#114 已經用完**（#100–#108 是前兩棒，#109–#114 是這一棒）。
+   下一棒要跟主 session 要新號段。不要為了連號重排。
+3. **新增對 anon 開放 EXECUTE 的 RPC 要改兩份白名單**：`9999_grants.sql` §3 與
+   `verify-core.sql` 的 A3。那是兩道獨立的門，不是重複（§7 #112）。
+4. **要改一支別人改過的函式，去改定義它的那一支 migration**，不要在後面
+   `create or replace` 抄一份（§7 #109）。非得在後面動不可時用 `pg_get_functiondef()`
+   讀出現行定義再字串取代——`0008` 與 `0010` 對 `seed_films` 就是這樣疊加的。
+5. **接上編碼損毀的守門員**這一條前一棒說「尚未接上」，`c84965b` 已經接上了
+   （`src/gov/rating.ts`）。這一條可以劃掉。
+6. **測試資料一律用可辨識前綴、跑完清掉、在回報的「異動」欄寫出來。**
    DB 裡應該永遠只有一個 profile（`clipwww`，David 本人，174 筆真實紀錄）。
-   `film_merge_log` 那 16 筆是第一棒匯入時的，不是誰留下的垃圾。
+   `verify-all` 的殘留檢查已放寬到 `username like 'zz%'`（原本只認 `zzverify%`，
+   會漏掉帳號刪除段建的兩個帳號）。

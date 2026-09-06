@@ -12,11 +12,37 @@
  *   一個 sum(amount) 也會把它以總額形式漏光；而 anon 視角下票價列根本讀不到，
  *   算出來的總額只會是 0——那個 0 反而會誤導使用者以為自己沒花錢。
  *   金額統計屬 Step 6，走 SECURITY INVOKER 的 RPC 並附 spend_is_partial 旗標。
+ *
+ * ★ 列表分頁與年表聚合是**兩個不同的需求**，不共用同一個上限。
+ *   原本兩件事都吃同一批「最多 200 筆」：超過 200 筆的使用者，年表會缺格子，
+ *   而且沒有任何提示（前端第二棒在交接筆記 §4-8 記下的 latent bug）。
+ *   把上限調高只是把爆炸點往後推，還會讓每次載入都拖回全部資料。
+ *   現在：列表走 limit/offset 分頁，年表與總計走 `user_year_counts` 這支
+ *   全量 group by（SECURITY INVOKER，因此數到的正好是列表看得到的那些列）。
+ *
+ * ⚠️ `limit` 的**預設值刻意仍是 200**。改小會讓還沒接分頁的前端安靜地少顯示
+ *   一半紀錄——那是「修一個沒人看得到的 bug、製造一個看得到的 bug」。
+ *   前端接上 `page.hasMore` 之後再談預設值。
  */
+
+/** 一次最多回這麼多筆。與 PostgREST 的預設上限無關，是這支端點自己的契約。 */
+const MAX_LIMIT = 200
+
+function clampInt(raw: unknown, fallback: number, min: number, max: number): number {
+  const n = Number(raw)
+  if (!Number.isFinite(n))
+    return fallback
+  return Math.min(Math.max(Math.trunc(n), min), max)
+}
+
 export default defineEventHandler(async (event) => {
   const username = getRouterParam(event, 'username')
   if (!username)
     throw createError({ statusCode: 400, statusMessage: '缺少 username' })
+
+  const query = getQuery(event)
+  const limit = clampInt(query.limit, MAX_LIMIT, 1, MAX_LIMIT)
+  const offset = clampInt(query.offset, 0, 0, Number.MAX_SAFE_INTEGER)
 
   const db = publicSupabase()
 
@@ -37,15 +63,33 @@ export default defineEventHandler(async (event) => {
   // viewing_record_public view 只含 visibility='public' 且未被取下者；
   // 再經 RLS 的 record_read 過濾（作品也要公開、作者未被終止服務）。
   // 刻意不選 cost_amount / cost_currency —— 見檔頭。
+  // ★ 第二個 order 是必要的：watched_on 有大量同日紀錄，只以日期排序時
+  //   PostgreSQL 不保證跨頁的相對順序 ⇒ 分頁會重複或漏掉列。id 是最後的破平手。
   const { data: records } = await db
     .from('viewing_record_public')
     .select('id,film_id,venue_id,watched_on,watched_time,ticket_count,hall_label,format_code,memo')
     .eq('user_id', userId)
     .order('watched_on', { ascending: false })
     .order('watched_time', { ascending: false, nullsFirst: false })
-    .limit(200)
+    .order('id', { ascending: false })
+    .range(offset, offset + limit - 1)
 
   const rows = records ?? []
+
+  /**
+   * 年表與總計走全量聚合，**不從 rows 算**。
+   *
+   * user_year_counts 是 SECURITY INVOKER 且同樣讀 viewing_record_public，
+   * 所以它數到的集合與上面那批 rows 的母體完全一致——換句話說「年表有格子但
+   * 列表翻不到」這件事在結構上不可能發生。
+   */
+  const { data: summaryRaw } = await db.rpc('user_year_counts', { p_username: profile.username })
+  const summary = summaryRaw as unknown as {
+    records: number
+    films: number
+    venues: number
+    by_year: { year: number, n: number, films: number }[]
+  } | null
 
   // 片名與場所另外撈，避免 embed 在 view 上的關聯推導問題
   const filmIds = [...new Set(rows.map(r => r.film_id).filter((v): v is string => !!v))]
@@ -103,14 +147,12 @@ export default defineEventHandler(async (event) => {
     venue: r.venue_id ? venueById.get(r.venue_id) ?? null : null,
   }))
 
-  // 只有筆數，沒有金額
-  const byYear = new Map<number, number>()
-  for (const r of rows) {
-    if (!r.watched_on)
-      continue
-    const y = Number(r.watched_on.slice(0, 4))
-    byYear.set(y, (byYear.get(y) ?? 0) + 1)
-  }
+  /**
+   * ★ 聚合拿不到時**不要退回「從這一頁算」**。
+   *   那個退路的失敗樣子正是我們要修掉的東西：年表看起來是好的，只是少了幾年，
+   *   而沒有任何人會發現。寧可把 total 標成 null，讓呼叫端知道自己不知道。
+   */
+  const total = summary?.records ?? null
 
   return {
     profile: {
@@ -121,11 +163,21 @@ export default defineEventHandler(async (event) => {
       showCost: profile.show_cost,
     },
     items,
+    page: {
+      limit,
+      offset,
+      returned: rows.length,
+      total,
+      // total 未知時以「這一頁滿了」推測還有下一頁，而不是假裝沒有了
+      hasMore: total === null ? rows.length === limit : offset + rows.length < total,
+    },
+    // 全站契約沒變：counts 仍是「這個人的全部」，只是現在真的是全部，
+    // 而不是「前 200 筆算出來的全部」。
     counts: {
-      records: rows.length,
-      films: filmIds.length,
-      venues: venueIds.length,
-      byYear: [...byYear.entries()].sort((a, b) => b[0] - a[0]).map(([year, n]) => ({ year, n })),
+      records: summary?.records ?? rows.length,
+      films: summary?.films ?? filmIds.length,
+      venues: summary?.venues ?? venueIds.length,
+      byYear: (summary?.by_year ?? []).map(y => ({ year: y.year, n: y.n, films: y.films })),
     },
   }
 })

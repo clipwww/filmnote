@@ -35,6 +35,9 @@ for (const oid of [1082, 1114, 1184, 1083])
 
 const TEST_EMAIL = 'zzverify@example.com'
 const TEST_PREFIX = '__verify_http__'
+// US-47 那一段自己的兩個帳號。刪除測試會把 A 真的刪掉，不能跟上面共用。
+const DELETE_EMAIL = 'zzdelete@example.com'
+const BYSTANDER_EMAIL = 'zzbystander@example.com'
 
 interface Result { id: string, guards: string, ok: boolean, detail?: string, skipped?: boolean }
 const results: Result[] = []
@@ -138,7 +141,9 @@ async function runHttpChecks(env: HttpEnv): Promise<void> {
     const films = await sql(
       `insert into public.film (title_zh, origin, visibility, review_state)
        values ($1 || '敗方','gov','public','approved'), ($1 || '勝方','gov','public','approved')
-       returning id`, [TEST_PREFIX])
+       returning id`,
+      [TEST_PREFIX],
+    )
     const loser = films[0]!.id as string
     const winner = films[1]!.id as string
 
@@ -152,22 +157,20 @@ async function runHttpChecks(env: HttpEnv): Promise<void> {
     const mergeBody = { p_loser: loser, p_winner: winner, p_reason: 'verify' }
 
     const userMerge = await rpc('merge_films', mergeBody, asUser)
-    record('http/merge-as-user', '§1.1 修正 A、§7 #100（此路徑曾實測回 204）',
-      userMerge.status === 403, `期望 403，實得 ${userMerge.status}`)
+    record('http/merge-as-user', '§1.1 修正 A、§7 #100（此路徑曾實測回 204）', userMerge.status === 403, `期望 403，實得 ${userMerge.status}`)
 
     const anonMerge = await rpc('merge_films', mergeBody, asAnon)
-    record('http/merge-as-anon', 'Step 7 驗收',
-      anonMerge.status === 401 || anonMerge.status === 403, `期望 401/403，實得 ${anonMerge.status}`)
+    record('http/merge-as-anon', 'Step 7 驗收', anonMerge.status === 401 || anonMerge.status === 403, `期望 401/403，實得 ${anonMerge.status}`)
 
     const userApprove = await rpc('approve_film', { p_film: loser, p_approve: true }, asUser)
-    record('http/approve-as-user', 'Step 7 驗收、踩雷 #26',
-      userApprove.status === 403, `期望 403，實得 ${userApprove.status}`)
+    record('http/approve-as-user', 'Step 7 驗收、踩雷 #26', userApprove.status === 403, `期望 403，實得 ${userApprove.status}`)
 
     // 對照：真的沒被合併。只看狀態碼的話，端點回 403 但資料被改了也看不出來。
     const stillSeparate = await sql(
-      `select count(*)::int as n from public.film where id = $1 and merged_into_film_id is null`, [loser])
-    record('http/merge-no-effect', 'Step 7 驗收（狀態碼之外再看一次資料）',
-      (stillSeparate[0]!.n as number) === 1, '越權呼叫被擋下了，但敗方竟然已被標記為合併')
+      `select count(*)::int as n from public.film where id = $1 and merged_into_film_id is null`,
+      [loser],
+    )
+    record('http/merge-no-effect', 'Step 7 驗收（狀態碼之外再看一次資料）', (stillSeparate[0]!.n as number) === 1, '越權呼叫被擋下了，但敗方竟然已被標記為合併')
 
     // ── ② 侵權通知在 API 層單向 ─────────────────────────────────────────
     const noticeBody = {
@@ -184,26 +187,27 @@ async function runHttpChecks(env: HttpEnv): Promise<void> {
     })
 
     const minimal = await post('return=minimal')
-    record('http/dmca-insert', 'Step 8 驗收、§90-4 第 3 款（未登入者必須提得出通知）',
-      minimal.status === 201, `期望 201，實得 ${minimal.status}`)
+    record('http/dmca-insert', 'Step 8 驗收、§90-4 第 3 款（未登入者必須提得出通知）', minimal.status === 201, `期望 201，實得 ${minimal.status}`)
 
     // 反向對照：帶 return=representation 必須失敗。沒有 SELECT policy 就拿不到
     // RETURNING —— 這正是「單向」的證據，也證明上一條的 201 不是因為權限全開。
     const representation = await post('return=representation')
-    record('http/dmca-one-way', 'Step 8 驗收（單向性的反向對照）',
-      representation.status >= 400, `期望 4xx，實得 ${representation.status}`)
+    record('http/dmca-one-way', 'Step 8 驗收（單向性的反向對照）', representation.status >= 400, `期望 4xx，實得 ${representation.status}`)
 
     const read = await fetch(`${env.url}/rest/v1/takedown_notice?select=*`, { headers: asAnon })
-    record('http/dmca-no-read', 'Step 8 驗收',
-      read.status >= 400, `期望 4xx，實得 ${read.status}`)
+    record('http/dmca-no-read', 'Step 8 驗收', read.status >= 400, `期望 4xx，實得 ${read.status}`)
 
     // ── ③ 未審核海報：不可取、不可列舉，且有對照組 ─────────────────────
     const ugc = await fetch(`${env.url}/rest/v1/film`, {
       method: 'POST',
       headers: { ...asUser, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
       body: JSON.stringify({
-        title_zh: `${TEST_PREFIX}未審核UGC`, origin: 'ugc', visibility: 'private',
-        review_state: 'pending', moderation_state: 'visible', created_by: userId,
+        title_zh: `${TEST_PREFIX}未審核UGC`,
+        origin: 'ugc',
+        visibility: 'private',
+        review_state: 'pending',
+        moderation_state: 'visible',
+        created_by: userId,
       }),
     })
     const ugcRows = await ugc.json() as { id: string }[]
@@ -213,22 +217,19 @@ async function runHttpChecks(env: HttpEnv): Promise<void> {
       skip('http/poster-*', 'Step 7 驗收', '建立 UGC 作品失敗，海報段無法進行')
     }
     else {
-      const png = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, ...Array.from({ length: 64 }, () => 0)])
+      const png = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, ...Array.from({ length: 64 }).fill(0)])
       const up = await fetch(`${env.url}/storage/v1/object/ugc-poster/${filmId}/poster.png`, {
         method: 'POST',
         headers: { ...asUser, 'Content-Type': 'image/png' },
         body: png,
       })
-      record('http/poster-upload', 'Step 7（前置：沒有這一步，下面的斷言全是空轉）',
-        up.status === 200, `上傳失敗 HTTP ${up.status}`)
+      record('http/poster-upload', 'Step 7（前置：沒有這一步，下面的斷言全是空轉）', up.status === 200, `上傳失敗 HTTP ${up.status}`)
 
       const pub = await fetch(`${env.url}/storage/v1/object/public/ugc-poster/${filmId}/poster.png`)
-      record('http/poster-public', 'Step 7 驗收、踩雷 #26（bucket 必須是 private）',
-        pub.status >= 400, `期望 4xx，實得 ${pub.status}`)
+      record('http/poster-public', 'Step 7 驗收、踩雷 #26（bucket 必須是 private）', pub.status >= 400, `期望 4xx，實得 ${pub.status}`)
 
       const auth = await fetch(`${env.url}/storage/v1/object/authenticated/ugc-poster/${filmId}/poster.png`, { headers: asAnon })
-      record('http/poster-anon-get', 'Step 7 驗收（走 RLS 的那條路）',
-        auth.status >= 400, `期望 4xx，實得 ${auth.status}`)
+      record('http/poster-anon-get', 'Step 7 驗收（走 RLS 的那條路）', auth.status >= 400, `期望 4xx，實得 ${auth.status}`)
 
       const list = (headers: Record<string, string>) => fetch(`${env.url}/storage/v1/object/list/ugc-poster`, {
         method: 'POST',
@@ -237,15 +238,12 @@ async function runHttpChecks(env: HttpEnv): Promise<void> {
       }).then(r => r.json() as Promise<unknown[]>)
 
       const anonList = await list(asAnon)
-      record('http/poster-no-list', '★ Step 7 驗收（只測取檔會漏掉列舉）',
-        Array.isArray(anonList) && anonList.length === 0, `期望 []，實得 ${JSON.stringify(anonList).slice(0, 120)}`)
+      record('http/poster-no-list', '★ Step 7 驗收（只測取檔會漏掉列舉）', Array.isArray(anonList) && anonList.length === 0, `期望 []，實得 ${JSON.stringify(anonList).slice(0, 120)}`)
 
       // ★ 對照組。沒有它，上面兩條在「上傳其實失敗了」時也會綠——
       //   那正是 §7 #102：分不出「RLS 擋住了」與「本來就沒東西」。
       const ownerList = await list(asUser)
-      record('http/poster-owner-sees', '★ §7 #102（「看不到」必須配一組「看得到」）',
-        Array.isArray(ownerList) && ownerList.length === 1,
-        `作者自己應該列得到 1 個檔案，實得 ${JSON.stringify(ownerList).slice(0, 120)}`)
+      record('http/poster-owner-sees', '★ §7 #102（「看不到」必須配一組「看得到」）', Array.isArray(ownerList) && ownerList.length === 1, `作者自己應該列得到 1 個檔案，實得 ${JSON.stringify(ownerList).slice(0, 120)}`)
     }
   }
   finally {
@@ -278,17 +276,195 @@ async function runHttpChecks(env: HttpEnv): Promise<void> {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// US-47 帳號刪除 —— 真的刪一個帳號
+//
+// ★ 為什麼一定要走 HTTP：§7 #100。db.ts 直連時 session_user 永遠是 postgres，
+//   而 postgres 對 auth.users 有 DELETE 又有 bypassrls ⇒ 在那裡「刪得掉」是
+//   一句沒有內容的話。要證明的是**登入使用者拿自己的 JWT 呼叫 PostgREST**
+//   時真的刪得掉（grant 對不對），以及**匿名呼叫時刪不掉**。
+//
+// ★ 為什麼要第二個帳號：整個 US-47 最貴的那條保證是「別人的紀錄一筆都沒少」。
+//   0009 的冒煙測試在 SQL 層驗過一次，這裡在真實資料路徑上再驗一次——
+//   因為那條保證壞掉的樣子是別人的資料消失，而且沒有人會立刻發現。
+// ─────────────────────────────────────────────────────────────────────────────
+async function runAccountDeletionChecks(env: HttpEnv): Promise<void> {
+  const password = `zzDelete-${Date.now()}-Aa!`
+  let userA: string | null = null
+  let userB: string | null = null
+
+  const admin = { apikey: env.secret, Authorization: `Bearer ${env.secret}` }
+  const createUser = async (email: string): Promise<string | null> => {
+    const r = await fetch(`${env.url}/auth/v1/admin/users`, {
+      method: 'POST',
+      headers: { ...admin, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, email_confirm: true }),
+    })
+    return r.ok ? (await r.json() as { id: string }).id : null
+  }
+  const tokenFor = async (email: string): Promise<string | null> => {
+    const r = await fetch(`${env.url}/auth/v1/token?grant_type=password`, {
+      method: 'POST',
+      headers: { 'apikey': env.anon, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    })
+    return (await r.json() as { access_token?: string }).access_token ?? null
+  }
+
+  try {
+    userA = await createUser(DELETE_EMAIL)
+    userB = await createUser(BYSTANDER_EMAIL)
+    if (!userA || !userB)
+      return skip('http/account-*', 'US-47 驗收', '建立測試帳號失敗')
+
+    const tokenA = await tokenFor(DELETE_EMAIL)
+    if (!tokenA)
+      return skip('http/account-*', 'US-47 驗收', '登入取不到 access_token')
+
+    const asA = { apikey: env.anon, Authorization: `Bearer ${tokenA}` }
+    const asAnon = { apikey: env.anon, Authorization: `Bearer ${env.anon}` }
+
+    const [{ username: nameA }] = await sql(
+      `select username from public.profile where id = $1`,
+      [userA],
+    ) as { username: string }[]
+
+    // 前置資料。用直連建，因為要測的是刪除本身，不是建立流程。
+    const venueRows = await sql(`select id from public.venue order by id limit 1`)
+    const venue = venueRows[0]?.id as string | undefined
+    if (!venue)
+      return skip('http/account-*', 'US-47 驗收', '沒有任何 venue')
+
+    const films = await sql(
+      `insert into public.film (title_zh, origin, visibility, review_state, created_by)
+       values ($1 || '共用','ugc','public','approved',$2),
+              ($1 || '孤兒','ugc','private','pending',$2)
+       returning id`,
+      [TEST_PREFIX, userA],
+    ) as { id: string }[]
+    const shared = films[0]!.id
+    const orphan = films[1]!.id
+
+    await sql(`insert into public.viewing_record (user_id, film_id, venue_id, watched_on)
+               values ($1,$2,$4,current_date - 2), ($3,$5,$4,current_date - 1)`, [userA, orphan, userB, venue, shared])
+    // A 的舊名，用來驗 301 會不會指向一個不存在的人
+    await sql(`insert into public.username (name, profile_id, kind, released_at)
+               values ('zzdeleteold', $1, 'historical', now())`, [userA])
+
+    const rpc = (name: string, headers: Record<string, string>) =>
+      fetch(`${env.url}/rest/v1/rpc/${name}`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: '{}',
+      })
+
+    // ── 前置對照：現在這個人是存在的 ────────────────────────────────────
+    // ★ 沒有這一組，下面所有「找不到了」的斷言都分不出「刪掉了」與
+    //   「本來就沒建起來」（§7 #102 就是這樣被騙過去的）。
+    const beforeProfile = await fetch(
+      `${env.url}/rest/v1/profile?username=eq.${nameA}&select=username`,
+      { headers: asAnon },
+    )
+      .then(r => r.json() as Promise<unknown[]>)
+    record('http/account-before', '★ §7 #102（「不見了」必須配一組「本來看得到」）', Array.isArray(beforeProfile) && beforeProfile.length === 1, `刪除前匿名應查得到這個 profile，實得 ${JSON.stringify(beforeProfile).slice(0, 120)}`)
+
+    // ── 匿名不得呼叫 ────────────────────────────────────────────────────
+    const anonDelete = await rpc('delete_my_account', asAnon)
+    record('http/account-anon-denied', 'US-47（9999 的 grant 清單）', anonDelete.status === 401 || anonDelete.status === 403, `匿名呼叫 delete_my_account 期望 401/403，實得 ${anonDelete.status}`)
+
+    // ── 預覽 ────────────────────────────────────────────────────────────
+    const previewRes = await rpc('account_deletion_preview', asA)
+    const preview = await previewRes.json() as {
+      username?: string
+      records?: number
+      films_to_delete?: { id: string }[]
+      films_to_keep?: number
+    }
+    record('http/account-preview', 'US-47（端點靠它決定要清哪些海報）', previewRes.ok && preview.username === nameA && preview.records === 1
+    && preview.films_to_delete?.length === 1 && preview.films_to_delete[0]?.id === orphan
+    && preview.films_to_keep === 1, `預覽不符：HTTP ${previewRes.status} ${JSON.stringify(preview).slice(0, 200)}`)
+
+    // ── 真的刪 ──────────────────────────────────────────────────────────
+    const deleteRes = await rpc('delete_my_account', asA)
+    const summary = await deleteRes.json() as Record<string, unknown>
+    record('http/account-delete', '★ US-47、§7 #100（只有真 PostgREST + 真 JWT 證得了 grant 對不對）', deleteRes.ok && summary.records_deleted === 1 && summary.films_deleted === 1
+    && summary.usernames_reserved === 2, `HTTP ${deleteRes.status} ${JSON.stringify(summary).slice(0, 200)}`)
+
+    // ── 該不見的都不見了 ────────────────────────────────────────────────
+    const afterProfile = await fetch(
+      `${env.url}/rest/v1/profile?username=eq.${nameA}&select=username`,
+      { headers: asAnon },
+    )
+      .then(r => r.json() as Promise<unknown[]>)
+    record('http/account-profile-gone', 'US-47 驗收（個人頁 404）', Array.isArray(afterProfile) && afterProfile.length === 0, `個人頁應該消失，實得 ${JSON.stringify(afterProfile).slice(0, 120)}`)
+
+    const authUser = await fetch(`${env.url}/auth/v1/admin/users/${userA}`, { headers: admin })
+    record('http/account-auth-gone', '★ US-47（public 清乾淨但 auth.users 還在＝殭屍帳號）', authUser.status === 404, `auth.users 那一列應該消失，實得 HTTP ${authUser.status}`)
+
+    // ★ 這條用的是**刪除之前發的那個 JWT**。它還沒過期（JWT 是無狀態的），
+    //   所以這裡問的是：拿著一個指向已刪除使用者的合法 token，還能不能倒出資料。
+    const exportRes = await rpc('export_my_data', asA)
+    const exported = await exportRes.json() as { records?: unknown[], profile?: unknown } | null
+    record('http/account-export-empty', 'US-47 驗收（export_my_data 拿不到東西）', !exported || (exported.profile == null && (exported.records?.length ?? 0) === 0), `舊 token 仍倒得出資料：${JSON.stringify(exported).slice(0, 200)}`)
+
+    const resolved = await fetch(`${env.url}/rest/v1/rpc/resolve_username`, {
+      method: 'POST',
+      headers: { ...asAnon, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_name: 'zzdeleteold' }),
+    }).then(r => r.json() as Promise<string | null>)
+    record('http/account-no-redirect', 'US-47（舊網址不得 301 到一個不存在的人）', resolved === null, `舊名應解析不到任何人，實得 ${JSON.stringify(resolved)}`)
+
+    // ── ★ 別人的東西一樣都沒少 ──────────────────────────────────────────
+    const intact = await sql(
+      `select (select count(*) from public.viewing_record where user_id = $1)::int as records,
+              (select count(*) from public.film where id = $2)::int as shared_film,
+              (select count(*) from public.film where id = $2 and created_by is null)::int as anonymised,
+              (select count(*) from public.film where id = $3)::int as orphan_film,
+              (select count(*) from public.username
+                where profile_id is null and kind = 'reserved'
+                  and name in ($4,'zzdeleteold'))::int as reserved`,
+      [userB, shared, orphan, nameA],
+    ) as Record<string, number>[]
+    const i = intact[0]!
+    record('http/account-others-intact', '★ US-47 驗收最貴的一條（別人的紀錄一筆都沒少）', i.records === 1 && i.shared_film === 1 && i.anonymised === 1
+    && i.orphan_film === 0 && i.reserved === 2, `實得 ${JSON.stringify(i)}`)
+  }
+  finally {
+    try {
+      await sql(`delete from public.viewing_record where film_id in
+                   (select id from public.film where title_zh like $1)`, [`${TEST_PREFIX}%`])
+      await sql(`delete from public.film_identity where film_id in
+                   (select id from public.film where title_zh like $1)`, [`${TEST_PREFIX}%`])
+      await sql(`delete from public.film where title_zh like $1`, [`${TEST_PREFIX}%`])
+      // 隔離中的舊名沒有 profile_id，不會被 cascade 帶走——必須顯式清掉，
+      // 否則下一次跑會撞上 username 的主鍵。
+      await sql(`delete from public.username where name in ('zzdeleteold')
+                   or (profile_id is null and kind = 'reserved' and name like 'zzdelete%')`)
+      for (const id of [userA, userB]) {
+        if (id) {
+          await fetch(`${env.url}/auth/v1/admin/users/${id}`, { method: 'DELETE', headers: admin })
+        }
+      }
+    }
+    catch (cause) {
+      console.error('⚠️  帳號刪除段清理時出錯，請手動確認：', cause)
+    }
+  }
+}
+
 /** 清理是否真的乾淨。清理本身也可能失敗，而失敗時最不該做的就是沉默。 */
 async function assertNoResidue(): Promise<void> {
   const rows = await sql(`
     select (select count(*) from public.film where title_zh like $1)::int as films,
-           (select count(*) from public.profile where username like 'zzverify%')::int as profiles,
+           -- 'zz%' 而不是 'zzverify%'：US-47 那一段另外建了 zzdelete / zzbystander，
+           -- 只認一個前綴的殘留檢查會漏掉它們，而漏掉的樣子是 DB 裡多了一個
+           -- 沒有人記得的 profile（測試資料紀律）。
+           (select count(*) from public.profile where username like 'zz%')::int as profiles,
            (select count(*) from public.takedown_notice
              where claimant_email = 'zzverify@example.invalid')::int as notices`, [`${TEST_PREFIX}%`])
   const r = rows[0]!
   const total = (r.films as number) + (r.profiles as number) + (r.notices as number)
-  record('cleanup/no-residue', '測試資料紀律（不靠執行者記得）',
-    total === 0, `殘留：${JSON.stringify(r)}`)
+  record('cleanup/no-residue', '測試資料紀律（不靠執行者記得）', total === 0, `殘留：${JSON.stringify(r)}`)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -305,10 +481,12 @@ if (!sqlOnly) {
   const url = process.env.SUPABASE_URL
   const anon = process.env.SUPABASE_KEY
   const secret = process.env.SUPABASE_SECRET_KEY
-  if (!url || !anon || !secret)
+  if (!url || !anon || !secret) {
     skip('http/*', '需要 SUPABASE_URL / SUPABASE_KEY / SUPABASE_SECRET_KEY', '環境變數不齊')
+  }
   else {
     await runHttpChecks({ url, anon, secret })
+    await runAccountDeletionChecks({ url, anon, secret })
     await assertNoResidue()
   }
 }

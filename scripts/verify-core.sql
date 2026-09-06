@@ -83,6 +83,12 @@ begin
      and p.proname not in ('is_staff','is_admin','account_is_servable','owner_shows_cost',
                            'record_owner','record_is_public','film_usable_by','resolve_film',
                            'resolve_username','slugify','ugc_poster_film','user_year_stats',
+                           -- 0010 的 /u/ 年表全量聚合。與 user_year_stats 同一個模式：
+                           -- SECURITY INVOKER、只回筆數、完全不碰金額。
+                           -- ⚠️ 這份白名單與 9999 §3 的那份是**兩份**。加了一支對 anon
+                           --    開放的 RPC 只改一邊，另一邊會翻紅——那是設計如此
+                           --    （兩道獨立的門），但兩邊都要改。
+                           'user_year_counts',
                            -- 本檔自己臨時建的探針（A5），不算破口
                            'zz_probe_fn')
      and (has_function_privilege('anon', p.oid, 'execute')
@@ -243,6 +249,71 @@ begin
      and not exists (select 1 from public.film_tmdb_snapshot s where s.film_id = f.id);
   if n <> 0 then
     fails := fails || format('D3 有 %s 部帶 tmdb_id 的作品沒有快照列，它們永遠不會有海報', n);
+  end if;
+
+  -- ===========================================================================
+  -- E. US-47 帳號刪除的結構保證（0009）
+  --    這一組守的不是「刪除會不會成功」——那由 verify-all.ts 的 http/account-*
+  --    真的刪一個帳號來證明。這裡守的是**刪除的形狀**：一旦下面任何一條回到
+  --    0009 之前的樣子，刪除仍然會「成功」，只是會順手毀掉別的東西。
+  -- ===========================================================================
+
+  -- E1 法遵證據不得隨帳號一起消失。
+  --    0009 之前 copyright_strike / counter_notice 的 profile_id 是 ON DELETE
+  --    CASCADE ⇒ 被三振的人按一下刪除帳號，§90-4 要求的處理紀錄就沒了。
+  select count(*) into n
+    from pg_constraint c
+   where c.contype = 'f'
+     and c.conrelid in ('public.copyright_strike'::regclass, 'public.counter_notice'::regclass)
+     and c.confrelid = 'public.profile'::regclass
+     and c.confdeltype <> 'n';   -- 'n' = SET NULL
+  if n <> 0 then
+    fails := fails || format('E1 有 %s 條 DMCA 證據表的 FK 不是 ON DELETE SET NULL（帳號一刪，§90-4 的證據就沒了）', n);
+  end if;
+
+  -- E2 切斷 profile_id 之後，「同一主體累積三次」必須仍然成立。
+  --    subject_ref 可以為 NULL 的話，三筆孤兒三振紀錄跟三個不同的人各被記一次
+  --    在資料上長得一模一樣，而那正是 §90-4 第 2 款要證明的東西。
+  select count(*) into n
+    from information_schema.columns
+   where table_schema = 'public' and table_name in ('copyright_strike', 'counter_notice')
+     and column_name = 'subject_ref' and is_nullable = 'NO';
+  if n <> 2 then
+    fails := fails || format('E2 subject_ref 不是兩張表都有且 NOT NULL（實得 %s／2）', n);
+  end if;
+
+  -- E3 delete_my_account / account_deletion_preview 不得有參數。
+  --    它們的安全性完全建立在「無參數 ⇒ 結構上只能作用在 auth.uid() 自己身上」。
+  --    9999 也有同一條（那裡讓 migration 失敗）；這裡讓驗收失敗，因為 9999
+  --    不見得每次都會被重跑。
+  select count(*) into n from pg_proc p
+    join pg_namespace ns on ns.oid = p.pronamespace
+   where ns.nspname = 'public'
+     and p.proname in ('delete_my_account', 'account_deletion_preview')
+     and p.pronargs > 0;
+  if n <> 0 then
+    fails := fails || format('E3 delete_my_account / account_deletion_preview 出現了參數（就不再是「只能刪自己」）');
+  end if;
+
+  -- E4 兩階段刪除的殘骸不得長回來。
+  --    deletion_requested_at 只要存在而沒有任何東西執行第二階段，刪除就只是
+  --    「看起來有做」。要走兩階段，這個欄位必須跟真的會執行它的東西一起進來
+  --    ——那時候把這條斷言換掉，而不是繞過它。
+  if exists (select 1 from information_schema.columns
+              where table_schema = 'public' and table_name = 'profile_private'
+                and column_name = 'deletion_requested_at') then
+    fails := fails || format('E4 profile_private.deletion_requested_at 又出現了（沒有執行者的兩階段刪除＝假的刪除）');
+  end if;
+
+  -- E5 UGC 作品的作者欄位必須是 ON DELETE SET NULL。
+  --    改成 CASCADE 的話，刪一個帳號會把他建過、而別人正在引用的作品一起帶走
+  --    ——viewing_record.film_id 是 RESTRICT，實際結果是刪除整個失敗；
+  --    改成 RESTRICT 的話，只要建過一部作品就永遠刪不掉帳號。
+  select count(*) into n from pg_constraint c
+   where c.contype = 'f' and c.conrelid = 'public.film'::regclass
+     and c.confrelid = 'public.profile'::regclass and c.confdeltype = 'n';
+  if n <> 1 then
+    fails := fails || format('E5 film.created_by 不是 ON DELETE SET NULL（刪帳號會炸掉別人引用中的作品）');
   end if;
 
   -- ===========================================================================

@@ -84,27 +84,30 @@ export interface Database {
       copyright_strike: {
         Row: {
           id: number
-          profile_id: string
+          profile_id: string | null
           notice_id: number | null
           created_at: string
           revoked_at: string | null
           note: string | null
+          subject_ref: string
         }
         Insert: {
           id?: number
-          profile_id: string
+          profile_id?: string | null
           notice_id?: number | null
           created_at?: string
           revoked_at?: string | null
           note?: string | null
+          subject_ref: string
         }
         Update: {
           id?: number
-          profile_id?: string
+          profile_id?: string | null
           notice_id?: number | null
           created_at?: string
           revoked_at?: string | null
           note?: string | null
+          subject_ref?: string
         }
         Relationships: [
           {
@@ -127,35 +130,38 @@ export interface Database {
         Row: {
           id: number
           notice_id: number
-          profile_id: string
+          profile_id: string | null
           reason: string
           received_at: string
           forwarded_at: string | null
           litigation_deadline_at: string | null
           restore_deadline_at: string | null
           restored_at: string | null
+          subject_ref: string
         }
         Insert: {
           id?: number
           notice_id: number
-          profile_id: string
+          profile_id?: string | null
           reason: string
           received_at?: string
           forwarded_at?: string | null
           litigation_deadline_at?: string | null
           restore_deadline_at?: string | null
           restored_at?: string | null
+          subject_ref: string
         }
         Update: {
           id?: number
           notice_id?: number
-          profile_id?: string
+          profile_id?: string | null
           reason?: string
           received_at?: string
           forwarded_at?: string | null
           litigation_deadline_at?: string | null
           restore_deadline_at?: string | null
           restored_at?: string | null
+          subject_ref?: string
         }
         Relationships: [
           {
@@ -219,7 +225,7 @@ export interface Database {
           imdb_id: string | null
           title_zh: string
           title_zh_source: Database["public"]["Enums"]["source_authority"]
-          title_original: string
+          title_original: string | null
           title_original_source: Database["public"]["Enums"]["source_authority"]
           country: string | null
           language: string | null
@@ -245,7 +251,7 @@ export interface Database {
           imdb_id?: string | null
           title_zh?: string
           title_zh_source?: Database["public"]["Enums"]["source_authority"]
-          title_original?: string
+          title_original?: string | null
           title_original_source?: Database["public"]["Enums"]["source_authority"]
           country?: string | null
           language?: string | null
@@ -270,7 +276,7 @@ export interface Database {
           imdb_id?: string | null
           title_zh?: string
           title_zh_source?: Database["public"]["Enums"]["source_authority"]
-          title_original?: string
+          title_original?: string | null
           title_original_source?: Database["public"]["Enums"]["source_authority"]
           country?: string | null
           language?: string | null
@@ -626,7 +632,6 @@ export interface Database {
           service_status: Database["public"]["Enums"]["service_status"]
           strike_count: number
           suspended_at: string | null
-          deletion_requested_at: string | null
           updated_at: string
         }
         Insert: {
@@ -635,7 +640,6 @@ export interface Database {
           service_status?: Database["public"]["Enums"]["service_status"]
           strike_count?: number
           suspended_at?: string | null
-          deletion_requested_at?: string | null
           updated_at?: string
         }
         Update: {
@@ -644,7 +648,6 @@ export interface Database {
           service_status?: Database["public"]["Enums"]["service_status"]
           strike_count?: number
           suspended_at?: string | null
-          deletion_requested_at?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -1155,11 +1158,21 @@ export interface Database {
       }
     }
     Functions: {
+      account_deletion_preview: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
+      }
       account_is_servable: {
         Args: {
           uid: string
         }
         Returns: boolean
+      }
+      account_purgeable_films: {
+        Args: {
+          p_user: string
+        }
+        Returns: Record<string, unknown>[]
       }
       admin_add_strike: {
         Args: {
@@ -1204,6 +1217,10 @@ export interface Database {
           n: number
         }
         Returns: string
+      }
+      delete_my_account: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
       }
       export_my_data: {
         Args: Record<PropertyKey, never>
@@ -1312,6 +1329,12 @@ export interface Database {
           p_name: string
         }
         Returns: string
+      }
+      user_year_counts: {
+        Args: {
+          p_username: string
+        }
+        Returns: Json
       }
       user_year_stats: {
         Args: {

@@ -106,6 +106,21 @@ grant execute on function public.is_staff(), public.is_admin(),
 grant execute on function public.rename_username(text),
   public.export_my_data() to authenticated;
 
+-- 0009 的 US-47 帳號刪除。兩支都**不收參數** ⇒ 在結構上只能作用在呼叫者自己身上。
+-- ⚠️ account_purgeable_films(uuid) 刻意**不出現在這份清單**：它收一個 uuid，
+--    一旦對 authenticated 開放，任何人都能拿別人的 uuid 列舉對方的未審核作品 id
+--    與海報路徑。它只被上面兩支 SECURITY DEFINER 函式在內部呼叫。
+do $$ begin
+  if to_regprocedure('public.delete_my_account()') is not null then
+    grant execute on function public.delete_my_account(),
+      public.account_deletion_preview() to authenticated;
+    revoke execute on function public.account_purgeable_films(uuid)
+      from public, anon, authenticated;
+  else
+    raise notice 'delete_my_account 尚不存在（0009 未套用），略過其 grant';
+  end if;
+end $$;
+
 -- 0008 的 film_delete_own_ugc policy 用到的 helper。它是 DEFINER（否則 policy
 -- 會遞迴，見 0008 的註解），而 policy 由 authenticated 觸發 ⇒ 必須對它開 EXECUTE，
 -- 否則刪除會變成一句沒有上下文的 42501（踩雷 #84 的同一個家族）。
@@ -135,6 +150,16 @@ do $$ begin
     grant execute on function public.user_year_stats(text, integer) to anon, authenticated;
   else
     raise notice 'user_year_stats 尚不存在（0003 未套用），略過其 grant';
+  end if;
+end $$;
+-- 0010 的 /u/ 年表全量聚合。與 user_year_stats 同一個模式：對 anon 開放 EXECUTE，
+-- 安全性靠函式本身是 SECURITY INVOKER（呼叫者看不到的紀錄進不了聚合）。
+-- 它必須同時列進第 3 節的白名單，否則自我檢查會擋下整份 migration。
+do $$ begin
+  if to_regprocedure('public.user_year_counts(text)') is not null then
+    grant execute on function public.user_year_counts(text) to anon, authenticated;
+  else
+    raise notice 'user_year_counts 尚不存在（0010 未套用），略過其 grant';
   end if;
 end $$;
 grant execute on function public.merge_films(uuid, uuid, text),
@@ -174,7 +199,9 @@ begin
                            'resolve_username','slugify','ugc_poster_film',
                            -- ★ SECURITY INVOKER。匿名可執行是刻意的（公開個人頁的統計），
                            --   RLS 仍逐列把關；改成 DEFINER 會讓這行變成全站資料外洩。
-                           'user_year_stats')
+                           'user_year_stats',
+                           -- 同上（0010）。只回筆數、完全不碰金額，且是 INVOKER。
+                           'user_year_counts')
      and (has_function_privilege('anon', p.oid, 'execute')
           or has_function_privilege('public', p.oid, 'execute'));
   if bad is not null then raise exception '函式對 anon/PUBLIC 開放 EXECUTE：%', bad; end if;
@@ -201,8 +228,32 @@ begin
   -- user_year_stats 一旦被改成 SECURITY DEFINER，RLS 就整個讓開，而它對 anon
   -- 開放 EXECUTE ⇒ 任何人都能把全站觀影紀錄與票價聚合出來。這條讓那個改動
   -- 在 migration 階段就失敗，而不是等到有人發現總花費多了一個零。
+  -- 這兩支都對 anon 開放 EXECUTE。改成 SECURITY DEFINER 的話 RLS 整個讓開，
+  -- 任何人都能把全站觀影紀錄聚合出來。讓那個改動在 migration 階段就失敗，
+  -- 而不是等到有人發現總花費多了一個零。
+  select string_agg(p.proname, ', ') into bad
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname in ('user_year_stats', 'user_year_counts')
+     and p.prosecdef;
+  if bad is not null then
+    raise exception '% 必須是 SECURITY INVOKER（聚合是推論通道，踩雷 #42）', bad;
+  end if;
+
+  -- US-47：delete_my_account 的安全性完全建立在「它沒有參數」上。有人日後為了
+  -- 方便加一個 p_user uuid（例如給管理端點用），這支函式就從「只能刪自己」變成
+  -- 「授權寫對才只能刪自己」，而授權判斷一定會有第二個呼叫端忘記寫。
+  -- 讓那個改動在 migration 階段就失敗，而不是等到有人的帳號被別人刪掉。
   if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-              where n.nspname = 'public' and p.proname = 'user_year_stats' and p.prosecdef) then
-    raise exception 'user_year_stats 必須是 SECURITY INVOKER（聚合是推論通道，踩雷 #42）';
+              where n.nspname = 'public' and p.proname in ('delete_my_account','account_deletion_preview')
+                and p.pronargs > 0) then
+    raise exception 'delete_my_account / account_deletion_preview 不得有參數（US-47：它們只能作用在 auth.uid() 自己身上）';
+  end if;
+
+  -- account_purgeable_films(uuid) 收別人的 uuid ⇒ 對登入者開放就是列舉他人
+  -- 未審核作品與海報路徑的通道。
+  if to_regprocedure('public.account_purgeable_films(uuid)') is not null
+     and (has_function_privilege('authenticated', 'public.account_purgeable_films(uuid)', 'execute')
+          or has_function_privilege('anon', 'public.account_purgeable_films(uuid)', 'execute')) then
+    raise exception 'account_purgeable_films(uuid) 不得對 anon/authenticated 開放 EXECUTE';
   end if;
 end $$;

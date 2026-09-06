@@ -75,7 +75,12 @@ export default defineEventHandler(async (event) => {
   // trigger 算好的兩個期限直接回給前端顯示。
   const { data: created, error: insertError } = await db
     .from('counter_notice')
-    .insert({ notice_id: noticeId, profile_id: user.id, reason })
+    // subject_ref 由 0009 的 fill_subject_ref trigger 自動補成 profile_id，
+    // 這裡仍然顯式帶上：它是 NOT NULL，所以型別要求寫入端給值——
+    // **那是刻意的**。忘記帶會變成編譯錯誤，而不是等到某人刪帳號、
+    // 三振紀錄的鏈斷掉之後才發現。trigger 是給 SQL 層寫入端（admin_add_strike）
+    // 的後盾，型別是給 TypeScript 寫入端的。
+    .insert({ notice_id: noticeId, profile_id: user.id, subject_ref: user.id, reason })
     .select('id,received_at,litigation_deadline_at,restore_deadline_at')
     .single()
 
