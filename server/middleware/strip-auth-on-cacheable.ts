@@ -35,15 +35,40 @@
  * 而言，這正是應該的行為。
  */
 
-/** 與 nuxt.config.ts 的 routeRules 中「會被快取」的那幾條保持一致。 */
-function isCacheable(path: string): boolean {
-  if (path === '/' || path.startsWith('/?'))
-    return true
-  return /^\/(?:film|venue|legal)(?:\/|$|\?)/.test(path)
+/**
+ * ── 為什麼不再自己維護一份「哪些路由會被快取」的清單 ──────────────
+ *
+ * 這裡原本是一條寫死的正則 `^/(?:film|venue|legal)(?:/|$|\?)`，註解宣稱它
+ * 「與 nuxt.config.ts 的 routeRules 保持一致」。**那句話後來變成假的**：
+ * `/legal/**` 改成即時 SSR + `cache-control: no-store`（條款正文來自
+ * legal_document，烤死的版本會讓 legal_acceptance 的同意變成不可查證），
+ * 而這支沒有跟著改。前端第二棒把這個隱性耦合列為「目前最危險的一條」。
+ *
+ * 危險的不是那個多餘的 `/legal`——多拔一次 cookie 是無害的防禦。危險的是
+ * **兩份清單**：這一份漂移的方向剛好是安全的，下一次未必。少寫一條的症狀是
+ * 一枚合法 access_token 被寫進 CDN 並發給所有訪客，而**畫面完全正常**。
+ *
+ * 所以改成向 Nitro 問**它自己**要怎麼處理這條路由。routeRules 只有一份，
+ * 這支不再有機會與它不同步：任何人日後給 `/legal/**` 加回 `isr`，
+ * 這裡會自動開始拔 cookie，不必記得回來改。
+ *
+ * ⚠️ `getRouteRules()` 回空物件時我們會判成「不快取」＝不拔 cookie，那是
+ *    **不安全的方向**。所以 `scripts/verify-ssr-payload.ts` 直接對真的 HTML
+ *    斷言「可快取路由的 payload 裡不得出現 access_token」——那條測的是我們
+ *    真正在乎的性質，而不是這支的機制。
+ */
+function isCacheable(event: Parameters<typeof getRouteRules>[0]): boolean {
+  const rules = getRouteRules(event)
+  // ⚠️ 這裡**沒有** `rules.swr`，那不是漏掉：`NitroRouteRules` 的定義是
+  //    `Omit<NitroRouteConfig, 'redirect' | 'cors' | 'swr' | 'static'>`
+  //    ——`swr: true` 在建置期就被正規化成 `cache`，執行期讀不到那個鍵。
+  //    照 nuxt.config 的字面去找 `swr` 會得到一個永遠 undefined 的判斷，
+  //    而症狀是「設了 swr 的路由不拔 cookie」，畫面完全正常。
+  return Boolean(rules.isr || rules.prerender || rules.cache)
 }
 
 export default defineEventHandler((event) => {
-  if (!isCacheable(event.path))
+  if (!isCacheable(event))
     return
 
   const raw = getHeader(event, 'cookie')

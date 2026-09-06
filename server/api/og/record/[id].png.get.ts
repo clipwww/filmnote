@@ -8,8 +8,9 @@ import { recordCard, safeHero } from '~~/server/utils/og-card'
  *   CDN 裡那張圖長什麼樣。票價因此在結構上就進不來（`SCREENS §16.3`）。
  */
 export default defineEventHandler(async (event) => {
-  const id = getRouterParam(event, 'id')?.replace(/\.png$/, '') ?? ''
-  if (!/^[0-9a-f-]{36}$/i.test(id))
+  // ⚠️ 不要換回 getRouterParam('id')：那個鍵實際上叫 `id.png`。見 og-route.ts。
+  const id = ogRouteId(event)
+  if (!id || !/^[0-9a-f-]{36}$/i.test(id))
     throw createError({ statusCode: 400, statusMessage: '紀錄 id 格式不正確' })
 
   const db = publicSupabase()
@@ -45,7 +46,8 @@ export default defineEventHandler(async (event) => {
   const png = await renderPng(recordCard({
     hero,
     kicker: [rec.watched_on?.replace(/-/g, ' / '), rec.watched_time?.slice(0, 5)]
-      .filter(Boolean).join('　'),
+      .filter(Boolean)
+      .join('　'),
     venue: venue?.name ? `${venue.name}${rec.hall_label ? `（${rec.hall_label}）` : ''}` : null,
     meta: meta || null,
     attribution: '片名資料：文化部影視及流行音樂產業局 · TMDB',

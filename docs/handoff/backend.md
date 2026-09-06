@@ -15,7 +15,9 @@ pnpm verify:all                                          # 25 條，全綠
 pnpm test                                                # 298 條，全綠
 pnpm typecheck                                           # 全綠（整個 repo）
 pnpm dev                                                 # 另一個終端機
-pnpm tsx --env-file=.env scripts/verify-account-delete.ts # 11 條，全綠
+pnpm tsx --env-file=.env scripts/verify-http.ts           # 11 條，全綠
+pnpm tsx --env-file=.env scripts/verify-account-delete.ts # 11 條，全綠（會真的刪帳號）
+pnpm tsx --env-file=.env scripts/scan-git-secrets.ts      # push 前必跑
 ```
 
 ⚠️ `pnpm lint` 在 HEAD 就是紅的（`app/utils/stats.ts` 的 `no-irregular-whitespace`、
@@ -46,9 +48,24 @@ pnpm tsx --env-file=.env scripts/verify-account-delete.ts # 11 條，全綠
 | 「policy 有但 grant 沒給」的機器化 | ✅ `verify-core.sql` 的 **F1**，含刻意缺口的白名單 |
 | `/app/import` 的 TMDB 線上比對 | ✅ `GET /api/import/tmdb-search` |
 | `/app/import` 的 CSV 剖析 | ✅ `POST /api/import/parse-csv` ＋ `server/utils/mylog-csv.ts`（19 條單元測試） |
+| `strip-auth-on-cacheable` 的隱性耦合 | ✅ 改成問 `getRouteRules(event)`，不再有第二份清單（§7 #117） |
+| **`/api/og/**` 從來沒有真的跑起來過** | ✅ router param 的鍵是 `username.png`，兩支端點對每個請求都回 400（§7 #118） |
+| SSR payload 與 OG 的 HTTP 驗收 | ✅ `scripts/verify-http.ts`（11 條，含兩組對照） |
+| Step 11 憑證掃描 | ✅ `scripts/scan-git-secrets.ts`（掃**全部** 943 個物件，含 13 個不可達 blob） |
 
-**沒做**：Step 11 部署前檢查（字型是否進版控的複核、git 歷史憑證掃描）、
-OG 端點在真實部署上的實測——那三件都要等真的要 push 的時候。
+**Step 11 的兩件已做**（第三件 CRON_SECRET 是 David 的部署設定）：
+
+- **14MB 字型進版控：確認維持。** 兩個檔都在版控裡（7,085,600 + 7,090,820 bytes），
+  magic 是 `00010000`＝TrueType sfnt（不是 satori 吃不下的 `wOF2`）。全站沒有任何
+  `fonts.googleapis` / `fonts.gstatic` 的執行期參照。**新發現**：Nitro 把
+  `server/assets/**` **內聯成 base64 的 `.mjs`**——`.output/server/chunks/raw/
+  NotoSansTC-{Regular,Bold}.mjs` 各 **9 MB**（base64 比原檔胖三分之一），
+  這就是 `.output/server` 從 34 MB 長到 **40 MB** 的來源。`find .output -name '*.ttf'`
+  **找不到任何東西**，那是正常的，不要因此以為字型沒進去。
+- **git 歷史憑證掃描：乾淨。** 見第 6c 節。
+
+**仍未做**：OG 端點在**真實部署**上的實測（本機 dev 已經全綠，但 Vercel 的
+Node runtime 與 linux 原生模組仍未驗證，見 §7 #108）。
 
 ---
 
@@ -265,6 +282,34 @@ CSV 路徑沒有上游 ⇒ 必須自己複製這條規則。不做的話那五�
    `Array.from({length:64}).fill(0)`——執行期完全一樣，型別卻從 `number[]`
    變成 `unknown[]`。`verify:all` 照樣全綠（tsx 只去型別不檢查），
    只有 `pnpm typecheck` 會紅。**動完 scripts/** 之後兩個都要跑。**
+
+## 6c. Step 11 的兩件（已做）
+
+### git 歷史憑證掃描 —— `scripts/scan-git-secrets.ts`
+
+實測 2026-09-06：
+
+```
+物件總數 943（blob 421）
+其中不可達 13 個 blob —— 只有 --batch-all-objects 掃得到
+比對目前 .env 的 7 個憑證：✅ 全部沒有出現在任何物件裡
+形狀比對：✅ 沒有命中
+```
+
+三件值得記住的：
+
+1. **`git log -p | grep` 只看得到可達物件。** 這個 repo 可達 900、全部 943
+   ——**43 個物件只有 `--batch-all-objects` 掃得到**。被 amend / rebase /
+   reset 掉的 commit 仍躺在 `.git/objects` 裡，`git push` 不送它們，但 clone
+   之後 `git fsck --lost-found` 撈得到，GitHub 也能直接以 SHA 取懸空物件。
+2. **兩輪比對，形狀 + 身分。** 形狀比對（正則）會隨 Supabase 換 key 前綴而過期；
+   身分比對（拿目前 `.env` 的值去 grep）不會。兩輪都要。
+3. **它第一版噴了 27 筆假陽性**，原因是 `\s*=\s*` 讓比對跨過換行，把
+   `NUXT_TMDB_API_KEY=`（空值）後面**下一行的變數名**當成了值——空值正是
+   最該略過的情況，卻變成警報。改成 `[ \t]*=[ \t]*` 之後歸零。
+   **一支每次都報 27 筆的掃描等於沒有掃描**（§7 #104 的同一個家族）。
+4. 綠燈自己證明過：種一個**不可達**的假憑證 blob 進去（`git hash-object -w`
+   只寫物件、不碰 ref），掃描以三條規則命中並標記 ⚠️不可達物件；移除後回綠。
 
 ## 6. 給下一棒的提醒
 

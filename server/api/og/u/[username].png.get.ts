@@ -11,7 +11,9 @@ import { profileCard } from '~~/server/utils/og-card'
  *   點進去沒有，是 design 對帳時列為最嚴重的一條。照規格做，不是規格錯了。
  */
 export default defineEventHandler(async (event) => {
-  const username = getRouterParam(event, 'username')?.replace(/\.png$/, '') ?? ''
+  // ⚠️ 不要換回 getRouterParam('username')：那個鍵實際上叫 `username.png`，
+  //    兩支 OG 端點因此對每一個請求都回 400。理由見 og-route.ts。
+  const username = ogRouteId(event)
   if (!username)
     throw createError({ statusCode: 400, statusMessage: '缺少 username' })
 
