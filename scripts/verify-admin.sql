@@ -20,7 +20,7 @@ begin;
 do $$
 declare
   v_user uuid; v_venue text; v_loser uuid; v_winner uuid; v_rec uuid;
-  v_claims text; n integer; v_vis text; v_state text; v_moved integer;
+  v_claims text; n integer; v_vis text; v_state text; v_moved integer; v_blocked boolean;
 begin
   select id into v_user from public.profile order by created_at limit 1;
   if v_user is null then raise exception '驗收中止：DB 內沒有任何 profile'; end if;
@@ -122,14 +122,32 @@ begin
 
   ---------------------------------------------------------------------------
   -- D. staff 駁回 → 回到 private，且是可逆的（沒有檔案被搬走）
+  --
+  --    ★ 0011 起駁回**必須帶理由**：沒有理由的駁回，作者不知道為什麼被駁回，
+  --      也就不知道怎麼改，只會原樣再送一次。這一段先驗「不帶理由會被擋」，
+  --      再驗正常路徑——只驗後者的話，那個必填規則哪天被拿掉也沒人會發現。
   ---------------------------------------------------------------------------
+  v_blocked := false;
+  begin
+    execute 'set local role authenticated';
+    perform public.approve_film(v_loser, false);
+    execute 'reset role';
+  exception when check_violation then
+    execute 'reset role';
+    v_blocked := true;
+  end;
+  if not v_blocked then
+    raise exception 'D 失敗：★ 沒有理由的駁回竟然通過（作者不會知道要改什麼）'; end if;
+
   execute 'set local role authenticated';
-  perform public.approve_film(v_loser, false);
+  perform public.approve_film(v_loser, false, '__verify__ 片名有錯字');
   execute 'reset role';
   select visibility::text, review_state::text into v_vis, v_state
     from public.film where id = v_loser;
   if v_vis <> 'private' or v_state <> 'rejected' then
     raise exception 'D 失敗：駁回後狀態是 %/%（應為 private/rejected）', v_vis, v_state; end if;
+  if (select review_note from public.film where id = v_loser) is distinct from '__verify__ 片名有錯字' then
+    raise exception 'D 失敗：駁回理由沒有存下來'; end if;
 
   -- 再通過一次，證明駁回不是單向門
   execute 'set local role authenticated';
@@ -137,6 +155,9 @@ begin
   execute 'reset role';
   select visibility::text into v_vis from public.film where id = v_loser;
   if v_vis <> 'public' then raise exception 'D 失敗：駁回後無法再通過'; end if;
+  -- 核准要清掉舊的駁回理由，否則已核准的作品上會一直掛著一句「片名有錯字」
+  if (select review_note from public.film where id = v_loser) is not null then
+    raise exception 'D 失敗：核准後舊的駁回理由沒有清掉'; end if;
 
   ---------------------------------------------------------------------------
   -- E. 合併：一筆紀錄都不能不見

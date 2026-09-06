@@ -32,6 +32,14 @@ import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
 const bodySchema = z.object({
   // 預設為通過。駁回要顯式傳 false，避免手滑把「按錯」變成「靜默駁回」。
   approve: z.boolean().default(true),
+  /**
+   * 審核意見。**駁回時必填**（0011）。
+   *
+   * 這裡不做「駁回一定要有 note」的檢查——`approve_film()` 會擋（23514）。
+   * 兩邊各寫一份判斷就會漂移，而漂移的樣子是「某一條路徑上可以無理由駁回」。
+   * 這裡只負責把 4xx 翻譯成人看得懂的話。
+   */
+  note: z.string().trim().max(500).optional(),
 })
 
 export default defineEventHandler(async (event) => {
@@ -66,6 +74,11 @@ export default defineEventHandler(async (event) => {
   const { error: rpcError } = await db.rpc('approve_film', {
     p_film: filmId,
     p_approve: parsed.data.approve,
+    // 送空字串而不是省略：`scripts/gen-types.ts` 把**有預設值的參數也標成必填**
+    // （`p_approve` 也是），所以 TS 這邊必須給值。空字串與 null 在
+    // `approve_film()` 裡等價——`coalesce(btrim(p_note),'') = ''` 兩者都擋，
+    // 核准時則一律把 review_note 清成 null。
+    p_note: parsed.data.note ?? '',
   })
 
   if (rpcError) {
@@ -73,20 +86,28 @@ export default defineEventHandler(async (event) => {
     // 那不是伺服器壞了，是呼叫者沒有權限。
     if (rpcError.code === '42501')
       throw createError({ statusCode: 403, statusMessage: '需要審核權限' })
+    // 23514 是「駁回沒填理由」。那是呼叫端的問題，不是伺服器壞了——
+    // 回 500 的話 UI 只會顯示「伺服器錯誤」，審核者不知道自己少填了什麼。
+    if (rpcError.code === '23514')
+      throw createError({ statusCode: 422, statusMessage: '駁回必須填寫理由（作者要知道怎麼改）' })
     throw createError({ statusCode: 500, statusMessage: `審核失敗：${rpcError.message}` })
   }
 
   const { data: after, error: afterError } = await db
     .from('film')
-    .select('id,slug,title_zh,visibility,review_state,ugc_poster_path')
+    .select('id,slug,title_zh,visibility,review_state,review_note,ugc_poster_path')
     .eq('id', filmId)
     .maybeSingle()
 
   if (afterError || !after)
     throw createError({ statusCode: 500, statusMessage: '審核已套用，但讀回結果失敗' })
 
+  // eslint-disable-next-line no-console
   console.log('[admin/films/approve]', JSON.stringify({
-    filmId, approve: parsed.data.approve, by: user.id,
+    filmId,
+    approve: parsed.data.approve,
+    by: user.id,
+    hasNote: !!parsed.data.note,
     from: `${before.visibility}/${before.review_state}`,
     to: `${after.visibility}/${after.review_state}`,
   }))

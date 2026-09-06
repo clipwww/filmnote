@@ -217,7 +217,11 @@ async function runHttpChecks(env: HttpEnv): Promise<void> {
       skip('http/poster-*', 'Step 7 驗收', '建立 UGC 作品失敗，海報段無法進行')
     }
     else {
-      const png = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, ...Array.from({ length: 64 }).fill(0)])
+      // PNG magic number + 64 個 0。用 new Uint8Array(72) 而不是展開一個
+      // Array.from(...).fill(0)：後者的型別是 unknown[]，而 tsx 不做型別檢查
+      // ⇒ verify:all 全綠但 pnpm typecheck 紅。
+      const png = new Uint8Array(72)
+      png.set([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
       const up = await fetch(`${env.url}/storage/v1/object/ugc-poster/${filmId}/poster.png`, {
         method: 'POST',
         headers: { ...asUser, 'Content-Type': 'image/png' },
@@ -324,10 +328,13 @@ async function runAccountDeletionChecks(env: HttpEnv): Promise<void> {
     const asA = { apikey: env.anon, Authorization: `Bearer ${tokenA}` }
     const asAnon = { apikey: env.anon, Authorization: `Bearer ${env.anon}` }
 
-    const [{ username: nameA }] = await sql(
+    const nameRows = await sql(
       `select username from public.profile where id = $1`,
       [userA],
     ) as { username: string }[]
+    const nameA = nameRows[0]?.username
+    if (!nameA)
+      return skip('http/account-*', 'US-47 驗收', 'handle_new_user 沒有替 A 建立 profile')
 
     // 前置資料。用直連建，因為要測的是刪除本身，不是建立流程。
     const venueRows = await sql(`select id from public.venue order by id limit 1`)

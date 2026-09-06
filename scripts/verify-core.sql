@@ -317,6 +317,79 @@ begin
   end if;
 
   -- ===========================================================================
+  -- F. policy 與表級 GRANT 必須一致（§7 #132 的機器化）
+  --
+  --    這個家族已經出現三次了：
+  --      · #84  business_days_between 的前身：INVOKER trigger 呼叫的 helper 只
+  --             revoke 沒 grant ⇒ 使用者提不出回復通知
+  --      · #106 ② film_delete_own_ugc 的 policy 對了但少 `grant delete`
+  --      · #132 takedown_notice / counter_notice 的 `for all` staff policy 完全
+  --             是裝飾品，因為 authenticated 對它們只有 SELECT / INSERT
+  --    第四次應該由機器抓到，不是由人踩到。
+  --
+  -- ★ 但「policy 允許而 grant 沒給」**不一定是 bug**。這個專案的管理端寫入
+  --   刻意走 SECURITY DEFINER RPC（踩雷 #26），所以那些表的直接寫入權**本來就
+  --   不該給**——給了反而讓 staff 改得動 claimant_name、work_description 這類
+  --   法遵證據。所以這條斷言檢查的不是「有沒有缺口」，是
+  --   **「每一個缺口都是寫下來的決定」**。新出現一個沒寫下來的，就翻紅。
+  --
+  -- ⚠️ 要放行一個新缺口之前先問：真正的修法是補 grant、還是補一支 RPC、
+  --   還是那條 policy 根本不該是 `for all`？把答案寫進 why 欄。
+  -- ===========================================================================
+  select string_agg(format('%s.%s 缺 %s（policy: %s）', 'public', g.tablename, g.priv, g.policies),
+                    E'\n           ') into t
+    from (
+      select pol.tablename, pol.priv, string_agg(distinct pol.policyname, ', ') as policies
+        from (
+          select p.tablename, p.policyname, r.grantee, v.priv
+            from pg_policies p
+            cross join lateral unnest(p.roles) as r(grantee)
+            cross join lateral unnest(
+              case when p.cmd = 'ALL' then array['SELECT','INSERT','UPDATE','DELETE']
+                   else array[p.cmd::text] end) as v(priv)
+           where p.schemaname = 'public'
+        ) pol
+       where pol.grantee in ('anon', 'authenticated')
+         and not has_table_privilege(pol.grantee, 'public.' || pol.tablename, pol.priv)
+         and (pol.tablename, pol.grantee, pol.priv) not in (
+           -- ── 刻意的缺口。每一列都要有理由。 ───────────────────────────
+           -- 寫入一律走 admin_add_strike() / admin_restore()；三振是法遵證據，
+           -- 直接 UPDATE 等於可以改寫別人被記過的時間。
+           ('copyright_strike', 'authenticated', 'INSERT'),
+           ('copyright_strike', 'authenticated', 'UPDATE'),
+           ('copyright_strike', 'authenticated', 'DELETE'),
+           -- forwarded_at 走 admin_forward_counter_notice()、restored_at 走
+           -- admin_restore()。DELETE **永遠不給**：0001「取下是狀態不是 DELETE」。
+           ('counter_notice', 'authenticated', 'UPDATE'),
+           ('counter_notice', 'authenticated', 'DELETE'),
+           -- notified_user_at 走 admin_notify_user()、status 走 admin_takedown()
+           -- 與 admin_restore()。DELETE 同上，永遠不給。
+           ('takedown_notice', 'authenticated', 'UPDATE'),
+           ('takedown_notice', 'authenticated', 'DELETE'),
+           -- 取下動作紀錄全部由 admin_takedown() / admin_restore() 寫。
+           ('takedown_action', 'authenticated', 'INSERT'),
+           ('takedown_action', 'authenticated', 'UPDATE'),
+           ('takedown_action', 'authenticated', 'DELETE'),
+           -- 0011：結案走 admin_resolve_report()（駁回強制填理由，
+           -- 直接 UPDATE 會繞過那個檢查）。
+           ('data_report', 'authenticated', 'UPDATE'),
+           ('data_report', 'authenticated', 'DELETE'),
+           -- profile 由 handle_new_user() 建、由 delete_my_account() 刪。
+           -- ★ DELETE 尤其不能給：直接 delete profile 會留下 auth.users 那一列
+           --   （殭屍帳號，§7 #111），而且跳過 username 進隔離那一步。
+           ('profile', 'authenticated', 'INSERT'),
+           ('profile', 'authenticated', 'DELETE'),
+           ('profile_private', 'authenticated', 'INSERT'),
+           ('profile_private', 'authenticated', 'DELETE')
+         )
+       group by 1, 2
+    ) g;
+  if t is not null then
+    fails := fails || format('F1 有 policy 允許但表級 GRANT 沒給的組合，且不在刻意清單裡：%s%s',
+                             E'\n           ', t);
+  end if;
+
+  -- ===========================================================================
   -- 收尾
   -- ===========================================================================
   if array_length(fails, 1) is null then

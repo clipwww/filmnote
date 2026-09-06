@@ -189,6 +189,9 @@ export interface Database {
           body: string
           status: string
           created_at: string
+          staff_reply: string | null
+          handled_by: string | null
+          resolved_at: string | null
         }
         Insert: {
           id?: number
@@ -198,6 +201,9 @@ export interface Database {
           body: string
           status?: string
           created_at?: string
+          staff_reply?: string | null
+          handled_by?: string | null
+          resolved_at?: string | null
         }
         Update: {
           id?: number
@@ -207,8 +213,18 @@ export interface Database {
           body?: string
           status?: string
           created_at?: string
+          staff_reply?: string | null
+          handled_by?: string | null
+          resolved_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "data_report_handled_by_fkey"
+            columns: ["handled_by"]
+            isOneToOne: false
+            referencedRelation: "profile"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "data_report_reporter_id_fkey"
             columns: ["reporter_id"]
@@ -244,6 +260,7 @@ export interface Database {
           search_text: string | null
           created_at: string
           updated_at: string
+          review_note: string | null
         }
         Insert: {
           id?: string
@@ -269,6 +286,7 @@ export interface Database {
           merged_at?: string | null
           created_at?: string
           updated_at?: string
+          review_note?: string | null
         }
         Update: {
           id?: string
@@ -294,6 +312,7 @@ export interface Database {
           merged_at?: string | null
           created_at?: string
           updated_at?: string
+          review_note?: string | null
         }
         Relationships: [
           {
@@ -1101,6 +1120,22 @@ export interface Database {
         }
         Relationships: []
       }
+      film_review_queue: {
+        Row: {
+          id: string | null
+          slug: string | null
+          title_zh: string | null
+          title_original: string | null
+          country: string | null
+          release_year: number | null
+          ugc_poster_path: string | null
+          created_by: string | null
+          review_note: string | null
+          created_at: string | null
+          updated_at: string | null
+        }
+        Relationships: []
+      }
       legal_acceptance_drift: {
         Row: {
           profile_id: string | null
@@ -1182,6 +1217,27 @@ export interface Database {
         }
         Returns: number
       }
+      admin_forward_counter_notice: {
+        Args: {
+          p_counter_id: number
+        }
+        Returns: Json
+      }
+      admin_notify_user: {
+        Args: {
+          p_notice_id: number
+          p_note: string
+        }
+        Returns: string
+      }
+      admin_resolve_report: {
+        Args: {
+          p_report_id: number
+          p_status: string
+          p_reply: string
+        }
+        Returns: undefined
+      }
       admin_restore: {
         Args: {
           p_notice_id: number
@@ -1208,6 +1264,7 @@ export interface Database {
         Args: {
           p_film: string
           p_approve: boolean
+          p_note: string
         }
         Returns: undefined
       }
@@ -1217,6 +1274,13 @@ export interface Database {
           n: number
         }
         Returns: string
+      }
+      business_days_between: {
+        Args: {
+          p_from: string
+          p_to: string
+        }
+        Returns: number
       }
       delete_my_account: {
         Args: Record<PropertyKey, never>

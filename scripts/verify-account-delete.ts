@@ -141,7 +141,11 @@ async function main(): Promise<void> {
     )
     filmId = films[0]!.id as string
 
-    const png = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, ...Array.from({ length: 64 }).fill(0)])
+    // PNG magic number + 64 個 0。用 new Uint8Array(72) 而不是展開一個
+    // Array.from(...).fill(0)：後者的型別是 unknown[]，而 tsx 不做型別檢查
+    // ⇒ verify:all 全綠但 pnpm typecheck 紅。
+    const png = new Uint8Array(72)
+    png.set([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
     const up = await fetch(`${url}/storage/v1/object/ugc-poster/${filmId}/poster.png`, {
       method: 'POST',
       headers: { 'apikey': anon, 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'image/png' },
@@ -217,8 +221,8 @@ async function main(): Promise<void> {
                 (select count(*) from public.username where name like 'zze2edel%')::int as names`,
         [`${FILM_PREFIX}%`],
       )
-      const r = residue[0]! as Record<string, number>
-      record('cleanup/no-residue（清理本身也可能失敗，失敗時最不該做的就是沉默）', r.profiles + r.films + r.names === 0, JSON.stringify(r))
+      const r = (residue[0] ?? {}) as { profiles?: number, films?: number, names?: number }
+      record('cleanup/no-residue（清理本身也可能失敗，失敗時最不該做的就是沉默）', (r.profiles ?? 0) + (r.films ?? 0) + (r.names ?? 0) === 0, JSON.stringify(r))
     }
     catch (cause) {
       console.error('⚠️  清理時出錯，請手動確認：', cause)

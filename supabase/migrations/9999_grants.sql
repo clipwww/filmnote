@@ -162,8 +162,48 @@ do $$ begin
     raise notice 'user_year_counts 尚不存在（0010 未套用），略過其 grant';
   end if;
 end $$;
-grant execute on function public.merge_films(uuid, uuid, text),
-  public.approve_film(uuid, boolean) to authenticated, service_role;
+-- ⚠️ approve_film 的簽名在 0011 從 (uuid, boolean) 變成 (uuid, boolean, text)
+--    ——加參數只能 drop + create（`create or replace` 會產生**重載**，兩支同名
+--    函式並存時 PostgREST 回 300 Multiple Choices），而 drop 會把這裡給過的
+--    grant 一起帶走。所以簽名一改，這一行也必須改。
+grant execute on function public.merge_films(uuid, uuid, text) to authenticated, service_role;
+do $$ begin
+  if to_regprocedure('public.approve_film(uuid, boolean, text)') is not null then
+    grant execute on function public.approve_film(uuid, boolean, text) to authenticated, service_role;
+  elsif to_regprocedure('public.approve_film(uuid, boolean)') is not null then
+    grant execute on function public.approve_film(uuid, boolean) to authenticated, service_role;
+    raise notice 'approve_film 仍是 0001 的兩參數版（0011 未套用）';
+  else
+    raise exception 'approve_film 不存在';
+  end if;
+end $$;
+
+-- 0011 的三支承辦 RPC。與 0006 那三支同一個模式：對 authenticated 開放，
+-- 實際把關在函式內的 is_staff()。**刻意不補 `grant update`** 到
+-- takedown_notice / counter_notice —— 那會讓 staff 改得動 claimant_name、
+-- work_description、received_at，也就是竄改法遵證據；只有流程欄位該動，
+-- 而且時間戳要由伺服器端的 now() 決定（見 0011 §1）。
+do $$ begin
+  if to_regprocedure('public.admin_notify_user(bigint, text)') is not null then
+    grant execute on function public.admin_notify_user(bigint, text),
+      public.admin_forward_counter_notice(bigint),
+      public.admin_resolve_report(bigint, text, text) to authenticated, service_role;
+    -- /admin 要顯示「還剩幾個工作日」。IMMUTABLE 的純日期運算，不碰任何表。
+    grant execute on function public.business_days_between(timestamptz, timestamptz)
+      to authenticated;
+  else
+    raise notice '0011 的三支承辦 RPC 尚不存在，略過其 grant';
+  end if;
+end $$;
+
+-- 0011 的審核佇列 view。security_invoker ⇒ 仍走 film_read policy。
+do $$ begin
+  if to_regclass('public.film_review_queue') is not null then
+    grant select on public.film_review_queue to authenticated;
+  else
+    raise notice 'film_review_queue 尚不存在（0011 未套用），略過其 grant';
+  end if;
+end $$;
 
 -- 0006 的取下／三振／回復。對 authenticated 開放，實際把關在函式內的
 -- is_staff()——與 merge_films / approve_film 同一個模式：一般登入者呼叫會拿到
