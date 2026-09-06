@@ -6,6 +6,8 @@
  * （見 tests/import.test.ts）。
  */
 
+import { normalizeCountry } from '#pipeline/normalize/country'
+
 /** 上游一列的原始欄位。169 筆實測全部具備這些欄位且皆非 null。 */
 export interface MyLogItem {
   /** 原始 CSV 列的 base64。天生就是確定性鍵，直接當 import_key。 */
@@ -272,7 +274,11 @@ export function normalizeRecords(items: MyLogItem[]): NormalizeResult {
       watchedOn: clock.watchedOn,
       watchedTime: clock.watchedTime,
       title: item.title.trim(),
-      country: item.area.trim(),
+      // ⚠️ 這條路徑**不經過政府資料**：`/app/import` 會拿它直接 insert
+      //    `film.country`（`import.vue` 的 `countryOf(title)`）。只修政府那一支的話，
+      //    再匯入一次舊 log 就能造出新的「中華民國」，而且是使用者自己的路徑、
+      //    沒有任何檢查會擋。同一個欄位、同一個失敗模式，兩邊一起收。
+      country: normalizeCountry(item.area) ?? '',
       venueAlias: item.theater.trim(),
       formatCode: format.code,
       formatNote: format.note,

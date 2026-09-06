@@ -11,6 +11,7 @@
 import type { Certificate, RowDefect } from '#pipeline/types'
 import { parse } from 'csv-parse/sync'
 import { findTitleCorrection } from '#pipeline/import/title-corrections'
+import { normalizeCountry } from '#pipeline/normalize/country'
 import { inspectOriginalTitle, inspectTitleZh } from '#pipeline/normalize/defensive'
 import { parseRuntimeMinutes } from '#pipeline/normalize/runtime'
 import { extractVersionNote, normalizeTitle } from '#pipeline/normalize/title'
@@ -163,7 +164,12 @@ function toCertificate({ cells, defects: rowDefects }: AlignedRow): Certificate 
     titleZh: title,
     // 原文片名損毀時存空字串，比對器會自動只走中文片名路徑。
     titleOriginal: original.usable ? originalRaw : '',
-    country: at(5),
+    // 國別在這裡就收斂（`中華民國`／`臺灣` → `台灣`）。不在下游做的理由：
+    // `certificate.country` 會被 `consolidate.ts` 帶進 `film.country`，而國別分布圖
+    // 直接 group by 它 ⇒ 兩種寫法會裂成兩條長條。`?? ''` 是為了維持
+    // `Certificate.country` 的 `string` 型別（`at(5)` 本來就會回 `''`），
+    // 「空」繼續交給 0008 在 DB 層定的 `'' → null` 規則。
+    country: normalizeCountry(at(5)) ?? '',
     language: at(6),
     producer: at(7),
     runtimeMinutes,

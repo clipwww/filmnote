@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { extractCity, unifyTaiwanChar } from '#pipeline/normalize/city'
+import { normalizeCountry } from '#pipeline/normalize/country'
 import { hasPrivateUseChars, hasReplacementChars, inspectOriginalTitle, inspectTitleZh, isCorruptedEncoding, isExcelDateArtifact } from '#pipeline/normalize/defensive'
 import { parseRuntimeMinutes } from '#pipeline/normalize/runtime'
 import { extractVersionNote, normalizeTitle } from '#pipeline/normalize/title'
@@ -119,6 +120,45 @@ describe('縣市正規化', () => {
 
   it('unifyTaiwanChar 只換字不做其他處理', () => {
     expect(unifyTaiwanChar('臺中市臺灣大道')).toBe('台中市台灣大道')
+  })
+})
+
+describe('國別正規化', () => {
+  it.each([
+    ['中華民國', '台灣'],
+    ['臺灣', '台灣'],
+    ['台灣', '台灣'],
+    ['  中華民國  ', '台灣'],
+    ['日本', '日本'],
+    ['香港', '香港'],
+  ])('%s → %s', (input, expected) => {
+    expect(normalizeCountry(input)).toBe(expected)
+  })
+
+  // 冪等：套兩次跟套一次一樣。這條在「上游正規化 + 既有資料 UPDATE」兩層並存時
+  // 特別重要——同一列可能兩邊都經過一次。
+  it('冪等', () => {
+    for (const input of ['中華民國', '臺灣', '台灣', '日本']) {
+      const once = normalizeCountry(input)
+      expect(normalizeCountry(once)).toBe(once)
+    }
+  })
+
+  // 空值回 null 不是 ''：0008 已經在 DB 層把「沒有國別」定成 NULL
+  // （連 default '' 都拿掉、加了 film_country_not_blank check），
+  // 上游回空字串等於繞過那條規則。
+  it('空值一律回 null', () => {
+    expect(normalizeCountry('')).toBeNull()
+    expect(normalizeCountry('   ')).toBeNull()
+    expect(normalizeCountry(null)).toBeNull()
+    expect(normalizeCountry(undefined)).toBeNull()
+  })
+
+  // 不要順手統一別的國名：政府資料的國名有自己的體系，動了會製造新的不一致。
+  it('只碰台灣的寫法，其餘原樣', () => {
+    expect(normalizeCountry('中國')).toBe('中國')
+    expect(normalizeCountry('中華人民共和國')).toBe('中華人民共和國')
+    expect(normalizeCountry('Taiwan')).toBe('Taiwan')
   })
 })
 
