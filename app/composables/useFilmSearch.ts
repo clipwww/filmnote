@@ -7,7 +7,8 @@ export interface FilmOption {
   title_original: string | null
   release_year: number | null
   country: string | null
-  tmdb_poster_path: string | null
+  /** `pending` = 自己剛新增、還沒審核的 UGC 作品。只有作者查得到。 */
+  review_state?: string | null
 }
 
 /**
@@ -54,9 +55,18 @@ export function useFilmSearch() {
       return
     }
     const mine = ++seq
+    // ★ 查 `film` 不是 `film_public`。
+    //   `film_public` 的 where 有 `visibility = 'public'`，所以**使用者自己剛新增、
+    //   還在審核中的 UGC 作品不在裡面**——US-17 要的「可立刻用於記錄」會只在
+    //   新增完那一次的交棒成立，之後再想記同一部片就永遠找不到。
+    //   `film` 由 `film_read` policy 把關（公開的 + 自己的 + staff），語意正確，
+    //   而且 trgm 索引本來就建在 `film.search_text` 上。
+    //   `merged_into_film_id` 要自己濾：view 有濾，基表沒有，選到被合併掉的那一列
+    //   會寫出一筆指向敗方的紀錄。
     const { data } = await supabase
-      .from('film_public')
-      .select('id,slug,title_zh,title_original,release_year,country,tmdb_poster_path')
+      .from('film')
+      .select('id,slug,title_zh,title_original,release_year,country,review_state')
+      .is('merged_into_film_id', null)
       .like('search_text', `%${safe}%`)
       .limit(20)
     // 慢的請求可能後到，只採用最後一次輸入的結果
@@ -90,5 +100,7 @@ export function filmLabel(f: FilmOption | null | undefined): string {
   if (!f)
     return ''
   const main = f.title_zh || f.title_original || '未命名'
-  return f.release_year ? `${main}（${f.release_year}）` : main
+  const withYear = f.release_year ? `${main}（${f.release_year}）` : main
+  // 自己新增、還沒審核的作品要標出來——它現在就能用，但只有你看得到（US-16/17）
+  return f.review_state === 'pending' ? `${withYear}　審核中` : withYear
 }

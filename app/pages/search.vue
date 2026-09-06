@@ -66,7 +66,10 @@ useSeoMeta({
 
     <p v-if="debounced && status !== 'pending' && !items.length" class="mt-8 text-muted">
       找不到「{{ debounced }}」。
-      <NuxtLink to="/app/films/new" class="underline underline-offset-4">
+      <NuxtLink
+        :to="{ path: '/app/films/new', query: { title: debounced, from: 'search' } }"
+        class="underline underline-offset-4"
+      >
         手動新增這部片
       </NuxtLink>
       —— 新增後立刻能用於記錄，不必等待審核。

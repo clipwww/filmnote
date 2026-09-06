@@ -46,7 +46,7 @@ export function useMyRecords() {
     const filmIds = [...new Set(rows.map(r => r.film_id))]
     const venueIds = [...new Set(rows.map(r => r.venue_id))]
     const [films, posters, venues, costs] = await Promise.all([
-      supabase.from('film').select('id,slug,title_zh,title_original').in('id', filmIds),
+      supabase.from('film').select('id,slug,title_zh,title_original,ugc_poster_path,visibility,review_state').in('id', filmIds),
       // 海報只在 view 上。自己的私密 UGC 作品不會出現在這裡，那時就沒有海報欄——
       // 正是 §4.3 要的行為，不必補 fallback。
       supabase.from('film_public').select('id,tmdb_poster_path').in('id', filmIds),
@@ -55,6 +55,26 @@ export function useMyRecords() {
     ])
     const fm = new Map((films.data ?? []).map(f => [f.id, f]))
     const pm = new Map((posters.data ?? []).map(f => [f.id, f.tmdb_poster_path]))
+
+    /**
+     * UGC 海報存在 private bucket，`ugc_poster_path` 是**路徑不是 URL**，
+     * 直接塞進 `<img src>` 只會得到 400。要能顯示必須換成 signed URL。
+     * 批次簽一次（`createSignedUrls`），不要一部片一個往返。
+     * 沒有 UGC 海報時整段跳過——絕大多數紀錄走的是 TMDB 熱連結。
+     */
+    const ugcPaths = (films.data ?? [])
+      .map(f => f.ugc_poster_path)
+      .filter((p): p is string => !!p)
+    const um = new Map<string, string>()
+    if (ugcPaths.length) {
+      const { data: signed } = await supabase.storage
+        .from('ugc-poster')
+        .createSignedUrls(ugcPaths, 60 * 60)
+      for (const s of signed ?? []) {
+        if (s.path && s.signedUrl)
+          um.set(s.path, s.signedUrl)
+      }
+    }
     const vm = new Map((venues.data ?? []).map(v => [v.id, v.name]))
     const cm = new Map((costs.data ?? []).map(c => [c.record_id, c.amount]))
 
@@ -71,10 +91,27 @@ export function useMyRecords() {
       memo: r.memo,
       isPrivate: r.visibility === 'private',
       film: {
-        slug: fm.get(r.film_id)?.slug ?? null,
+        /**
+         * ⚠️ 只有**公開且已審核**的作品才給連結。
+         *
+         * 使用者自己新增的 UGC 作品在 insert 當下就有 slug（資料庫的觸發器產的），
+         * 但 `/film/[slug]` 走 `/api/film/[slug]`，那支明確用匿名 client
+         * （為了讓 ISR 快取安全），所以私密作品對**作者自己也是 404**。
+         * 不擋的話畫面上會出現一個看起來正常、點下去卻是錯誤頁的連結——
+         * 而且 Nuxt 會在 hover 之前就去 prefetch 它的 payload，於是每一張這種卡
+         * 都在 console 留一個 404。實測就是這樣發現的。
+         */
+        slug: (() => {
+          const f = fm.get(r.film_id)
+          return f?.visibility === 'public' && f?.review_state === 'approved' ? f.slug ?? null : null
+        })(),
         titleZh: fm.get(r.film_id)?.title_zh ?? null,
         titleOriginal: fm.get(r.film_id)?.title_original ?? null,
         tmdbPosterPath: pm.get(r.film_id) ?? null,
+        ugcPosterUrl: (() => {
+          const path = fm.get(r.film_id)?.ugc_poster_path
+          return path ? um.get(path) ?? null : null
+        })(),
       },
     }))
   }, { server: false, watch: [user] })

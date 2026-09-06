@@ -15,6 +15,7 @@ const toast = useToast()
 
 const { venues } = useVenueOptions()
 const { read: readLastVenue, write: writeLastVenue } = useLastVenue()
+const { save: saveDraft, take: takeDraft, clear: clearDraft } = useRecordDraft()
 const { term: filmTerm, items: filmItems, loading: filmLoading, queried: filmQueried } = useFilmSearch()
 
 /**
@@ -61,6 +62,23 @@ const saving = ref(false)
 
 onMounted(async () => {
   state.venueId = readLastVenue() ?? undefined // US-6：記住上次選的影城
+
+  /**
+   * 從 `/app/films/new` 回來時把草稿接回去（`SCREENS §11`）。
+   * 「找不到片」這條路不該懲罰已經填完日期、影城、票價的人——而那正是
+   * 硬約束 (1) 最不能壞的一條路。take 是**取走**：接回來之後草稿就該消失，
+   * 否則下次乾淨地開新表單會冒出上次的殘骸。
+   */
+  const draft = takeDraft()
+  if (draft) {
+    for (const [k, v] of Object.entries(draft)) {
+      if (v !== undefined && k in state)
+        (state as Record<string, unknown>)[k] = v ?? undefined
+    }
+    if (draft.film)
+      state.film = draft.film
+  }
+
   const { data } = await supabase
     .from('screening_format')
     .select('code,label')
@@ -68,6 +86,18 @@ onMounted(async () => {
     .order('sort_order')
   formats.value = data ?? []
 })
+
+/**
+ * 去新增作品之前先把整份表單存起來。連結改成按鈕是為了這一步——
+ * 直接用 `<NuxtLink>` 會在存檔之前就離開，使用者回來時是一張空表單。
+ */
+async function goCreateFilm() {
+  saveDraft({ ...state, film: state.film ?? null })
+  await navigateTo({
+    path: '/app/films/new',
+    query: { title: filmQueried.value || filmTerm.value, from: 'records' },
+  })
+}
 
 async function onSubmit(event: FormSubmitEvent<RecordForm>) {
   if (!user.value?.sub)
@@ -99,6 +129,7 @@ async function onSubmit(event: FormSubmitEvent<RecordForm>) {
     }
 
     writeLastVenue(form.venueId)
+    clearDraft() // 存進去了，草稿沒有理由再留著
     toast.add({ title: '記好了', color: 'success' })
     await navigateTo('/app/records')
   }
@@ -164,9 +195,9 @@ async function onSubmit(event: FormSubmitEvent<RecordForm>) {
               </p>
               <p v-else>
                 找不到「{{ filmQueried }}」。
-                <NuxtLink to="/app/films/new" class="underline underline-offset-4">
+                <button type="button" class="underline underline-offset-4" @click="goCreateFilm">
                   手動新增這部片
-                </NuxtLink>
+                </button>
               </p>
             </div>
           </template>
