@@ -1,5 +1,7 @@
 import type { CmapResult } from './og-cmap'
 import { Buffer } from 'node:buffer'
+import { Resvg } from '@resvg/resvg-js'
+import satori from 'satori'
 import { OG_HEIGHT, OG_WIDTH } from './og-card'
 import { parseCmap } from './og-cmap'
 
@@ -20,6 +22,9 @@ import { parseCmap } from './og-cmap'
  *    design 用「Google Fonts 對非瀏覽器 UA 直接回 .ttf」繞開這題，並誠實標記
  *    「那是繞開不是解決」。現在有答案了：**那不是繞開，那是唯一的路。**
  *    字型必須是 .ttf/.otf。
+ *
+ * ③ **`@resvg/resvg-js` 必須在 `dependencies`。** 它是原生模組，打包器一定
+ *    外部化它。放進 devDependencies 的症狀是本機全綠、部署後端點 500。
  *
  * ── 字型為什麼進版控 ──────────────────────────────────────────────────────
  * Google Fonts 的 URL 帶版本雜湊（`…/v39/-nFuOG82…ttf`），改版就換 URL。
@@ -68,44 +73,18 @@ export async function loadOgFonts(): Promise<OgFonts> {
 /**
  * 版面樹 → PNG。
  *
- * ★ `satori` 與 `@resvg/resvg-js` 以**執行期動態匯入**取得，而且 specifier
- *   刻意經過一個變數。原因是這兩個相依還沒進 `package.json`（共用檔，需主
- *   session 核可），而靜態 import 會讓**整個專案**在套件裝好之前建置失敗——
- *   那會擋住另外兩個 session 的工作，代價遠大於晚一輪落地。
- *
- *   ⚠️ 這是暫時的形狀。套件一進 `package.json` 就應該改回一般的靜態 import：
- *   動態 + 非字面 specifier 會讓打包器放棄靜態分析，也拿不到型別。
- *   套件不在時這裡回 503 並說明原因，而不是一個沒有上下文的模組解析錯誤。
+ * ★ `@resvg/resvg-js` 是**原生模組**（napi）。打包器不會把 .node 內聯，它一定是
+ *   外部化的 ⇒ **必須放在 `dependencies` 而不是 `devDependencies`**，否則
+ *   本機一切正常、**部署後 OG 端點 500**，而那要到部署才會發現。
+ *   實測見交接筆記第 7 節（`.output/server/package.json` 的 dependencies 清單）。
  */
 export async function renderPng(element: unknown, fonts: OgFonts['fonts']): Promise<Buffer> {
-  const satoriId = 'satori'
-  const resvgId = '@resvg/resvg-js'
-
-  let satori: (el: unknown, opts: unknown) => Promise<string>
-  let Resvg: new (svg: string, opts?: unknown) => { render: () => { asPng: () => Buffer } }
-  try {
-    satori = (await import(satoriId)).default
-    Resvg = (await import(resvgId)).Resvg
-  }
-  catch {
-    throw createError({
-      statusCode: 503,
-      statusMessage:
-        'OG 圖產生器尚未啟用：package.json 缺少 satori 與 @resvg/resvg-js。'
-        + '（共用檔需主 session 核可，見 docs/handoff/backend.md）',
-    })
-  }
-
-  const svg = await satori(element, { width: OG_WIDTH, height: OG_HEIGHT, fonts })
-  return new Resvg(svg, { fitTo: { mode: 'width', value: OG_WIDTH } }).render().asPng()
+  const svg = await satori(element as Parameters<typeof satori>[0], {
+    width: OG_WIDTH,
+    height: OG_HEIGHT,
+    fonts,
+  })
+  return Buffer.from(new Resvg(svg, { fitTo: { mode: 'width', value: OG_WIDTH } }).render().asPng())
 }
 
-/**
- * OG 圖的快取標頭。
- *
- * 這些圖是**純公開內容**——不含票價、不含備註、不隨檢視者而異（`SCREENS §16.3`），
- * 所以放心讓 CDN 快取。這一點與 `/u/**` 的 `private, no-store` 不衝突：
- * 那條規則的理由是「同一個 URL 對不同人 render 出不同 HTML」，而 OG 圖沒有這個
- * 性質——它對所有人逐位元組相同。
- */
 export const OG_CACHE_CONTROL = 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800'

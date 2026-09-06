@@ -1,4 +1,4 @@
-import { clampHero, FALLBACK_HERO, recordCard } from '~~/server/utils/og-card'
+import { recordCard, safeHero } from '~~/server/utils/og-card'
 
 /**
  * 版面①：單筆紀錄的 OG 圖（`SCREENS §16.2`、US-32）。主力版面。
@@ -35,9 +35,7 @@ export default defineEventHandler(async (event) => {
 
   // 缺字降級態（§16.4）：畫不出來就換掉片名那一行，日期／影城／場次／顯名列
   // 全部保留。**絕不渲染豆腐格**——一個破格子讀起來是「這站壞了」。
-  const title = film?.title_zh?.trim() ?? ''
-  const heroIsSafe = title !== '' && findMissingChars(title, cmap.codepoints).length === 0
-  const hero = heroIsSafe ? clampHero(title) : FALLBACK_HERO
+  const hero = safeHero(film?.title_zh, cmap.codepoints)
 
   const meta = [
     rec.format_code,

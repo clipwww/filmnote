@@ -192,7 +192,32 @@ export function profileCard(c: ProfileCard): El {
 }
 
 /**
- * 英雄行的硬截斷。
+ * 英雄行的唯一正確做法：**先驗缺字、再截斷、缺字就整行換掉。**
+ *
+ * ★ 這支存在的理由是「檢查可以被忘記」。原本缺字檢查在呼叫端、截斷在這裡，
+ *   兩件事分開 ⇒ 少做一件就會畫出豆腐格，而**畫出來完全不會報錯**。
+ *   實測踩到了：`scripts/og-preview.ts` 第一版只呼叫 `clampHero()`，
+ *   於是《劇場版 藍色監獄 -EPISODE凪-》在預覽圖上就是一個方框
+ *   ——正是 `SCREENS §16.4` 說絕不能出現的東西。
+ *
+ * ⇒ 產生英雄行一律用這一支，不要直接用 `clampHero()`。
+ *   `clampHero` 仍然匯出是為了單元測試，不是給呼叫端用的。
+ */
+export function safeHero(title: string | null | undefined, codepoints: Set<number>): string {
+  const t = (title ?? '').trim()
+  if (!t)
+    return FALLBACK_HERO
+  // 先驗**完整**片名而不是截斷後的：截斷可能剛好把缺字切掉，於是同一部片
+  // 有時降級有時不降級，取決於片名長度——那種不一致比一直降級更難查。
+  for (const ch of t) {
+    if (!codepoints.has(ch.codePointAt(0)!))
+      return FALLBACK_HERO
+  }
+  return clampHero(t)
+}
+
+/**
+ * 英雄行的硬截斷。**呼叫端請用 `safeHero()`**，這支沒有缺字檢查。
  *
  * satori 的 line-clamp 與瀏覽器有出入，而 OG 圖沒有第二次機會——超長片名溢出
  * 版面比截斷難看得多。以碼位計數（不是 `length`），避免把增補平面的字元切一半。

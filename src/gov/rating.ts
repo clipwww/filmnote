@@ -10,7 +10,8 @@
 
 import type { Certificate, RowDefect } from '#pipeline/types'
 import { parse } from 'csv-parse/sync'
-import { hasSuspectQuestionMark, inspectOriginalTitle } from '#pipeline/normalize/defensive'
+import { findTitleCorrection } from '#pipeline/import/title-corrections'
+import { inspectOriginalTitle, inspectTitleZh } from '#pipeline/normalize/defensive'
 import { parseRuntimeMinutes } from '#pipeline/normalize/runtime'
 import { extractVersionNote, normalizeTitle } from '#pipeline/normalize/title'
 
@@ -108,10 +109,32 @@ function toCertificate({ cells, defects: rowDefects }: AlignedRow): Certificate 
   const defects: RowDefect[] = [...rowDefects]
   const at = (index: number): string => (cells[index] ?? '').trim()
 
-  const titleZhRaw = at(3)
-  if (!titleZhRaw)
+  const rocYear = Number(at(0))
+  const permitNo = at(1)
+
+  const titleZhRawSource = at(3)
+  /**
+   * 中文片名的編碼損毀處理（`normalize/defensive.ts` 的 `inspectTitleZh` 有完整推理）。
+   *
+   * ★ `private-use` 與 `replacement` 是**確定**的損毀：字元本身就不是任何真的字。
+   *   `question-marks` / `suspect-question-mark` 則可能是真的問號
+   *   （《孩子，你好嗎？》），所以只標記、不動片名——沿用既有行為。
+   *
+   * 確定損毀時的順序是：
+   *   ① 人工對照表（`import/title-corrections.ts`）有答案就用它——那是唯一能得到
+   *      **正確台灣片名**的路徑，而「記得住台灣的片名」是這個產品的第一個理由。
+   *   ② 沒有對照就**寫空字串**，絕不把損毀字串帶下去。
+   *      不擋下整列：片庫少一部片 ⇒ 使用者搜不到 ⇒ 自己建 UGC ⇒ 日後要人工合併。
+   *      空字串還會自己痊癒（`apply_tmdb_snapshot` 會用 TMDB 標題補 `title_zh = ''`）。
+   */
+  const corruption = inspectTitleZh(titleZhRawSource)
+  const isDefinitelyCorrupt = corruption === 'private-use' || corruption === 'replacement'
+  const correction = isDefinitelyCorrupt ? findTitleCorrection(rocYear, permitNo) : undefined
+  const titleZhRaw = isDefinitelyCorrupt ? (correction?.titleZh ?? '') : titleZhRawSource
+
+  if (!titleZhRawSource)
     defects.push('title-zh-missing')
-  else if (hasSuspectQuestionMark(titleZhRaw))
+  else if (corruption)
     defects.push('title-zh-suspect-encoding')
 
   const originalRaw = at(ORIGINAL_TITLE_INDEX)
@@ -125,13 +148,13 @@ function toCertificate({ cells, defects: rowDefects }: AlignedRow): Certificate 
     defects.push('runtime-unparseable')
 
   const { title, note } = extractVersionNote(titleZhRaw)
-  const rocYear = Number(at(0))
-  const permitNo = at(1)
 
   return {
     // 確定性代理鍵：permitNo 只在 113 年唯一（見 Certificate.id 的說明），
     // 加上年度與正規化片名後在 110–113 年全部 3,116 筆上實測唯一。
-    id: `${rocYear}:${permitNo}:${normalizeTitle(titleZhRaw)}`,
+    // ★ 用**來源**片名算 id，不是修正後的。修正會改變片名，若 id 跟著變，
+    //   同一列在修正前後會變成兩筆不同的紀錄（`import_key` 那個坑的同一家族）。
+    id: `${rocYear}:${permitNo}:${normalizeTitle(titleZhRawSource)}`,
     permitNo,
     rocYear,
     gregorianYear: rocToGregorian(rocYear),

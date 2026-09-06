@@ -36,7 +36,7 @@ pnpm tsx --env-file=.env scripts/verify-all.ts
 | 作者刪除自建 UGC 作品 | ✅ 0008，三條件同時成立才放行 |
 | `country` 空字串正規化 | ✅ 0008，35 列 → NULL，並加 check 讓它長不回來 |
 | `/u/[username]` 的 UGC 海報 | ✅ 批次 `createSignedUrls` |
-| OG 分享圖產生器 | ⚠️ 程式全好、實際算過圖，**但相依還沒進 `package.json`**（見第 7 節） |
+| OG 分享圖產生器 | ✅ 版面①②與缺字降級態，相依已加（a2a18f0） |
 
 **沒做**：`/legal/**` 與 `/admin` 頁面（frontend）、條款正文（主 session 與 David）、
 Turnstile（需 David 的站台金鑰，上線前項目）。
@@ -179,18 +179,24 @@ design 在 `DS §2.7` 把中文字型那題結掉了（打包完整 Noto Sans TC
 - 字型兩個字重共 14 MB，進版控後 `.output/server` 是 **34 MB**——Vercel Node
   250 MB 放得下，**Edge 1/4 MB 放不下**，實測印證 design 的約束①。
 
-### ⚠️ 還沒完成的一件事：相依尚未進 package.json
+### 相依與原生模組（下一棒推不出來的部分）
 
-`satori` 與 `@resvg/resvg-js` 需要主 session 核可才能加。在那之前：
+`satori@0.33.4` 與 `@resvg/resvg-js@2.6.2` 在 **`dependencies`**，已改回靜態 import。
 
-- `server/utils/og-render.ts` 與 `scripts/og-preview.ts` 用**執行期動態 import
-  且 specifier 經過變數**。這是刻意的：字面 specifier 會讓 `pnpm typecheck` 與
-  `pnpm build` 直接紅，**擋住另外兩個 session**，代價遠大於晚一輪落地。
-  套件不在時端點回 503 並說明原因。
-- **套件一裝好就把它改回一般的靜態 import**。動態 + 非字面 specifier 會讓打包器
-  放棄靜態分析，也拿不到型別——它是過渡形狀，不是設計。
-- 驗過的事：`pnpm build` 在**沒有**這兩個套件時仍然成功（exit 0），OG 路由的
-  chunk 有生成，字型也確實被打包進 `.output/server/chunks/raw/`。
+實測 `pnpm build` 後的 `.output`：
+- **兩個套件都被外部化**，都出現在 `.output/server/package.json` 的 dependencies。
+  ⇒ 它們**必須在 `dependencies` 而非 `devDependencies`**，否則正式環境以
+  `--prod` 安裝時裝不到，症狀是本機全綠、**部署後 OG 端點 500**。
+- ⚠️ **`.output/server/node_modules/@resvg/` 裡只有 `resvg-js-darwin-arm64`**
+  ——也就是**建置當下那台機器**的二進位，而 Vercel 跑的是 linux-x64。
+  ⇒ **不要部署本機建好的 `.output`**（`vercel deploy --prebuilt`）。
+  讓 Vercel 自己跑建置就沒事，因為它會在 linux 上追蹤到 linux 的 .node。
+
+### 兩個字重都要（實測，不是猜的）
+
+**satori 缺字重時不做 fake bold，而且不吭聲。** 只載入 Regular 時
+`fontWeight: 700` 與 400 渲染出完全一樣的輪廓——沒有警告，只是階層消失。
+所以 Bold 那 7MB 是買到東西的。想省字型就得改用尺寸／顏色拉階層。
 
 ### 怎麼看它畫出來長什麼樣
 
@@ -199,9 +205,19 @@ pnpm add satori @resvg/resvg-js     # 核可後
 pnpm tsx scripts/og-preview.ts      # 產四張真圖到 .data/og-preview/
 ```
 
-OG 圖是「要看到才知道對不對」的東西——版面歪了、字級太小、色階分不開，
-單元測試一條都抓不到。我用它抓到兩個：年表的色階第一版 13 個年份全是同一個棕色
-（起點取太深），以及顯名列上方有一大塊死區（本體沒有垂直置中）。
+OG 圖是「要看到才知道對不對」的東西——版面歪了、字級太小、色階分不開、
+**畫出豆腐格**，單元測試一條都抓不到。我用它抓到三個：
+
+1. 年表色階第一版 13 個年份全是同一個棕色（起點取太深）
+2. 顯名列上方一大塊死區（本體沒有垂直置中）
+3. **預覽圖上真的出現了一個豆腐格**——`-EPISODE ⬚-`。原因是缺字檢查在呼叫端、
+   截斷在 `clampHero()`，兩件事分開 ⇒ 少做一件就畫方框，而且**完全不報錯**。
+   已改成 `safeHero(title, codepoints)` 一支到底（先驗缺字、再截斷、缺字就整行
+   換掉），`clampHero` 只留給單元測試。**產生英雄行一律用 `safeHero()`。**
+
+第 3 點值得記住的不是那個 bug，而是它的形狀：**把「必須先做的檢查」與「要做的事」
+分成兩支函式，就等於把正確性交給呼叫端記得**。這個專案已經在別的地方踩過同一件事
+（§7 #84 的 trigger helper、#106 的 policy 與 grant）。
 
 ---
 
