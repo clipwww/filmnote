@@ -13,6 +13,7 @@ import {
   monthlySeries,
   monthlySeriesToDate,
   slotTitle,
+  spendText,
   topWithRest,
   weekendEveningShare,
   weekIndexInYear,
@@ -295,5 +296,35 @@ describe('點格子 → 底部片單', () => {
   it('標題格式沿用舊專案', () => {
     expect(dayTitle('2026-07-26')).toBe('2026/07/26（週日）')
     expect(slotTitle(5, '21:00')).toBe('週五　21:00')
+  })
+})
+
+describe('金額的呈現', () => {
+  it('一般金額', () => {
+    expect(spendText(3130, 'TWD', false)).toBe('NT$3,130')
+  })
+
+  it('★ 涵蓋不完整時「以上」跟著數字走，不是只靠底下一行小字', () => {
+    // 使用者只截到一列的圖時，那個但書必須仍然在——
+    // 看到一張「每年花費」而不知道那是部分資料，比沒有這張圖更糟。
+    expect(spendText(7236, 'TWD', true)).toBe('NT$7,236 以上')
+  })
+
+  it('★ NT$0 不等於隱藏——涵蓋完整的 0 是「免費」（SCREENS §12.1）', () => {
+    // 實測 David 2015 年 2 場、票價都記了、合計 NT$0（兌換票）。
+    // 那是真實的事實，不是「沒有資料」。第一版把它整列過濾掉，
+    // 結果年表上有那一年、花費圖上沒有，而畫面看起來完全正常。
+    expect(spendText(0, 'TWD', false)).toBe('免費')
+  })
+
+  it('★ 但「0 而且涵蓋不完整」不可以寫成免費——那是把「沒公開」講成「沒花錢」', () => {
+    // 這是這張圖最不能犯的錯：看得到的部分加起來是 0，實際只會更多。
+    expect(spendText(0, 'TWD', true)).toBe('NT$0 以上')
+    expect(spendText(0, 'TWD', true)).not.toBe('免費')
+  })
+
+  it('非 TWD 不硬套 NT$', () => {
+    expect(spendText(1200, 'JPY', false)).toBe('JPY 1,200')
+    expect(spendText(1200, 'JPY', true)).toBe('JPY 1,200 以上')
   })
 })

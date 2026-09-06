@@ -15,10 +15,18 @@ import type { StatSegment } from '~/utils/stat-line'
  *    不在前端拿紀錄列表就地算。** 列表是分頁的（一次最多 200 筆），就地算會讓
  *    超過 200 筆的人年表缺格子而且沒有任何提示。而且那支端點與列表同一條
  *    匿名路徑 ⇒ **圖與列表永遠是同一個母體**。
- * 3. **圖表完全不碰金額。** 那支端點逐欄挑白名單，金額欄位一個都不回
- *    （匿名視角下它們一律是 0，而 0 會被讀成「這個人沒花錢」）。
- *    金額只出現在 `UserSpendSummary`——它在 `<ClientOnly>` 裡帶著觀看者自己的
- *    session 取，`spend_is_partial` 由它負責呈現。
+ * 3. **走 SSR 那條路的東西完全不碰金額。** 那支端點逐欄挑白名單，金額欄位
+ *    一個都不回（匿名視角下它們一律是 0，而 0 會被讀成「這個人沒花錢」）。
+ *
+ *    金額**只**存在於 client 端的 `useUserSpend()`（`server: false`，帶觀看者
+ *    自己的 session ⇒ RLS 依觀看者決定），有兩個呈現、**共用同一次請求**：
+ *    頁首的 `UserSpendSummary`（「花了 NT$…」）與 band 堆疊最後的
+ *    `SpendByYear`（「每年花費」，David 2026-09-06 裁決要做）。
+ *
+ *    ⚠️ 三種觀看者都必須是對的：本人看得到全部、`show_cost = true` 的路人
+ *    看得到公開紀錄的票價、其他人**一列都拿不到 ⇒ 那兩塊整個不存在**
+ *    （`SCREENS §12-3`：不是畫成 0、不是打馬賽克、不留佔位）。
+ *    `spend_is_partial` 逐年標在數字上（「NT$3,120 以上」）＋長條的虛線開口。
  *
  * ── ★ 檢視視角與 `/app` 一致 ──────────────────────────────────────────────
  * 預設全部年度，年表兼任切換器（David 2026-09-06 裁決）。**兩頁必須一致**：
@@ -222,6 +230,19 @@ const stripRows = computed(() => yearStripRows(
   allStats.value?.daily ?? [],
   allStats.value?.availableYears ?? [],
 ))
+
+/**
+ * 金額（David 2026-09-06 裁決：`/u/` 要做金額相關的圖表）。
+ *
+ * ⚠️ **與頁首那句「花了 NT$…」共用同一個 `useUserSpend()`**——同一個 key ⇒
+ *    同一次請求、同一份答案。兩份查詢一定會在某次修改後對「看不看得到」
+ *    「是不是全部」給出不同答案，而沒有人會把同一頁的兩個地方擺在一起看。
+ *
+ * ⚠️ 這份資料**只在 client 端存在**（`server: false`）：票價因觀看者而異，
+ *    任何在伺服器端算出來的金額都會被序列化進 `__NUXT_DATA__` 一起送出。
+ *    所以下面那條 band 一定要包在 `<ClientOnly>` 裡。
+ */
+const { spend } = useUserSpend(computed(() => profile.value?.username ?? null))
 
 /** §9.3 的中間態：資料太少時不畫圖，兩三個點的圖比沒有圖更糟。 */
 const CHART_THRESHOLD = 10
@@ -459,6 +480,33 @@ const drawerRecords = computed(() => {
           <RepeatList :items="stats?.repeats ?? []" />
         </ChartBand>
       </template>
+
+      <!--
+        ── 每年花費 ──（David 2026-09-06 裁決）
+        ★ 這條 band **對三種觀看者長得不一樣，而三種都必須是對的**：
+          本人看得到全部；`show_cost = true` 的路人看得到公開紀錄的票價；
+          其他人**一列都拿不到 ⇒ 整條 band 不存在**（`SCREENS §12-3`：
+          不是畫成 0、不是打馬賽克——否則 `總花費 ÷ 場次` 就能反推個別票價）。
+          判斷不在這裡做，由 RLS 做（`useUserSpend()` 的 `canSeeMoney`
+          數的是讀得到幾列票價）。
+
+        ★ **放在 band 堆疊的最後，而且刻意不給 `#fallback` 佔位。**
+          它是 client-only 而且可能根本不出現：給固定高度的骨架的話，
+          「拿不到金額」的觀看者會看到一塊先撐開再塌掉的空白——那不但是
+          版面跳動，還等於公告「這裡本來有東西」。排在最後 ⇒ 它晚出現時
+          只會往下推紀錄列表（那時還在視窗外），不會推到正在讀的東西。
+      -->
+      <ClientOnly>
+        <ChartBand
+          v-if="spend?.canSeeMoney"
+          title="每年花費"
+          :insight="spend.isOwn
+            ? '你自己記下的票價。只有你看得到這一段。'
+            : null"
+        >
+          <SpendByYear :by-year="spend.byYear" :currency="spend.currency" :is-own="spend.isOwn" />
+        </ChartBand>
+      </ClientOnly>
     </div>
 
     <section class="mt-10">

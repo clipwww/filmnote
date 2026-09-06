@@ -489,3 +489,35 @@ export function peakSlot(rows: YearStats['weekday_hour']): { weekday: number, ho
   }
   return best
 }
+
+/* ─────────────────────────── 金額的呈現 ─────────────────────────── */
+
+/**
+ * 金額的顯示字串。
+ *
+ * ⚠️ **涵蓋不完整時要在數字上看得出來**，不能只靠底下一行小字——
+ * 使用者看到一張「每年花費」而不知道那是部分資料，比沒有這張圖更糟：
+ * 那會讓他以為朋友一年只花了那麼多。「以上」是一個中文裡不需要圖例的記號，
+ * 而且**它跟著數字走**：使用者只截到一列的圖時，那個但書仍然在。
+ *
+ * ── ★ NT$0 不等於隱藏（`SCREENS §12.1`）────────────────────────────────────
+ * 實測 David：**2015 年 2 場、票價都記了、合計 NT$0**（兌換票／免費場）。
+ * 那是一個真實而且有意思的事實，不是「沒有資料」。第一版把
+ * 「金額為 0」當成「沒東西可看」整列過濾掉，2015 就這樣從圖上消失了
+ * ——年表上有那一年、花費圖上沒有，而畫面看起來完全正常。
+ *
+ * ⇒ `amount === 0` 且**涵蓋完整**時顯示「免費」，跟票根卡同一個字
+ *   （`costText(0)` 也是「免費」）。
+ *
+ * ⚠️ `amount === 0` 但**涵蓋不完整**時仍然是「NT$0 以上」，那才精確：
+ *    「看得到的部分加起來是 0，實際只會更多」。不要把它也寫成「免費」
+ *    ——那會把「沒公開」講成「沒花錢」，正好是這張圖最不能犯的錯。
+ */
+export function spendText(amount: number, currency: string, partial: boolean): string {
+  if (amount === 0 && !partial)
+    return '免費'
+  const base = currency === 'TWD'
+    ? `NT$${Number(amount).toLocaleString('zh-Hant-TW')}`
+    : `${currency} ${Number(amount).toLocaleString('zh-Hant-TW')}`
+  return partial ? `${base} 以上` : base
+}
