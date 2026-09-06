@@ -206,8 +206,17 @@ function again() {
       </h1>
 
       <div class="mt-5 max-w-[34em] border-s-2 border-primary bg-primary/5 px-4 py-4 rounded-e-sm">
+        <!--
+          信箱自成一行，跟 /legal/copyright 的受理窗口同一個處理方式：
+          夾在中文句子中間的話，中英交界的間距要靠 `text-autospace` 跨元素邊界生效，
+          那件事各家實作不一致（DS §2.5 第 4 條量的是同一個文字節點內的情形）。
+          自成一行是確定的，順帶讓人比較好核對——這是他唯一能被回覆的地方。
+        -->
         <p class="text-highlighted">
-          我們會用你填的信箱<span class="font-semibold">{{ submitted.claimantEmail }}</span>跟你聯絡。後續一律走 email。
+          我們會用你填的這個信箱跟你聯絡，後續一律走 email。
+        </p>
+        <p class="mt-1 font-semibold text-highlighted break-words">
+          {{ submitted.claimantEmail }}
         </p>
         <!--
           ⚠️ 這一段不是客套。這張表沒有 SELECT policy，送出的內容我們也回不了
