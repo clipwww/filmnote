@@ -113,3 +113,88 @@
    （`frontend.md §5-8`），但這一欄讓它變得**看得見**了——做取下降級態時記得一起處理。
 4. **備註展開狀態不會記憶**，換年份／篩選後全部收起（`expandedMemos` 用 record id 存，
    不會錯亂，只是不持久）。目前沒有需求要它持久。
+
+## 6. 第二件事：國別「中華民國」→「台灣」（2026-09-06 收工前）
+
+David：「國別：中華民國 = 台灣。有些資料會是中華民國的都統一改用台灣」。
+**不是外觀問題**：`/app` 與 `/u/` 的國別分布圖直接 `group by f.country`
+（`0003_user_year_stats.sql:199`），同一個國家的兩種寫法會裂成兩條長條——
+David 自己的儀表板上本來就有「台灣 2」與「中華民國 1」各一條。
+
+### 做了兩層，缺一層都會漂回去
+
+| 層 | 落點 |
+|---|---|
+| 上游 | `src/normalize/country.ts`（新）＋ 套用在 `src/gov/rating.ts`（政府 CSV）與 `src/import/mylog.ts`（舊 log 匯入） |
+| 既有資料 | `supabase/migrations/0014_country_taiwan.sql`（film 403 列、certificate 436 列） |
+
+⚠️ **只改一層是這個 repo 的已知失敗模式**：只改 DB ⇒ 下次匯入又流進來；
+只改上游 ⇒ 既有 839 列不動。`mylog.ts` 那一支特別容易被漏掉，因為它
+**不經過政府資料**——`/app/import` 會拿它解析出來的 `country` 直接 insert `film`。
+
+### ⚠️ 還原：不能用「把台灣改回中華民國」
+
+改完 `film.country = '台灣'` 有 405 列，其中 **2 列本來就是「台灣」**，
+反向 UPDATE 會把它們一起誤傷。那 2 列是：
+
+```
+6409c23f-447c-475d-9a75-d29f5e0da00f  冠軍之路
+a6bc2289-5ff7-4cb2-8bd2-de08ba8c47af  返校
+```
+
+⇒ 要還原 film：`update public.film set country = '中華民國'
+where country = '台灣' and id not in (上面那兩個)`。
+certificate 那 436 列改之前**全部**是「中華民國」（台灣 0 列），直接反向即可。
+（執行當下的完整 id 清單存在 session 的 scratchpad，那個目錄會消失，
+所以把「唯一救不回來的那部分」寫在這裡。）
+
+### ★ 這件事真正的產出是 #189：讀 migration ≠ 讀 DB 裡活著的函式定義
+
+派工要我「去讀 `0001_init.sql` 的 `seed_films()`，確認它的 update 路徑會不會把我
+UPDATE 過的 `country` 洗掉」。**答案是不會**——
+
+```
+update public.film set
+  title_zh = …, runtime_minutes = …, first_seen_roc_year = …, updated_at = now()
+where id = fid;          -- 四個欄位，沒有 country
+```
+
+`country` 只在 `fid is null` 的 INSERT 那一支寫；`apply_tmdb_snapshot()` 同理
+（只寫 title_zh／title_original／runtime_minutes／release_year／updated_at）。
+
+**但「讀 migration 檔案」這個驗法本身是壞的，而我差一點就照做了。**
+
+`0008_ugc_delete_and_country_null.sql:82-97` 與 `0010` 會在**執行時**
+用 `pg_get_functiondef()` 讀出函式原始碼、`replace()` 換掉其中一段字串、
+再 `execute` 回去（0008 改 `seed_films` 的 `country`，0010 改 `title_original`
+與年份計數，共三處）。所以 `0001_init.sql` 裡的函式文字**只是歷史**：
+
+| | `0001_init.sql` 寫的 | DB 裡**活著**的 |
+|---|---|---|
+| `seed_films` 的 country | `coalesce(rec->>'country','')` | `nullif(rec->>'country','')` |
+
+⇒ **要確認一支函式現在到底長什麼樣，唯一可靠的方法是讀活體：**
+
+```sql
+select pg_get_functiondef(p.oid)
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+ where n.nspname = 'public' and p.proname = 'seed_films';
+```
+
+我兩個版本都讀了，UPDATE 路徑在兩版裡都一樣、都沒有 country，所以結論不變。
+**但如果我只讀 migration 就回報「沒問題」，那是碰巧對。**
+⚠️ 這一條的代價是**靜默**的：拿舊定義去推論「重跑 seed 會不會洗掉我的 UPDATE」，
+猜錯的話資料被覆蓋時不會有任何訊息、不會有任何測試變紅。
+
+### 驗收數字（2026-09-06）
+
+- `film` 403→0 中華民國、2→405 台灣；`certificate` 436→0、0→436。
+- 全庫掃 `中華民國|台|臺|Taiwan|R\.O\.C`：只剩「台灣」。
+- David 的分布：日本 102／美國 67／**台灣 3**／韓國 1／俄羅斯 1，中華民國消失。
+- `/app` 的國別分布圖實際讀 DOM（`DistributionBars` 零 canvas）：五條，台灣 3 場。
+- migration 冪等（再跑一次 UPDATE 0／UPDATE 0，冒煙測試仍通過）。
+- test 343、verify:all 51/51、typecheck 0、lint 0。
+
+⚠️ 順帶修掉一個坑：`app/pages/app/films/new.vue` 的國別註解本來寫死當下計數
+（「日本 651、美國 578、中華民國 403」），國別一正規化那行就變成假話。
+已改成**講規則不講數字**。這類「寫死當下數字的註解」本身就是一個會過期的陷阱。
