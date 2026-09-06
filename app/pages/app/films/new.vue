@@ -64,6 +64,22 @@ const state = reactive<{
   runtimeMinutes: null,
 })
 
+/**
+ * 國別的建議清單：片庫裡已經出現過的國名，依出現次數排序。
+ * 只取 `country` 一欄，2,764 列約 60KB——這一頁很少被打開，換到的是
+ * 「新增的作品跟既有資料用同一組國名」。
+ */
+const { data: countryOptions } = await useAsyncData('country-options', async () => {
+  const { data } = await supabase.from('film_public').select('country').limit(3000)
+  const count = new Map<string, number>()
+  for (const row of data ?? []) {
+    const c = row.country?.trim()
+    if (c)
+      count.set(c, (count.get(c) ?? 0) + 1)
+  }
+  return [...count.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c)
+}, { server: false, default: () => [] as string[] })
+
 /** 回到來的地方。從搜尋來的話把字帶回去，不要讓他重打一次。 */
 const backTo = computed(() =>
   fromRecords.value
@@ -262,7 +278,7 @@ async function retryPoster() {
         <div class="mt-2">
           <TicketCard :record="previewRecord" :link-film="false" />
         </div>
-        <p class="mt-2 text-xs text-dimmed">
+        <p class="mt-2 text-xs text-muted">
           影城與場次在下一步填。預覽即時跟著欄位變——沒有海報也是一張完整的票根。
         </p>
       </section>
@@ -287,7 +303,19 @@ async function retryPoster() {
 
         <div class="grid grid-cols-2 gap-4">
           <UFormField label="國別" name="country" hint="選填">
-            <UInput v-model="state.country" placeholder="日本" class="w-full" />
+            <!--
+              ★ 用原生 `<datalist>` 而不是選單元件：國別**必須可以自由輸入**
+              （片庫裡沒有的國家不該被擋住），但也**必須跟既有資料一致**——
+              目前 2,764 部的國別全部來自政府資料、用語一致（日本 651、
+              美國 578、中華民國 403…），一旦有人打「Japan」或「JP」，
+              國別分布圖就會多出一個永遠合不起來的分類。
+              建 ISO 對照表不是解：政府資料用的是中文國名不是 ISO 碼，對不起來。
+              建議清單直接從片庫的相異值長出來，天生跟既有資料一致，也會自己成長。
+            -->
+            <UInput v-model="state.country" placeholder="日本" list="country-options" class="w-full" />
+            <datalist id="country-options">
+              <option v-for="c in countryOptions" :key="c" :value="c" />
+            </datalist>
           </UFormField>
           <UFormField label="上映年" name="releaseYear" hint="選填">
             <UInputNumber v-model="state.releaseYear" :min="1880" :max="2200" placeholder="2024" :format-options="{ useGrouping: false }" class="w-full" />

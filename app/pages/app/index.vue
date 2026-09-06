@@ -16,7 +16,6 @@ import type { StatSegment } from '~/utils/stat-line'
  *
  * 這頁在 `nuxt.config.ts` 是 `ssr: false` 且需登入，資料一律 client 端取。
  */
-const user = useSupabaseUser()
 const supabase = useSupabaseClient()
 
 useSeoMeta({ title: '我的紀錄' })
@@ -43,6 +42,16 @@ const totals = computed(() => stats.value?.totals ?? null)
  * 四張圖同時只有兩三個點，比沒有更糟。
  */
 const CHART_THRESHOLD = 10
+
+/**
+ * ★ 樣本數不足時**不要下「最」的斷言**（`SCREENS §9c.3`）。
+ *
+ * 「你最常在週六 10:00 進場，共 2 場」——2 場、樣本 8 筆。那是從雜訊長出來的
+ * 斷言，比不給洞察更糟，因為它看起來像一個發現。門檻 20 筆：
+ * **0 筆不畫圖、1–19 筆畫圖但不給斷言、20 筆以上才有洞察。**
+ * 不足門檻時改成純敘述，不出現「最常」「主場」「你的」。
+ */
+const INSIGHT_MIN = 20
 const totalRecords = computed(() => allStats.value?.totals?.records ?? 0)
 const showCharts = computed(() => totalRecords.value >= CHART_THRESHOLD)
 
@@ -63,8 +72,15 @@ const yearSegments = computed<StatSegment[]>(() => {
   ]
 })
 
+/**
+ * ⚠️ **時段圖吃的是全部年度，不是選定年份**（`SCREENS §9c.2`）。
+ * 兩張圖的 scope 本來就不同，而且是刻意的：**日層級的分布要按年看才有意義，
+ * 星期 × 時段的習慣要全部看才有形狀。** 實測只吃 2026 的 8 筆時，7×16 的格盤
+ * 96% 是空的，圖說變成「你最常在週六 10:00 進場，共 2 場」——那是從雜訊
+ * 長出來的斷言，比不給洞察更糟，因為它看起來像一個發現。
+ */
 const grid = computed(() =>
-  hourGrid(stats.value?.weekday_hour ?? [], totals.value?.records_without_time ?? 0))
+  hourGrid(allStats.value?.weekday_hour ?? [], allStats.value?.totals?.records_without_time ?? 0))
 
 const venueItems = computed(() =>
   topWithRest(
@@ -82,18 +98,31 @@ const countryItems = computed(() =>
   ))
 
 const home = computed(() => homeVenue(stats.value?.venues ?? []))
-const venueInsight = computed(() =>
-  home.value ? `你的主場是 ${home.value.name}，${home.value.share}% 的場次在這裡。` : null)
+const venueInsight = computed(() => {
+  const n = totals.value?.records ?? 0
+  if (!n || !home.value)
+    return null
+  // 樣本不足就只敘述，不說「你的主場」——8 場裡的 6 場不構成「主場」
+  if (n < INSIGHT_MIN)
+    return `${activeYear.value} 年的 ${n} 場分佈在 ${(stats.value?.venues ?? []).length} 個場所。`
+  return `你的主場是 ${home.value.name}，${home.value.share}% 的場次在這裡。`
+})
 
 /**
  * 熱點圖的圖說。
  *
- * §9 的樣板寫「你 71% 的場次在週五到週日的晚上」，但那是 David 全部資料的形狀；
- * 逐年來看不一定成立——2019 年實際只有 20%，那句話就只是一個數字不是洞察。
- * 所以週末佔比過半才講它，否則改講真正的尖峰時段（那句永遠有內容）。
+ * §9 的樣板寫「你 71% 的場次在週五到週日的晚上」，但那是全部資料的形狀，
+ * 換一組資料不一定成立。所以週末佔比過半才講它，否則改講尖峰時段。
  */
 const hourInsight = computed(() => {
-  const rows = stats.value?.weekday_hour ?? []
+  const rows = allStats.value?.weekday_hour ?? []
+  const n = rows.reduce((sum, r) => sum + r.records, 0)
+  if (!n)
+    return null
+  if (n < INSIGHT_MIN) {
+    const slots = new Set(rows.map(r => `${r.weekday}:${r.hour}`)).size
+    return `目前 ${n} 場分佈在 ${slots} 個時段。`
+  }
   const share = weekendEveningShare(rows)
   if (share >= 50)
     return `你 ${share}% 的場次在週五到週日的晚上。`
@@ -106,7 +135,7 @@ const hourInsight = computed(() => {
   return `你最常在週${WEEKDAY_LABELS[peak.weekday - 1]} ${hour} 進場，共 ${peak.records} 場。`
 })
 const hourNote = computed(() => {
-  const n = totals.value?.records_without_time ?? 0
+  const n = allStats.value?.totals?.records_without_time ?? 0
   return n > 0 ? `${n} 筆沒有記時間，沒有進這張圖。` : null
 })
 const spendNote = computed(() => {
@@ -141,10 +170,9 @@ const drawerRecords = computed(() => {
     return []
   if (p.kind === 'day')
     return records.value.filter(r => r.watchedOn === p.date)
-  // 熱點圖畫的是選定年份，抽屜也必須限定同一年，否則會列出別年的同時段
-  const y = String(activeYear.value ?? '')
+  // 熱點圖吃的是全部年度（§9c.2），抽屜也就不限年——限了會跟圖上的數字對不起來
   return records.value.filter(r =>
-    r.year === y && isoDow(r.watchedOn) === p.weekday && inHourRow(r.watchedTime, p.rowLabel))
+    isoDow(r.watchedOn) === p.weekday && inHourRow(r.watchedTime, p.rowLabel))
 })
 
 async function signOut() {
@@ -295,7 +323,8 @@ const demoCells = Array.from({ length: 7 * 26 }, (_, i) => {
         </ChartBand>
 
         <!-- ── band 3：時段熱點圖 ── -->
-        <ChartBand title="時段" :insight="hourInsight" :note="hourNote" table-summary="看每一格的數字">
+        <!-- 標題寫「全部」是因為這一條的 scope 跟其他 band 不同，見上方 grid 的註解 -->
+        <ChartBand title="時段（全部年度）" :insight="hourInsight" :note="hourNote" table-summary="看每一格的數字">
           <HourHeatmap :grid="grid" @pick="picked = { kind: 'slot', ...$event }" />
 
           <template #table>
@@ -423,8 +452,13 @@ const demoCells = Array.from({ length: 7 * 26 }, (_, i) => {
           登出
         </UButton>
       </div>
-      <p v-if="user?.email" class="mt-3 text-xs text-dimmed">
-        已登入：{{ user.email }}
+      <!--
+        顯示使用者名稱不是 email：這頁是自己的，但**截圖與投影分享是常態**，
+        把 email 印在畫面上沒有必要。使用者名稱是 ASCII、是公開識別、
+        也是他自己選的（§9c.4）。
+      -->
+      <p v-if="username" class="mt-3 text-xs text-muted">
+        已登入：@{{ username }}
       </p>
     </div>
   </div>

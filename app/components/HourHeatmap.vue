@@ -92,7 +92,7 @@ function onPick(params: { data?: unknown }) {
     <div class="max-w-[420px]">
       <BaseChart :option="option" :height="height" label="星期與時段的熱點圖" @pick="onPick" />
     </div>
-    <p class="mt-2 text-xs text-dimmed">
+    <p class="mt-2 text-xs text-muted">
       點一格看那個時段看了什麼
     </p>
   </div>

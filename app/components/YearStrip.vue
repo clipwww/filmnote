@@ -19,24 +19,44 @@ import type { YearStripRow } from '~/utils/stats'
  * padding 只剩約 230px 給 53 格。所以格子改成 `flex: 1` 由容器決定寬度，
  * **高度固定**。年表是密度概覽，格子是不是正方形不影響它要傳達的東西。
  */
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   rows: YearStripRow[]
   selected: number | null
-}>()
+  /** false ⇒ 只當門面，不可點也不進 tab 順序。 */
+  interactive?: boolean
+}>(), { interactive: true })
 
 const emit = defineEmits<{ 'update:selected': [year: number] }>()
 
-const colorMode = useColorMode()
 /**
  * 三階，取值與年度出席圖同一組（`att` = heat-0/4/6）。
  * ⚠️ **圖例與格子必須從同一個陣列取。** 舊版 mockup 的 CSS 與 JS 各維護一份，
  * 圖例跟圖已經不同色了（§5.4b）。
+ *
+ * ⚠️ **不可以用 `useColorMode()` 在 JS 裡挑顏色。** 這個元件會出現在 `/u/`，
+ * 那是 SSR 頁：伺服器端算出來的是亮色、瀏覽器 hydrate 時可能是暗色，
+ * 兩份 inline style 對不起來 ⇒ `Hydration completed but contains mismatches`，
+ * 而畫面看起來完全正常（實測就是這樣抓到的）。
+ * 改成把**亮暗兩組值都**當成 custom property 印出來（兩邊都是常數，SSR 與
+ * client 必然相同），由下方的 `<style>` 依 `.dark` 決定用哪一組。
+ * 值仍然只有 CHART 一個來源。
  */
-const att = computed(() => chartPalette(colorMode.value === 'dark').att)
+/** 0 場 / 1 場 / 2 場以上。 */
+function level(n: number): 0 | 1 | 2 {
+  return n === 0 ? 0 : n === 1 ? 1 : 2
+}
 
-function cellColor(n: number): string {
-  const [none, one, many] = att.value
-  return n === 0 ? none : n === 1 ? one : many
+/**
+ * 每一格同時帶亮暗兩個值，由 Tailwind 的 `dark:` variant 挑一個。
+ *
+ * ⚠️ 試過在 SFC 的 `<style scoped>` 裡寫 `:global(.dark) .year-strip`，**沒有生效**——
+ * 實測暗色模式下 `--att-0` 仍然解析成亮色的 `#EADDCA`，而畫面「看起來只是顏色怪」。
+ * Nuxt UI 註冊的 `@variant dark (&:where(.dark, .dark *))` 是全站都在用、
+ * 確定會動的那一條，所以改用它。
+ */
+function cellVars(n: number) {
+  const i = level(n)
+  return { '--att-l': CHART.light.att[i], '--att-d': CHART.dark.att[i] }
 }
 
 function move(delta: number) {
@@ -49,21 +69,24 @@ function move(delta: number) {
 </script>
 
 <template>
-  <div role="listbox" aria-label="年份" class="space-y-1">
+  <div :role="interactive ? 'listbox' : 'list'" aria-label="年份" class="space-y-1">
     <div
       v-for="row in rows"
       :key="row.year"
-      role="option"
-      :tabindex="0"
-      :aria-selected="row.year === selected"
+      :role="interactive ? 'option' : undefined"
+      :tabindex="interactive ? 0 : undefined"
+      :aria-selected="interactive ? row.year === selected : undefined"
       :aria-label="`${row.year} 年 ${row.records} 場`"
       class="flex items-center gap-2 border-l-2 py-1 pl-2 pr-1 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-      :class="row.year === selected ? 'border-primary' : 'border-transparent cursor-pointer'"
-      @click="emit('update:selected', row.year)"
-      @keydown.enter.prevent="emit('update:selected', row.year)"
-      @keydown.space.prevent="emit('update:selected', row.year)"
-      @keydown.down.prevent="move(1)"
-      @keydown.up.prevent="move(-1)"
+      :class="[
+        row.year === selected ? 'border-primary' : 'border-transparent',
+        interactive && row.year !== selected ? 'cursor-pointer' : '',
+      ]"
+      @click="interactive && emit('update:selected', row.year)"
+      @keydown.enter.prevent="interactive && emit('update:selected', row.year)"
+      @keydown.space.prevent="interactive && emit('update:selected', row.year)"
+      @keydown.down.prevent="interactive && move(1)"
+      @keydown.up.prevent="interactive && move(-1)"
     >
       <span
         class="w-10 shrink-0 text-xs tabular-nums"
@@ -75,8 +98,8 @@ function move(delta: number) {
         <span
           v-for="(n, i) in row.weeks"
           :key="i"
-          class="h-2.5 flex-1 rounded-[1px] sm:h-3"
-          :style="{ backgroundColor: cellColor(n) }"
+          class="h-2.5 flex-1 rounded-[1px] [background-color:var(--att-l)] sm:h-3 dark:[background-color:var(--att-d)]"
+          :style="cellVars(n)"
         />
       </span>
 

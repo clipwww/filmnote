@@ -45,7 +45,7 @@ defineSlots<{
       <slot />
     </div>
 
-    <p v-if="note" class="mt-3 text-sm text-dimmed">
+    <p v-if="note" class="mt-3 text-sm text-muted">
       {{ note }}
     </p>
 

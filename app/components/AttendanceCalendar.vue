@@ -149,7 +149,7 @@ const legend = computed(() => {
         <span class="size-2.5 rounded-[1px]" :style="{ backgroundColor: l.color }" />
         {{ l.label }}
       </span>
-      <span class="text-dimmed">點一格看那天看了什麼</span>
+      <span class="text-muted">點一格看那天看了什麼</span>
     </div>
   </div>
 </template>

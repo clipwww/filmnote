@@ -84,7 +84,7 @@ const filmHref = computed(() =>
       v-if="band"
       class="-my-3 -ms-3 w-11 shrink-0 self-stretch bg-amber-50 py-3 text-center leading-tight tabular-nums sm:-ms-4 dark:bg-amber-950"
     >
-      <div v-if="showYear" class="text-[11px] text-dimmed">
+      <div v-if="showYear" class="text-[11px] text-muted">
         {{ band.year }}
       </div>
       <div class="text-[11px] text-muted">

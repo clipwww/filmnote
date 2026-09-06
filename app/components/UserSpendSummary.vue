@@ -85,7 +85,7 @@ const segments = computed<StatSegment[]>(() => {
       本人看得到全部的票價列，缺的那幾筆是**根本沒記**；
       路人缺的那幾筆是**沒有公開**。混講會讓本人以為自己的資料被藏起來了。
     -->
-    <p v-if="partial" class="mt-1 text-sm text-dimmed">
+    <p v-if="partial" class="mt-1 text-sm text-muted">
       <template v-if="data.isOwner">
         其中 {{ data.visibleRecords - data.countedRecords }} 筆沒有記票價，這不是全部的花費。只有你看得到這個數字。
       </template>
@@ -93,7 +93,7 @@ const segments = computed<StatSegment[]>(() => {
         部分票價未公開，此金額只涵蓋 {{ data.countedRecords }} / {{ data.visibleRecords }} 筆紀錄。
       </template>
     </p>
-    <p v-else-if="data.isOwner" class="mt-1 text-sm text-dimmed">
+    <p v-else-if="data.isOwner" class="mt-1 text-sm text-muted">
       只有你看得到這個數字。
     </p>
   </section>

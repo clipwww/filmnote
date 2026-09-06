@@ -87,8 +87,35 @@ const cards = computed(() => items.value.map(r => ({
   },
 })))
 
-const visible = computed(() => cards.value.slice(0, shown.value))
-const hasMore = computed(() => cards.value.length > shown.value)
+/**
+ * 年表（`SCREENS §2.1`）。
+ *
+ * ⚠️ **公開頁一定要有它。** OG 分享圖的個人頁版面就是以年表為英雄——
+ * 分享圖上有、點進來卻沒有是不一致的；而「看得見自己的軌跡」是 SPEC 四個
+ * 價值主張的第四個，年表是它唯一的門面。`/app` 有年表當然對，但它不能只在那裡。
+ *
+ * 每一筆紀錄當一天算（`yearStripRows` 內部是按週收成的，同一週會自己相加），
+ * 所以不需要先做日層級的 group by。
+ */
+const stripRows = computed(() => yearStripRows(
+  items.value.map(r => ({ date: String(r.watchedOn ?? ''), records: 1, tickets: 1 })),
+  (counts.value?.byYear ?? []).map(y => y.year),
+))
+
+/** 年表同時是年份選擇器（§2.1）。再點一次同一年就回到全部。 */
+const selectedYear = ref<number | null>(null)
+function pickYear(year: number) {
+  selectedYear.value = selectedYear.value === year ? null : year
+  shown.value = PAGE
+}
+
+const filtered = computed(() =>
+  selectedYear.value === null
+    ? cards.value
+    : cards.value.filter(c => c.year === String(selectedYear.value)))
+
+const visible = computed(() => filtered.value.slice(0, shown.value))
+const hasMore = computed(() => filtered.value.length > shown.value)
 /** 依年份分組，讓長列表有可掃描的錨點。 */
 const grouped = computed(() => groupByYear(visible.value))
 </script>
@@ -130,9 +157,13 @@ const grouped = computed(() => groupByYear(visible.value))
       </template>
     </ClientOnly>
 
+    <section v-if="stripRows.length" class="mt-8 rounded-sm border border-default bg-default px-4 py-4">
+      <YearStrip :rows="stripRows" :selected="selectedYear" @update:selected="pickYear" />
+    </section>
+
     <section class="mt-10">
       <h2 class="text-lg font-semibold">
-        觀影紀錄
+        觀影紀錄<span v-if="selectedYear" class="ms-2 text-sm font-normal text-muted">{{ selectedYear }} 年</span>
       </h2>
       <p v-if="!items.length" class="mt-2 text-muted">
         還沒有公開的觀影紀錄。
@@ -151,7 +182,7 @@ const grouped = computed(() => groupByYear(visible.value))
 
         <div v-if="hasMore" class="mt-6 flex justify-center">
           <UButton variant="soft" color="neutral" @click="shown += PAGE">
-            再顯示 {{ Math.min(PAGE, cards.length - shown) }} 筆（共 {{ cards.length }} 筆）
+            再顯示 {{ Math.min(PAGE, filtered.length - shown) }} 筆（共 {{ filtered.length }} 筆）
           </UButton>
         </div>
       </template>
