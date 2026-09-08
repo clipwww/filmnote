@@ -25,6 +25,24 @@ const supabase = useSupabaseClient()
 const colorMode = useColorMode()
 const { username, isStaff, isSignedIn } = useMyIdentity()
 
+/**
+ * 觸發鈕上的 Google 頭像（2026-09-07 David：**只在登入後的私密面顯示，
+ * 公開頁 `/u/**` 一律首字母**）。
+ *
+ * ── 這裡是它唯一會出現的地方 ─────────────────────────────────────────
+ * 值來自 `useSupabaseUser()` 的 `user_metadata`，**不經過 `public.profile`**。
+ * 理由寫在 `useMyAvatar()` 的檔頭：`avatar_url` 那一欄只要有值，`/api/u/` 與
+ * `/u/` 兩根管子已經接好了，公開會自動發生。不落地是唯一在結構上守得住的做法。
+ *
+ * ── 首字母是我們決定的，不是 Nuxt UI 決定的 ───────────────────────────
+ * `UAvatar` 內建的 fallback 是 `alt.split(' ')` 取每個詞的首字母——那是英文姓名的
+ * 假設。顯式給 `:text` 把這個行為收回自己手上：日後函式庫改演算法，畫面不會靜靜地變。
+ * **不轉大寫**：`/u/{username}` 的頭像現在畫的是小寫首字（`Avatar.vue` 不做轉換），
+ * 同一個人在兩個畫面上該長一樣；要改就兩邊一起改，那是另一個決定。
+ */
+const avatarUrl = useMyAvatar()
+const avatarInitial = computed(() => Array.from(username.value ?? '')[0] ?? '')
+
 async function signOut() {
   await supabase.auth.signOut()
   // 留在 /app/** 只會被 middleware 彈回 /login，多一次跳轉。直接回首頁。
@@ -135,6 +153,28 @@ const items = computed<DropdownMenuItem[][]>(() => {
           trailing-icon="i-lucide-chevron-down"
           :aria-label="isSignedIn ? `${username ?? '帳號'} 的功能選單` : '功能選單'"
         >
+          <!--
+            `referrerpolicy="no-referrer"` 落得到 <img> 上，是因為 `Avatar.vue` 是
+            `inheritAttrs: false` ＋ `v-bind="$attrs"` 綁在圖片那一支（讀過原始碼確認）。
+            它擋不掉「向 Google 發了一個請求」，但可以不告訴 Google 這個請求是從哪一頁發的。
+            `alt=""`：按鈕自己有 `aria-label`，旁邊又已經寫著 username，這顆圓圈是裝飾。
+            沒有頭像時整顆不畫（旁邊的文字已經說明是誰）；有頭像但網址壞掉時（Google 換了
+            大頭貼、或整個連不上），`UAvatar` 自己的 `@error` 會翻成下面那個 `:text`，
+            畫面上是首字母而不是一張破圖。
+            `?? undefined` 在 `v-if` 之下是多餘的——留著是給型別看的：具名 slot 的內容會被
+            編到一個函式裡，`v-if` 的縮小很可能到不了裡面，而 `src` 只收 `string | undefined`。
+            不加 `:chip`：這顆圓圈就坐在裸台紙上，ring-offset 會露出票根紙色（DS :484）。
+          -->
+          <template v-if="avatarUrl" #leading>
+            <UAvatar
+              :src="avatarUrl ?? undefined"
+              :text="avatarInitial"
+              alt=""
+              size="2xs"
+              referrerpolicy="no-referrer"
+            />
+          </template>
+
           {{ isSignedIn ? (username ?? '我的') : '選單' }}
         </UButton>
       </UDropdownMenu>
