@@ -28,6 +28,17 @@ import { costText, venueSegment } from '~/utils/ticket'
  *   · **操作欄固定**：九欄在窄螢幕上必然要橫捲，而「刪掉／編輯」是每一列都要
  *     按得到的東西，捲出畫面等於這張表在手機上只能看不能改。
  *
+ * ── 2026-09-07：長備註改成點開 Dialog 看全文 ──────────────────────────
+ * David 看過三個並排預覽之後選的是「**短備註留在格子裡，只有長的給鈕**」——
+ * 不是「一律 Dialog」。所以上面那條「備註要看得到、藏起來就得一筆一筆點進
+ * 編輯頁」**仍然成立**：73 筆有備註裡的 54 筆（實測）照樣印在格子裡；
+ * 剩下 19 筆長的，全文改成在**這一頁**點開對話框看，一樣不用進編輯頁。
+ * 改掉的只是「原地展開把那一列撐高」這個動作。
+ *
+ * ⚠️ 這一輪**沒有**解掉「靜止時備註被固定欄蓋住 93px」（見 `columns` 上方的
+ * 算術）。David 是在明知這一點的情況下選的：他要的是**長備註看得完整**，
+ * 不是重排表格。不要因為看到備註欄變窄就以為那個問題被處理過了。
+ *
  * ── 篩選維度是從真實資料長出來的 ───────────────────────────────────────
  * 年份／影城／版本／有無票價。前三個的選項直接從**當年**的紀錄取相異值——
  * 不從全部紀錄取，否則會出現一堆選了就 0 筆的選項，而使用者無從得知為什麼。
@@ -108,43 +119,80 @@ watch(filtered, () => {
 const visible = computed(() => filtered.value.slice(0, shown.value))
 const hasMore = computed(() => filtered.value.length > shown.value)
 
-/* ── 備註（可展開）─────────────────────────────────────────────────────
+/* ── 備註（短的印在格子裡，長的點開對話框）─────────────────────────────
  * ⚠️ 備註是自由文字：實測 174 筆裡 73 筆有備註、平均 14.3 字、最長 67 字、
- * **5 筆含換行**。所以截斷不能假設它是單行——收起時先把所有空白（含換行）
- * 摺成一個空格，展開時才用 `whitespace-pre-wrap` 還原原本的斷行。
+ * **5 筆含換行**、規格上限 2000 字（DB 的 `viewing_record_memo_check`）。
+ * 所以「摺成單行」這一步不能省——換行在單行的格子裡會被畫成一個看不見的
+ * 斷點，讀起來像少了字。全文才用 `whitespace-pre-wrap` 還原原本的斷行。
  *
- * ⚠️ 展開一定要是 `<button>`：`title` 屬性在觸控裝置上沒有 hover，
- * `<div @click>` 則是鍵盤到不了。這裡是唯一能讀到全文的路徑，不能只給滑鼠。
+ * ⚠️ 觸發器一定要是 `<button>`：`title` 屬性在觸控裝置上沒有 hover，
+ * `<div @click>` 則是鍵盤到不了。**`UTooltip` 也是同一個失效模式**——
+ * reka-ui 的 `TooltipTrigger` 對 `pointerType === 'touch'` 的 pointermove
+ * 直接 return、隨後的 focus 又被 `isPointerDown` 擋掉、click 直接 onClose，
+ * 375px 上它**根本不會開**。所以 tooltip 只能當桌機的加值層，
+ * **唯一保證讀得到全文的路徑是那個 `UModal`**。
  *
- * ⚠️ 用字數門檻決定「要不要給按鈕」，不用 CSS 的 ellipsis：CSS 截斷了但沒有
- * 按鈕的話，那一筆的全文就永遠讀不到；反過來，短備註給了按鈕，按下去畫面
- * 不會變，看起來像壞掉。門檻取 16 個全形字，**跟欄寬（max-w-56＝224px）對齊**——
- * 兩邊對不上就會變成「我截一次、CSS 再截一次」，畫面上是兩個省略號。
+ * ── 2026-09-07 David：「短備註留在格子裡，只有長的給鈕」 ────────────────
+ * 門檻沿用改動前的 16 個全形字（實測：73 筆有備註裡 54 筆短、19 筆長），
+ * **刻意不因為欄寬變窄而下修**——下修會把「掃一眼就讀到」的那 54 筆也趕進
+ * 對話框，那正是他看過預覽後否決的那一版。
+ *
+ * ⚠️ 於是門檻（16 字）跟欄寬（`max-w-32`＝128px，約 9 個全形字）**不再對齊**，
+ * 這是刻意的，代價各自處理：
+ *   · 短備註（沒有按鈕）改成**折行**不截字。截了就永遠讀不到——它沒有按鈕。
+ *     最長的那筆短備註是 16 字（「一人包場，真正的一個人看電影XD」），
+ *     在 128px 下折成兩行，而作品欄本來就常態兩行，列高不會因此變一種新的樣子。
+ *   · 長備註（有按鈕）交給 CSS 的 `truncate` 截，**不再用 JS 先截一次**。
+ *     兩邊都截會出現兩個省略號；只有 CSS 截、而且截了一定有按鈕，才是對的。
  */
-const MEMO_PREVIEW = 16
-const expandedMemos = ref(new Set<string>())
+const MEMO_INLINE_MAX = 16
 
-/** 摺成單行：換行在收起態會被畫成一個看不見的斷點，讀起來像少了字。 */
+/** 摺成單行：換行在格子裡會被畫成一個看不見的斷點，讀起來像少了字。 */
 function memoOneLine(memo: string) {
   return memo.replace(/\s+/g, ' ').trim()
 }
 function memoIsLong(memo: string) {
   // `[...s]` 而不是 `.length`：emoji 是兩個 UTF-16 碼元，用 slice 會切出半個字。
-  return /\n/.test(memo) || [...memoOneLine(memo)].length > MEMO_PREVIEW
+  return /\n/.test(memo) || [...memoOneLine(memo)].length > MEMO_INLINE_MAX
 }
-function memoPreview(memo: string) {
-  const chars = [...memoOneLine(memo)]
-  return chars.length > MEMO_PREVIEW ? `${chars.slice(0, MEMO_PREVIEW).join('')}…` : chars.join('')
+
+/**
+ * 全文對話框。**一個 Modal 服務整張表**（24 列各生一個 `DialogRoot` 是白花的），
+ * 所以「開出來的是哪一列」全靠 `memoRecord` 這一個 ref。
+ *
+ * ⚠️ 關閉時**刻意不清空** `memoRecord`：`UModal` 有 200ms 的關閉動畫
+ * （主題的 `transition` 變體），清空的話這 200ms 內內文會先變空、副標變空字串、
+ * footer 的 `:to` 變成 `/app/records/undefined/edit`，畫面上是「字先消失、
+ * 框才淡出」。留著上一筆沒有任何壞處：`memoOpen` 是 false 時它看不見。
+ */
+const memoOpen = ref(false)
+const memoRecord = ref<MyRecord | null>(null)
+
+function openMemo(record: MyRecord) {
+  memoRecord.value = record
+  memoOpen.value = true
 }
-function isMemoOpen(id: string) {
-  return expandedMemos.value.has(id)
+
+/**
+ * 觸發鈕的無障礙名稱。一張表裡最多 24 顆長得一樣的鈕，**只寫「備註」或
+ * 「備註：{片名}」不夠**——同一部片會有多筆重刷紀錄，日期才分得出是哪一筆。
+ * ⚠️ 這是純文字的 aria-label，分隔用**半形空格**（跟 `ticketMetaLine()` 一致）；
+ * 全形空白是給畫面上看得到的字用的。
+ */
+function memoFilmTitle(record: MyRecord) {
+  // ⚠️ 刻意**不**共用 `#film-cell` 的兩種 fallback（「（作品不明）」／「（作品待審核）」）：
+  //    那兩個字串講的是「這筆紀錄的作品欄怎麼了」，在「備註：…」這個句子裡讀起來
+  //    像在說備註本身有問題。這裡只需要一個指得出是哪一筆的名字。
+  return record.film?.titleZh || record.film?.titleOriginal || '這筆紀錄'
 }
-function toggleMemo(id: string) {
-  const next = new Set(expandedMemos.value)
-  if (!next.delete(id))
-    next.add(id)
-  expandedMemos.value = next
+function memoTriggerLabel(record: MyRecord) {
+  return `備註：${watchedAtText(record.watchedOn, record.watchedTime)} ${memoFilmTitle(record)}`
 }
+/** 對話框副標。畫面上看得到 ⇒ 分隔用全形空白（DS §7，不用中點）。 */
+const memoDialogSubtitle = computed(() => {
+  const record = memoRecord.value
+  return record ? `${watchedAtText(record.watchedOn, record.watchedTime)}\u3000${memoFilmTitle(record)}` : ''
+})
 
 /* ── 表格 ─────────────────────────────────────────────────────────────── */
 /**
@@ -169,6 +217,17 @@ function toggleMemo(id: string) {
  * （備註多的年份只露約一個字），換取捲動時零遮蔽、以及影城與作品一個字都不截。
  * ⚠️ 所以**不要把它改成釘左，也不要為了消滅那 93px 去截欄寬**——
  * 那兩條路都被走過而且被否決了，理由在 `SCREENS §10.5` 與踩雷 #188。
+ *
+ * ── ⚠️ 2026-09-07：備註欄改窄，而那 93px **一點都沒有變** ────────────────
+ * 很容易誤會「欄變窄 ⇒ 遮蔽變小」。不是。遮蔽量的規律是
+ *   **遮蔽 = min(表格寬 − 容器寬, 固定欄寬)**，被蓋的是表格座標
+ *   `[容器寬 − 固定欄寬, 容器寬]` 這一段。
+ * 1280 下容器 1118px、固定欄 93px、2024 年備註欄**左緣在 997px**。備註欄不論
+ * 多寬，靜止時露出來的都只有 `[997, 1025]` 這 28px，扣掉 `td` 的 16px 左內距
+ * 之後剩 12px 的字寬——**不到一個字，改前改後一樣**。要讓它整欄露出來，
+ * 備註欄得窄到 28px 以內（比「備」這個字還窄），那已經不是欄位了。
+ * ⇒ 改窄換到的是**表格總寬變短、橫捲距離變短**，不是遮蔽變小。
+ * 想動遮蔽只有兩條路，而兩條都在上面被否決了。不要重新開這個案子。
  */
 const columns: TableColumn<MyRecord>[] = [
   { accessorKey: 'watchedOn', header: '日期', meta: { class: { td: 'w-40', th: 'w-40' } } },
@@ -179,8 +238,14 @@ const columns: TableColumn<MyRecord>[] = [
   { accessorKey: 'cost', header: '票價' },
   { id: 'visibility', header: '公開狀態' },
   // ⚠️ 備註要**指定寬度**不能只給 max-w：九欄的自動配寬會把它壓到 86px，
-  //    展開後變成一行兩個字、十一行高的一條——實測看到才發現，數字量不出來。
-  { accessorKey: 'memo', header: '備註', meta: { class: { td: 'w-56', th: 'w-56' } } },
+  //    變成一行兩個字、十幾行高的一條——實測看到才發現，數字量不出來。
+  // ⚠️ 2026-09-07 從 w-56（224px）收到 w-40（160px）：長備註的全文已經改由
+  //    對話框負責，這一欄只需要放得下「掃一眼」的那 54 筆短備註。
+  //    `w-40` 是 `td` 的**外**寬（border-box，含 `p-4` 的左右各 16px），
+  //    所以內層要配 `max-w-32`（128px）才對得起來——`td` 的 `w-*` 只是建議，
+  //    真正決定欄寬的是內層元素（踩雷 #187）。兩個數字對不上就會多出一段
+  //    永遠空著的內距，或反過來把 `td` 撐回去。
+  { accessorKey: 'memo', header: '備註', meta: { class: { td: 'w-40', th: 'w-40' } } },
   {
     id: 'actions',
     header: '操作',
@@ -388,20 +453,41 @@ async function confirmRemove() {
           「哪幾筆有話要說」。留白本身就是答案，不需要一個符號來宣告它。
         -->
         <template #memo-cell="{ row }">
-          <div v-if="row.original.memo?.trim()" class="min-w-0 max-w-56">
-            <button
+          <div v-if="row.original.memo?.trim()" class="min-w-0 max-w-32">
+            <!--
+              長備註：`<button>` 開對話框看全文。
+              ⚠️ 外面那層 `UTooltip` 是**桌機的加值層，不是路徑**——它在觸控裝置上
+              不會開（見檔頭 `memoIsLong` 上方的註解）。拿掉 `UModal` 只留它，
+              等於把全文變成滑鼠專屬，那正是 `SCREENS §10.4` 早就判掉的
+              `title` 屬性。
+              ⚠️ `:ui` 必須覆寫：tooltip 主題的 `content` 是 `h-6` 固定高、
+              `text` 是 `truncate`，不覆寫的話多行備註只看得到第一行的一小截，
+              **而且不會有任何錯誤**。這裡直接用 `#content` 插槽自己畫，
+              免得跟主題那個 `truncate` 在 tailwind-merge 裡比大小。
+            -->
+            <UTooltip
               v-if="memoIsLong(row.original.memo)"
-              type="button"
-              class="block max-w-full cursor-pointer rounded-xs text-start hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-              :class="isMemoOpen(row.original.id) ? '' : 'underline decoration-dotted decoration-default underline-offset-4'"
-              :aria-expanded="isMemoOpen(row.original.id)"
-              :aria-label="isMemoOpen(row.original.id) ? '收起備註' : '展開備註全文'"
-              @click="toggleMemo(row.original.id)"
+              :ui="{ content: 'h-auto max-w-xs items-start px-2.5 py-1.5' }"
             >
-              <span v-if="isMemoOpen(row.original.id)" class="block whitespace-pre-wrap break-words">{{ row.original.memo }}</span>
-              <span v-else class="block truncate">{{ memoPreview(row.original.memo) }}</span>
-            </button>
-            <span v-else class="block truncate">{{ memoOneLine(row.original.memo) }}</span>
+              <template #content>
+                <span class="line-clamp-3 text-xs break-words">{{ memoOneLine(row.original.memo) }}</span>
+              </template>
+              <button
+                type="button"
+                class="block max-w-full cursor-pointer rounded-xs text-start underline decoration-dotted decoration-default underline-offset-4 hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                aria-haspopup="dialog"
+                :aria-label="memoTriggerLabel(row.original)"
+                @click="openMemo(row.original)"
+              >
+                <span class="block truncate">{{ memoOneLine(row.original.memo) }}</span>
+              </button>
+            </UTooltip>
+            <!--
+              短備註：**折行不截字**。這一支沒有按鈕，截掉就永遠讀不到
+              （`SCREENS §10.4` 立的規矩）。`td` 主題帶 `whitespace-nowrap`，
+              所以要自己寫回 `whitespace-normal` 才折得了行。
+            -->
+            <span v-else class="block whitespace-normal break-words">{{ memoOneLine(row.original.memo) }}</span>
           </div>
         </template>
 
@@ -441,6 +527,37 @@ async function confirmRemove() {
         </UButton>
       </div>
     </template>
+
+    <!--
+      備註全文。**整張表共用這一個對話框**，是哪一筆由 `memoRecord` 決定。
+      ⚠️ 不要傳 `:scrollable`：預設（false）的主題已經是「`body` 自己捲、
+      標題固定、`content` 有 `max-h-[calc(100dvh-2rem)]` 與 `w-[calc(100vw-2rem)]`」，
+      2000 字的備註在 375 上也捲得動。傳了反而變成整個 overlay 捲、標題跟著捲走。
+      ⚠️ `whitespace-pre-wrap` 才會還原使用者打的斷行（實測 5 筆含換行）；
+      `break-words` 是給沒有空白的長英數字串用的，不然框會被撐破。
+    -->
+    <UModal v-model:open="memoOpen" title="備註" :description="memoDialogSubtitle">
+      <template #body>
+        <p class="text-sm leading-relaxed whitespace-pre-wrap break-words">
+          {{ memoRecord?.memo }}
+        </p>
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton
+            v-if="memoRecord"
+            :to="`/app/records/${memoRecord.id}/edit`"
+            variant="ghost"
+            color="neutral"
+          >
+            編輯這筆
+          </UButton>
+          <UButton color="neutral" @click="memoOpen = false">
+            關掉
+          </UButton>
+        </div>
+      </template>
+    </UModal>
 
     <UModal v-model:open="confirmOpen" title="刪掉這筆">
       <template #body>
