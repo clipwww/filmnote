@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { assertTaxIdUsableAsKey, parseCinemaCsv } from '#pipeline/gov/cinema'
+import { assertNameUsable, assertTaxIdUsableAsKey, parseCinemaCsv } from '#pipeline/gov/cinema'
 import { parseRelatedFiles, stripBom } from '#pipeline/gov/datasets'
 import { alignRow, parseRatingCsv, rocToGregorian } from '#pipeline/gov/rating'
 
@@ -206,7 +206,7 @@ describe('分級 CSV 解析（真實資料節錄）', () => {
 })
 
 describe('影城 CSV 解析（真實資料節錄）', () => {
-  const { cinemas, unknownCity } = parseCinemaCsv(fixture('cinema-2025-sample.csv'))
+  const { cinemas, unknownCity, blankName } = parseCinemaCsv(fixture('cinema-2025-sample.csv'))
 
   it('事業名稱的前後空白被清除', () => {
     // 來源資料實際帶有空白的兩筆
@@ -253,5 +253,43 @@ describe('影城 CSV 解析（真實資料節錄）', () => {
       { ...dup, name: 'A' },
       { ...dup, name: 'B' },
     ])).toThrow(/重複/)
+  })
+
+  /**
+   * ★ 空的事業名稱（2026-09-07，BUILD_PLAN §7）。
+   *
+   * fixture 第 7 行是真實資料：統編 21235165，事業名稱欄整欄是空的，只填了
+   * 公司名稱。空字串原樣往下傳，會在「在哪看」的下拉選單被算繪成只剩
+   * 「· 台北市」——看起來像選單裡混進了行政區名。
+   */
+  it('事業名稱為空時退回公司名稱', () => {
+    const capital = cinemas.find(c => c.taxId === '21235165')!
+    expect(capital.name).toBe('龍子電影事業股份有限公司（首都戲院）')
+  })
+
+  it('沒有任何一筆的 name 是空字串', () => {
+    expect(cinemas.filter(c => c.name.trim() === '')).toEqual([])
+  })
+
+  /**
+   * ⚠️ 這一條看起來跟上面兩條重複，但它守的是**別的東西**：有人把 fixture
+   * 第 7 行刪掉時，上面兩條會因為「集合裡根本沒有那一筆」而繼續綠，
+   * 只有這一條會紅。（交接筆記記載的「測試資料走不到那個分支」那一類。）
+   */
+  it('空的事業名稱會被記下來給人看', () => {
+    expect(blankName.map(b => b.taxId)).toEqual(['21235165'])
+    expect(blankName[0]!.companyName).toBe('龍子電影事業股份有限公司（首都戲院）')
+  })
+
+  it('名字空到底（兩欄都沒有）時明確拒絕', () => {
+    // fallback 之後仍然是空的，代表上游格式真的壞了，不是常態。
+    expect(() => assertNameUsable([
+      { taxId: '99999998', name: '', companyName: '', hallCount: 1, address: '台北市某路1號', phone: '', city: '台北市' },
+    ])).toThrow(/連事業名稱與公司名稱都是空的/)
+  })
+
+  it('名字有值時不拒絕', () => {
+    // 對照組：證明上一條分辨得出東西，而不是無論如何都 throw。
+    expect(() => assertNameUsable(cinemas)).not.toThrow()
   })
 })

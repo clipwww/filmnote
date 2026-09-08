@@ -289,15 +289,36 @@ interface VenuePick {
   label: string
 }
 
-const venuePicks = computed<VenuePick[]>(() => venues.value.map(v => ({
-  id: v.id,
-  label: [
-    v.name,
-    v.city,
+/**
+ * ★ 2026-09-07：**名字不可以跟其餘標註一起丟進 `filter(Boolean)`。**
+ *
+ * 原本的寫法是 `[v.name, v.city, …].filter(Boolean).join(' · ')`。`venue.name`
+ * 有 3 列是空字串（政府 CSV 的事業名稱欄本來就空），`['', '台北市', null, null]`
+ * 過完 `filter(Boolean)` 只剩 `['台北市']` ⇒ 標籤變成一個**裸的城市名**，
+ * 連分隔符都沒有，看起來像選單裡混進了行政區。
+ * （`new.vue` 是同一個病灶的另一個面，那邊至少還留著一個孤兒中點。）
+ *
+ * 名字是主體：它為空的時候要**看得出是空的**，不是悄悄消失。所以名字自己
+ * 一段、不進 filter；真的空了就印出那個場所的 id，讓人查得到是哪一筆。
+ * 這條路徑刻意直接查 `venue`（見上面的檔頭註解），所以吃得到 `venue_option`
+ * 濾掉的列——資料層的保證在這裡不能當成理所當然。
+ *
+ * 分隔用**開眼式括號量詞串**，不用中點（DESIGN_SYSTEM §49／§824：`A · B · C`
+ * 是 Letterboxd 的簽名）。形狀與 `app/utils/ticket.ts` 的 `venueSegment()`
+ * 一致：名稱 + 半形空白 + 括號／標註，例如
+ *   `台北日新威秀影城 (台北市) 已歇業`
+ */
+const venuePicks = computed<VenuePick[]>(() => venues.value.map((v) => {
+  const marks = [
+    v.city ? `(${v.city})` : null,
     v.status === 'closed' ? '已歇業' : null,
     !v.selectable && v.status !== 'closed' ? '不在現行名冊' : null,
-  ].filter(Boolean).join(' · '),
-})))
+  ].filter(Boolean)
+  return {
+    id: v.id,
+    label: [v.name.trim() || `（未命名場所 ${v.id}）`, ...marks].join(' '),
+  }
+}))
 
 interface VenueGroup {
   alias: string

@@ -223,9 +223,29 @@ async function onSubmit(event: FormSubmitEvent<RecordForm>) {
           class="w-full"
           size="lg"
         >
+          <!--
+            ★ 2026-09-07：這裡原本是 `{{ name }}` + `<span>· {{ city }}</span>`，
+              而 `venue.name` 有 3 列是空字串（政府 CSV 的事業名稱欄本來就空），
+              於是整列被算繪成只剩「· 台北市」——看起來像選單裡混進了行政區名。
+              **症狀在算繪層，病灶在資料層**：用 `where name ~ '(市|縣)$'` 去 DB
+              裡找是找不到的（實測 0 列）。見 BUILD_PLAN §7。
+
+            分隔改成開眼式括號串，不用中點（DESIGN_SYSTEM §49／§824：`A · B · C`
+            是 Letterboxd 的簽名）。形狀與 `app/utils/ticket.ts` 的 `venueSegment()`
+            一致：名稱 + **半形**空白 + 括號。
+
+            ⚠️ 名字與括號之間的半形空白寫在 span 自己的文字節點裡。Vue 的
+               whitespace: 'condense' 會把「含換行的純空白節點」整個刪掉，
+               靠版面縮排是留不住那個空格的。
+            ⚠️ 這裡**不做** `name || company_name` 的 fallback：`venue_option`
+               根本沒有 company_name 欄（要加就得改 view + 重跑 `pnpm db:types`），
+               而且同一個病灶有七個消費面，補在這裡只補得到一個、髒資料還留在
+               DB 裡繼續繁殖。上游 fallback 在 `src/gov/cinema.ts`，人工正名在
+               `supabase/migrations/0015_venue_blank_name.sql`。
+          -->
           <template #item-label="{ item }">
-            {{ (item as VenueOption).name }}
-            <span v-if="(item as VenueOption).city" class="text-muted">· {{ (item as VenueOption).city }}</span>
+            <span>{{ (item as VenueOption).name }}</span>
+            <span v-if="(item as VenueOption).city" class="text-muted"> ({{ (item as VenueOption).city }})</span>
           </template>
         </USelectMenu>
       </UFormField>

@@ -10,7 +10,7 @@
 
 import { mkdir, writeFile } from 'node:fs/promises'
 import process from 'node:process'
-import { assertTaxIdUsableAsKey, parseCinemaCsv } from '#pipeline/gov/cinema'
+import { assertNameUsable, assertTaxIdUsableAsKey, parseCinemaCsv } from '#pipeline/gov/cinema'
 import { fetchDatasetFile, listDatasetFiles } from '#pipeline/gov/datasets'
 
 const OUT_DIR = '.data'
@@ -36,10 +36,13 @@ async function main(): Promise<void> {
 
   console.log(`來源：${latest.name}`)
 
-  const { cinemas, unknownCity } = parseCinemaCsv(await fetchDatasetFile(latest))
+  const { cinemas, unknownCity, blankName } = parseCinemaCsv(await fetchDatasetFile(latest))
 
   // 統一編號是主鍵，每年重新匯入時都必須複驗這個前提。
   assertTaxIdUsableAsKey(cinemas)
+  // 名字空到底（事業名稱與公司名稱都沒有）就直接停，不要讓它到 seed 的
+  // SQL 層才以 23514 炸掉——那時候看不出是哪一筆、也看不出是上游變了。
+  assertNameUsable(cinemas)
 
   const halls = cinemas.reduce((sum, c) => sum + c.hallCount, 0)
   const cityTally = new Map<string, number>()
@@ -73,6 +76,21 @@ async function main(): Promise<void> {
     console.log(`\n⚠ ${unknownCity.length} 筆無法自地址辨識縣市，需人工處理：`)
     for (const row of unknownCity)
       console.log(`    ${row.name}（${row.taxId}）：${row.address}`)
+  }
+
+  /**
+   * ★ 空的事業名稱要**每年**看一次。
+   *
+   * 這不是錯誤（parser 已退回公司名稱，資料是可用的），但退回來的是法人全銜，
+   * 選單裡會出現「國元影業股份有限公司」這種東西。真正的店名寫在
+   * `supabase/migrations/0015_venue_blank_name.sql` 的 `curated_fields` 裡，
+   * 而那份清單只涵蓋 2025 年的 3 筆——多出來的第 4 筆只有這裡看得到。
+   * 不印出來的話，明年沒有任何人會知道要去補。
+   */
+  if (blankName.length) {
+    console.log(`\n⚠ ${blankName.length} 筆沒有事業名稱，已退回公司名稱（正名見 0015 的 curated_fields）：`)
+    for (const row of blankName)
+      console.log(`    ${row.taxId}：${row.companyName}（${row.address}）`)
   }
 
   console.log(`\n輸出：${OUT_DIR}/venues.json`)
