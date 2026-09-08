@@ -80,14 +80,12 @@ export default defineNuxtConfig({
     cronSecret: '', // NUXT_CRON_SECRET
     public: {
       siteUrl: 'http://localhost:3000', // NUXT_PUBLIC_SITE_URL
-      // 著作權侵權通知的聯繫窗口。§90-4 第 3 款要求「公告」它，所以它必須
-      // 出現在公開頁上 ⇒ 只能放 public。
-      //
-      // ⚠️ 讀的是 COPYRIGHT_CONTACT_EMAIL 而不是 NUXT_PUBLIC_ 前綴的自動對應：
-      // 那個變數名在 .env、.env.example 與部署設定裡都已經存在，改名要三個地方
-      // 同時改對，而漏掉的症狀是頁面上出現空白的聯繫窗口——一個「看起來只是
-      // 少一行字」但實際上讓避風港要件不成立的失敗。
-      copyrightContactEmail: process.env.COPYRIGHT_CONTACT_EMAIL ?? '',
+      // ⚠️ 這裡曾經有一個 `copyrightContactEmail`（§90-4 第 3 款要公告的受理窗口）。
+      // 2026-09-07 David 裁定拿掉：專案沒有任何寄信能力，而那個網域實測是 NXDOMAIN，
+      // 公告一個收不到的信箱等於承諾做不到的事。公告的窗口改成只有 `/legal/dmca`
+      // 那張表（理由完整寫在 `app/pages/legal/copyright.vue` 檔頭 ①）。
+      // 不要把它加回來：`runtimeConfig.public` 的每一個值都會序列化進 SSR payload，
+      // 「畫面上沒有」不等於「沒有送出去」。
     },
   },
 

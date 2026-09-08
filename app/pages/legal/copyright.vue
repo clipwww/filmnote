@@ -9,40 +9,27 @@
  * 正文（第 1–6 節）在 `legal_document`（`kind='copyright_policy'`）。
  * 這一頁在正文之後補兩件**正文給不了的東西**：
  *
- * ① **受理窗口的實際信箱。** 正文寫的是「本服務公告之著作權聯繫信箱」——
- *    條款正文裡不寫死信箱是對的（信箱換了要改的是公告不是條款，而已被同意過的
- *    條款依 0007 的 `legal_doc_immutable` 根本改不動），但「公告」總得有個地方，
- *    那個地方就是這一頁。
+ * ① **受理窗口的公告落點。** §90-4 第 3 款要的是「公告接收通知文件之聯繫窗口資訊」，
+ *    這一頁就是那個公告。而公告出去的窗口只有一個：`/legal/dmca` 那張表。
+ *
+ *    ⚠️ **本服務不公告任何電子郵件**（2026-09-07 David 裁定）。兩層理由：
+ *    專案沒有任何寄信能力（寄信服務已裁定擱置到上線前），而站上原本公告的那個
+ *    網域在同日實測是 NXDOMAIN（8.8.8.8 查無 NS / A / MX / SOA）——寄過去必退信。
+ *    公告一個沒有人收得到的窗口，跟隱私權政策寫「你隨時可以刪除帳號」但沒有實作
+ *    是同一類錯誤：把做不到的承諾寫在法遵頁的入口上。表單反過來是真的——它會寫進
+ *    `takedown_notice`，admin 的承辦頁讀得到。
+ *    ⇒ 不要因為「多一個管道比較保險」把設定值形式的聯繫信箱加回來。那種值會跟著
+ *      `runtimeConfig.public` 序列化進每一份 SSR payload，**「畫面上沒有」不等於
+ *      「沒有送出去」**。真的要開第二個管道，先確定有人收得到再說。
  *
  * ② **連到使用者自己的三振狀態。** §15.2：「條款寫了但使用者查不到自己有幾次，
- *    第三次就是突襲。」這一條只有登入者需要，而這一頁是 prerender 的靜態檔
- *    ⇒ 包在 `<ClientOnly>` 裡，掛載後才知道有沒有人在看。
- *    （順帶：`server/middleware/strip-auth-on-cacheable.ts` 對 `/legal/**` 拔 cookie，
- *     所以就算改成 SSR，伺服器端也一律看不到身分——這一段只能在 client 判斷。）
+ *    第三次就是突襲。」這一條只有登入者需要，而 `/legal/**` 是即時 SSR 加
+ *    `cache-control: no-store`（見 `nuxt.config.ts`；這裡曾經寫成 `prerender: true`，
+ *    實測從未生效，踩雷 #91）。SSR 也判斷不了身分：
+ *    `server/middleware/strip-auth-on-cacheable.ts` 對 `/legal/**` 拔掉 session cookie，
+ *    伺服器端一律看不到有沒有人登入 ⇒ 只能在 client 判斷，所以包在 `<ClientOnly>` 裡。
  */
 const user = useSupabaseUser()
-const config = useRuntimeConfig()
-
-/**
- * 受理窗口的信箱。來源是 `runtimeConfig.public.copyrightContactEmail`
- *（讀 `COPYRIGHT_CONTACT_EMAIL`，見 `nuxt.config.ts` 的註解）。
- *
- * ⚠️ 它的 fallback 是空字串，而**空字串的症狀是「頁面上少一行字」**——
- * 看起來無害，實際上是 §90-4 第 3 款的「公告受理窗口」少掉一個管道。
- * 所以這裡做兩件事：
- *   ① 句子跟著變（沒有信箱時不留下「請寄到下面這個信箱」這種指向空氣的句子）；
- *   ② 伺服器端每次算繪都吼一次，讓它出現在部署日誌裡。
- * 不在畫面上顯示錯誤：這一頁的讀者是著作權人，我們自己的設定錯誤不該變成他的問題，
- * 而 `/legal/dmca` 那個表單本身就是一個合格的窗口，那條路永遠在。
- */
-const contactEmail = computed(() => String(config.public.copyrightContactEmail || '').trim())
-
-if (import.meta.server && !contactEmail.value) {
-  console.error(
-    '[legal/copyright] COPYRIGHT_CONTACT_EMAIL 是空的 ⇒ 著作權受理窗口的信箱沒有公告出去。'
-    + '這是著作權法 §90-4 第 3 款的要件之一，請補上環境變數。',
-  )
-}
 
 useSeoMeta({
   title: '著作權政策',
@@ -59,19 +46,15 @@ useSeoMeta({
           受理窗口
         </h2>
         <!--
-          ⚠️ 信箱**自成一行**，不夾在句子中間。中文句子與行內元素之間一斷行，
-          Vue 的 whitespace 'condense' 就會留下一個空格，於是變成
-          「…請寄到 copyright@… ，或直接用…」——標點前面多一個空隙。
-          自成一行順帶讓人比較好選取複製，這一行是受理窗口，被複製的次數不會少。
+          ⚠️ 這一節只剩一段文字加一顆按鈕，那是**刻意的**，不是還沒寫完。
+          這裡曾經公告一個電子郵件；2026-09-07 David 裁定拿掉，理由寫在檔頭 ①。
+          再列第二個管道之前，先確認那個管道真的有人收得到。
+          ⚠️ 中文句子與行內元素之間不可以斷行（踩雷 #92）：Vue 的 whitespace
+          'condense' 會把含換行的空白摺成**一個空格**（不是摺掉），於是標點前面
+          多一個看得見的空隙。所以下面這種句子一律排成一行。
         -->
-        <p v-if="contactEmail" class="mt-3.5 max-w-[34em]">
-          著作權相關的通知請寄到下面這個信箱，或直接用侵權通知表單——表單會把著作權法第 90 條之 6 要求記載的事項一次收齊，處理起來會快一點。
-        </p>
-        <p v-else class="mt-3.5 max-w-[34em]">
+        <p class="mt-3.5 max-w-[34em]">
           著作權相關的通知請用下面的侵權通知表單——它會把著作權法第 90 條之 6 要求記載的事項一次收齊。不需要註冊，也不需要登入。
-        </p>
-        <p v-if="contactEmail" class="mt-2">
-          <a :href="`mailto:${contactEmail}`" class="text-primary hover:underline">{{ contactEmail }}</a>
         </p>
         <UButton to="/legal/dmca" variant="soft" class="mt-4">
           填侵權通知表單

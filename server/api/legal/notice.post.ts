@@ -56,7 +56,18 @@ async function resolveTargetFilm(targetUrl: string): Promise<string | null> {
 
 export default defineEventHandler(async (event) => {
   // 全站唯一對匿名開放寫入的表，資料庫層完全沒有防護（BUILD_PLAN §6.2）。
-  assertWithinRateLimit(event, { scope: 'legal-notice', windowMs: 60 * 60_000, max: 5 })
+  //
+  // ⚠️ 上限從 5 放寬到 20（2026-09-07）。原因不是流量，是**備援消失了**：
+  // 同日 David 裁定 `/legal/copyright` 不再公告電子郵件，這張表成為 §90-4 第 3 款
+  // 唯一的受理窗口。舊的 429 文案給的解法正好是「改寄信箱」——信箱一撤，
+  // 觸發速率限制就等於把唯一的法定窗口關掉一小時，而擋到的人是法務或權利人
+  // （`app/schemas/takedown.ts` 檔頭：「擋掉他們的代價是法遵要件失效」）。
+  // 這個窗口的濫用成本本來就低於關閉它的成本。
+  //
+  // ⚠️ 這個數字不精確，而且**不要寫進使用者看得到的文案**：`server/utils/rate-limit.ts`
+  // 是行程內記憶體，Vercel 上每個實例各一份 ⇒ 實際上限比 20 寬鬆，寫死在畫面上
+  // 就是另一個做不到的承諾。
+  assertWithinRateLimit(event, { scope: 'legal-notice', windowMs: 60 * 60_000, max: 20 })
 
   const parsed = noticeSchema.safeParse(await readBody(event))
   if (!parsed.success) {

@@ -21,14 +21,18 @@ import { filmSlugFromUrl, normalizeTargetUrl, takedownSchema, toTakedownPayload 
  * 這決定了成功畫面長什麼樣：不去查、不假裝有進度、把副本留在使用者手上。
  *
  * ⚠️ 「送出後你在這個網站上讀不到自己送過什麼」寫在**表單最上面**不是送出後才說
- * ——它會改變使用者怎麼填信箱，而信箱是我們唯一能找到他的方式（§15.3）。
+ * ——它會改變使用者怎麼填信箱，而信箱是這份通知裡 §90-6 要求記載的聯絡方式（§15.3）。
  *
- * ⚠️ **這一頁不可以承諾任何寄信行為。** 2026-09-06 David 裁定寄信服務擱置，
- * 專案裡沒有任何寄信能力。`SCREENS §15.3` 寫的「我們會寄一封確認信」與
- * 「受理編號」兩件事因此都做不到（後者另有理由：端點刻意不回 id）。
- * 措辭一律改成「不會有確認信」而不是留白——**做不到的承諾寫在法遵頁的入口上，
- * 跟隱私權政策寫「你隨時可以刪除帳號」但沒有實作是同一類錯誤**。
+ * ⚠️ **這一頁不可以承諾任何寄信行為，包括「之後會回覆你」。** 2026-09-06 David
+ * 裁定寄信服務擱置，專案裡沒有任何寄信能力。`SCREENS §15.3` 寫的「我們會寄一封
+ * 確認信」與「受理編號」兩件事因此都做不到（後者另有理由：端點刻意不回 id）。
+ * 措辭一律改成「不會有確認信、不會有回信」而不是留白——**做不到的承諾寫在法遵頁
+ * 的入口上，跟隱私權政策寫「你隨時可以刪除帳號」但沒有實作是同一類錯誤**。
  * 寄信服務上線後要回來改的就是這幾句，以及 `§90-6` 的「轉送通知給內容提供者」。
+ *
+ * ⚠️ **這張表是全站唯一的受理窗口。** 2026-09-07 David 裁定 `/legal/copyright`
+ * 不再公告任何電子郵件（該網域實測 NXDOMAIN、專案又不能寄信），所以這裡沒有備援：
+ * 任何一段文案都不可以叫人「改用信箱」，速率限制的訊息尤其不行。
  */
 const config = useRuntimeConfig()
 const form = useTemplateRef('form')
@@ -165,7 +169,10 @@ async function onSubmit(event: FormSubmitEvent<TakedownForm>) {
       submitError.value = '有幾個欄位需要修正，已標在下面。'
     }
     else if (err.statusCode === 429) {
-      submitError.value = '短時間內送出太多次了。請稍後再試，或直接寄到 copyright@filmnote.tw。'
+      // ⚠️ 這裡曾經寫「或直接寄到 <某個信箱>」。信箱已於 2026-09-07 撤除，
+      // 這張表是唯一的窗口 ⇒ 不可以再指向任何別的管道。也不要寫出具體的次數上限：
+      // rate-limit 是行程內記憶體、Vercel 上每個實例各一份，那個數字本來就不精確。
+      submitError.value = '短時間內送出太多次了，請稍後再試一次。這張表是唯一的受理窗口，晚一點重送一樣有效。'
     }
     else {
       submitError.value = err.data?.statusMessage || err.statusMessage || '送出失敗，請稍後再試一次。'
@@ -214,13 +221,14 @@ function again() {
 
       <div class="mt-5 max-w-[34em] border-s-2 border-primary bg-primary/5 px-4 py-4 rounded-e-sm">
         <!--
-          信箱自成一行，跟 /legal/copyright 的受理窗口同一個處理方式：
-          夾在中文句子中間的話，中英交界的間距要靠 `text-autospace` 跨元素邊界生效，
-          那件事各家實作不一致（DS §2.5 第 4 條量的是同一個文字節點內的情形）。
-          自成一行是確定的，順帶讓人比較好核對——這是他唯一能被回覆的地方。
+          信箱自成一行：夾在中文句子中間的話，中英交界的間距要靠 `text-autospace`
+          跨元素邊界生效，那件事各家實作不一致（DS §2.5 第 4 條量的是同一個文字
+          節點內的情形）。自成一行是確定的，順帶讓人比較好核對——這是他手上這份
+          副本裡最需要核對的一欄（§90-6 的法定記載事項）。
+          ⚠️ 不要把這一段改回「我們會用它回覆你」：本服務沒有任何寄信能力。
         -->
         <p class="text-highlighted">
-          不會有確認信寄到你的信箱——本服務目前沒有自動寄信的能力。下面這個信箱是我們唯一能找到你的方式：
+          不會有確認信，也不會有回信——本服務目前沒有任何寄信能力。這份通知裡登記的聯絡信箱是：
         </p>
         <p class="mt-1 font-semibold text-highlighted break-words">
           {{ submitted.claimantEmail }}
@@ -270,7 +278,7 @@ function again() {
         在 HTML 裡手打空格補間距。所以這種句子一律排成一行。
       -->
       <p class="mt-2 max-w-[34em] text-toned">
-        如果這個網站上有內容侵害你的著作權，用這張表告訴我們。我們收到後會盡快處理。<span class="text-highlighted">不需要註冊，也不需要登入。</span>
+        如果這個網站上有內容侵害你的著作權，用這張表告訴我們。送出之後會有人看到，取下與否都在這個網站上處理。<span class="text-highlighted">不需要註冊，也不需要登入。</span>
       </p>
 
       <!--
@@ -286,7 +294,7 @@ function again() {
           送出之後，<span class="text-highlighted font-semibold">你在這個網站上讀不到自己送過什麼</span>——這張表只寫入、不提供查詢，因為任何查詢介面都等於揭露「哪些內容被通知過、屬於誰」。
         </p>
         <p class="mt-1">
-          <span class="text-highlighted font-semibold">送出後不會有確認信</span>——本服務目前沒有自動寄信的能力。你填的信箱是我們唯一能找到你的方式，需要補問細節或告知處理結果時會用它，但那是人工回覆，不會立刻到。<span class="text-highlighted font-semibold">所以信箱一定要填對。</span>
+          <span class="text-highlighted font-semibold">送出後不會有確認信，也不會有回信</span>——本服務目前沒有任何寄信能力，處理結果不會通知你，只會反映在這個網站上。<span class="text-highlighted font-semibold">信箱仍然要填對</span>：它是著作權法第 90 條之 6 要求這份通知記載的聯絡方式，送出後不能改。
         </p>
       </div>
 
@@ -316,7 +324,7 @@ function again() {
           required
           hint="必填"
           class="max-w-[27rem]"
-          help="這是我們唯一能找到你的方式，送出後不能改。"
+          help="第 90 條之 6 要求記載的聯絡方式，送出後不能改。不會用它寄信給你。"
         >
           <UInput v-model="state.claimantEmail" type="email" placeholder="legal@example.com" class="w-full" autocomplete="email" />
         </UFormField>
