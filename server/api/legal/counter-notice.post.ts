@@ -34,6 +34,21 @@ export default defineEventHandler(async (event) => {
   if (!user)
     throw createError({ statusCode: 401, statusMessage: '請先登入' })
 
+  /**
+   * ⚠️ 踩雷 #13：`@nuxtjs/supabase` v2 的 `serverSupabaseUser()` 回的是 **JWT claims**
+   * （`JwtPayload`），只有 `sub`，**沒有 `id`**。而 `JwtPayload` 有索引簽章，所以
+   * `user.id` 在型別上完全合法——`pnpm typecheck` 不會說話，執行期才是 `undefined`。
+   *
+   * 這一支曾經整條壞掉而沒有人發現（2026-09-08 對抗式覆核抓到）：`profile_id` 是
+   * `undefined` 時，PostgREST 的查詢會變成 `profile_id=eq.undefined` 回 400
+   * `invalid input syntax for type uuid`，於是查重那一步就 500；就算繞過查重，
+   * `.insert()` 也會把值為 `undefined` 的鍵整個從 JSON body 省掉，撞上 NOT NULL。
+   * ⇒ **§90-9 的回復通知在那段期間是完全提不出來的**，而那是避風港流程的一環。
+   *
+   * 取一次、命名清楚，讓下面兩個用到的地方不可能再各自寫錯。
+   */
+  const profileId = user.sub
+
   const parsed = counterSchema.safeParse(await readBody(event))
   if (!parsed.success) {
     throw createError({
@@ -63,7 +78,7 @@ export default defineEventHandler(async (event) => {
     .from('counter_notice')
     .select('id')
     .eq('notice_id', noticeId)
-    .eq('profile_id', user.id)
+    .eq('profile_id', profileId)
     .maybeSingle()
 
   if (dupError)
@@ -80,7 +95,7 @@ export default defineEventHandler(async (event) => {
     // **那是刻意的**。忘記帶會變成編譯錯誤，而不是等到某人刪帳號、
     // 三振紀錄的鏈斷掉之後才發現。trigger 是給 SQL 層寫入端（admin_add_strike）
     // 的後盾，型別是給 TypeScript 寫入端的。
-    .insert({ notice_id: noticeId, profile_id: user.id, subject_ref: user.id, reason })
+    .insert({ notice_id: noticeId, profile_id: profileId, subject_ref: profileId, reason })
     .select('id,received_at,litigation_deadline_at,restore_deadline_at')
     .single()
 

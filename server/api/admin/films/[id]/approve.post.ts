@@ -106,7 +106,7 @@ export default defineEventHandler(async (event) => {
   console.log('[admin/films/approve]', JSON.stringify({
     filmId,
     approve: parsed.data.approve,
-    by: user.id,
+    by: user.sub, // 踩雷 #13：v2 回的是 JWT claims，只有 sub；user.id 型別合法但執行期是 undefined
     hasNote: !!parsed.data.note,
     from: `${before.visibility}/${before.review_state}`,
     to: `${after.visibility}/${after.review_state}`,

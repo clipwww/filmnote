@@ -92,7 +92,7 @@ export default defineEventHandler(async (event) => {
   console.log('[admin/films/merge]', JSON.stringify({
     loserId,
     winnerId,
-    by: user.id,
+    by: user.sub, // 踩雷 #13：v2 回的是 JWT claims，只有 sub；user.id 型別合法但執行期是 undefined
     movedRecords: log?.moved_records ?? null,
   }))
 
