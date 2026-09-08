@@ -36,11 +36,31 @@
  * HTML 排版，375px 自動換行、螢幕閱讀器讀得到數字、鍵盤可達、零 canvas。
  * 而且「虛線開口」用 CSS 一行就有，canvas 要自己畫。
  */
+/**
+ * ── 每一列是三段：`{金額} / {場數} 場 / {票數} 張` ──────────────────────────
+ * David 2026-09-07 逐字指定的格式（分隔用斜線，不是站內慣例的全形空白；
+ * 理由與先例見 `spendCountsText()` 的檔頭）。
+ *
+ * ⚠️ **場數與張數永遠是完整的，不可以跟著 `isPartial` 變灰。**
+ * 不完整的只有金額——`spend_is_partial` 說的是「有幾筆票價讀不到」，
+ * 場次與張數一筆都沒少。把兩個完整的數字染上「不完整」的視覺訊號，
+ * 是這張圖最不能犯的那類錯的另一個版本（把「沒公開」講成「沒花錢」的鏡像）。
+ * 所以 `text-highlighted / text-muted` 的條件式**只掛在金額那一段**。
+ */
 const props = defineProps<{
-  byYear: { year: number, spend: number, records: number, isPartial: boolean }[]
+  byYear: { year: number, spend: number, records: number, tickets: number, isPartial: boolean }[]
   currency: string
   /** 缺的那幾筆對本人是「沒記」、對路人是「沒公開」，文案不可共用。 */
   isOwn: boolean
+  /**
+   * 「只有你看得到這些數字。」那一句要不要出現。預設出現。
+   *
+   * 那句是為 `/u/` 寫的——那一頁的問題是「我分享出去別人看到什麼」，所以
+   * 需要一句話回答。`/app` 整頁都是本人私密的儀表板，同一句話在那裡沒有
+   * 回答任何問題，只是雜訊（而且在不 partial 時會憑空多長出一整個 `<p>`）。
+   * ⇒ `/app` 傳 `:privacy-note="false"`。
+   */
+  privacyNote?: boolean
 }>()
 
 /**
@@ -73,6 +93,28 @@ const BAR_VARS = {
   '--spend-track-d': CHART.dark.heat[0],
 }
 
+/**
+ * 底下那一句小字。
+ *
+ * ⚠️ **在 JS 端組好整串再插值**，不要在模板裡把兩句話拆成相鄰的元素——
+ * Vue 的 whitespace `condense` 在元素↔元素之間會把換行空白整個吃掉
+ *（踩雷 #92），兩句話會黏成「…不是全部。只有你看得到這些數字。」以外的形狀。
+ *
+ * 三種結果：
+ * - 有 partial ⇒ 先解釋「以上」是什麼意思（本人是「沒記」、路人是「沒公開」，
+ *   文案不可共用），本人再視 `privacyNote` 接上隱私那一句。
+ * - 沒有 partial ⇒ 只剩隱私那一句；`/app` 關掉之後整個 `<p>` 不存在。
+ */
+const footnote = computed<string | null>(() => {
+  const privacy = props.isOwn && props.privacyNote !== false ? '只有你看得到這些數字。' : ''
+  if (anyPartial.value) {
+    return props.isOwn
+      ? `標「以上」的年份有幾筆沒有記票價，那幾年的金額不是全部。${privacy}`
+      : '標「以上」的年份有未公開的票價，那幾年的金額只是看得到的部分。'
+  }
+  return privacy || null
+})
+
 function width(spend: number): string {
   // ⚠️ **真正的 0 要畫成 0**，不能吃到下面那個下限。實測 2015 年合計 NT$0
   //    （兌換票）被 `Math.max(2, …)` 撐出一小段條，等於在暗示「有花錢」，
@@ -91,9 +133,19 @@ function width(spend: number): string {
       <li v-for="y in rows" :key="y.year">
         <div class="flex items-baseline justify-between gap-3">
           <span class="shrink-0 text-sm tabular-nums text-toned">{{ y.year }}</span>
-          <span class="min-w-0 text-right text-sm tabular-nums" :class="y.isPartial ? 'text-muted' : 'text-highlighted'">
-            {{ spendText(y.spend, currency, y.isPartial) }}
-          </span>
+          <!--
+            ★ 分隔的斜線是**兩個 span 之間的純文字節點**，`whitespace-nowrap` 只掛在
+              兩個原子片段上。這不是排版潔癖：**nowrap 內部的空白不產生斷行點**，
+              把「 / 」寫進後面那個 nowrap span 裡的話整個右側會變成一段不可斷的文字
+              ——外層是 flex、沒有 overflow-hidden ⇒ 375px 放不下時直接橫向溢出。
+            ★ 反過來也不行：斷點**絕不可落在數字與量詞之間**（「27」與「張」分家），
+              那是 `utils/ticket.ts` 檔頭記過的「影城 數位」那個病。所以
+              「NT$7,236 以上」與「21 場 / 27 張」各自 nowrap，換行只可能落在中間那個斜線。
+            ⚠️ 整串寫在同一行是刻意的：元素↔元素之間換行會被 Vue 的 whitespace
+              'condense' 整個吃掉（踩雷 #92），分隔空白必須待在文字節點裡。
+            ⚠️ 顏色的條件式只掛在金額那一段——場數與張數永遠是完整的（見 props 的檔頭）。
+          -->
+          <span class="min-w-0 text-right text-sm text-muted tabular-nums"><span class="whitespace-nowrap" :class="y.isPartial ? 'text-muted' : 'text-highlighted'">{{ spendText(y.spend, currency, y.isPartial) }}</span> / <span class="whitespace-nowrap">{{ spendCountsText(y.records, y.tickets) }}</span></span>
         </div>
         <div class="mt-1 h-2 w-full rounded-[1px] [background-color:var(--spend-track-l)] dark:[background-color:var(--spend-track-d)]">
           <!--
@@ -114,17 +166,11 @@ function width(spend: number): string {
       逐年的記號負責「哪一年不完整」，這一句負責「不完整是什麼意思」。
       兩者都要：只有記號的話沒有人知道「以上」在講什麼；只有這一句的話
       使用者不知道是哪幾年。
+      ⚠️ 整串在 script 端組好（見 `footnote`），不要拆回相鄰的 `<template>`
+        ——踩雷 #92：元素↔元素之間的換行空白會被 condense 整個吃掉。
     -->
-    <p v-if="anyPartial" class="mt-3 text-sm text-muted">
-      <template v-if="isOwn">
-        標「以上」的年份有幾筆沒有記票價，那幾年的金額不是全部。只有你看得到這些數字。
-      </template>
-      <template v-else>
-        標「以上」的年份有未公開的票價，那幾年的金額只是看得到的部分。
-      </template>
-    </p>
-    <p v-else-if="isOwn" class="mt-3 text-sm text-muted">
-      只有你看得到這些數字。
+    <p v-if="footnote" class="mt-3 text-sm text-muted">
+      {{ footnote }}
     </p>
   </div>
 </template>

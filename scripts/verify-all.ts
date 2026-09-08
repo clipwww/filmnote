@@ -29,7 +29,7 @@ import { execFileSync } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import process from 'node:process'
 import { Client, types as pgTypes } from 'pg'
-import { monthlyBaselineSeries } from '../app/utils/stats'
+import { monthlyBaselineSeries, spendCountsText } from '../app/utils/stats'
 import { runSsrAndOgChecks } from './verify-http'
 import { runPublicProfileChecks } from './verify-u-public'
 
@@ -217,6 +217,85 @@ async function runMonthlyBaselineChecks(): Promise<void> {
     : missing.length
       ? `這些頁面畫了月度趨勢卻沒有引用 monthlyBaselineSeries（＝自己算了一套）：${missing.join('、')}`
       : `${drawers.length} 個呼叫端都接上了：${drawers.join('、')}`)
+}
+
+/**
+ * ── 「每年花費」每一列印的張數，跨層對帳 ────────────────────────────────────
+ *
+ * 這條 band 的每一列是 `{金額} / {場數} 場 / {票數} 張`（David 2026-09-07）。
+ * 場數與張數是**兩個不同的數字**（一場可能買多張票），而把兩個參數對調
+ * 是這種函式最典型也最看不出來的錯——畫面上仍然是兩個合理的數字。
+ *
+ * ★ 所以這裡拿**真實資料**跑**真正的前端函式**（直接 import `spendCountsText`，
+ *   不是抄一份公式），再把「N 張」那個數字從渲染出來的字串裡讀回來，
+ *   跟 DB 的 `totals.tickets` 對帳——那是一個**由另一個聚合算出來的數字**，
+ *   不是同一個欄位的複本。參數一對調，加總就會變成場數（實測 174 ≠ 250）⇒ 紅。
+ *
+ * ⚠️ **這裡刻意沒有做的事**：不對 `by_year` 的加總 vs `totals` 做內部一致性
+ *   斷言。兩邊都出自同一支 `user_year_stats` 的同一次呼叫，那是 DB 對 DB，
+ *   前端怎麼改它都不會紅——正是本檔第 141 行那句「一致性斷言只驗到內部一致」
+ *   在講的病。
+ *
+ * ⚠️ **接線那一半不在這裡**：`tests/stats.test.ts` 有一組不需要資料庫的原始碼
+ *   斷言（元件真的呼叫了 `spendCountsText()`、三段的順序、分隔沒被關進
+ *   `whitespace-nowrap`、儀表板沒寫成 `stats.value?.by_year`）。放在那邊是因為
+ *   它們每次 `pnpm test` 都會跑。**改動這條 band 時兩邊都要看。**
+ *
+ * ⚠️ 「兩個呼叫端有沒有把 `tickets` 傳進去」**不要用字串比對守**：
+ *   `/u/[username].vue` 全檔沒有 `tickets` 這個字（它的數字是 `useUserSpend()`
+ *   的 map 帶進去的），而 `app/pages/app/index.vue` 本來就有三處無關的
+ *   `tickets`（頁首那句、出席圖資料表、月度資料表）——正反兩個方向都會壞。
+ *   那件事交給 `typecheck`：`SpendByYear` 的 props 把 `tickets: number` 設成必填，
+ *   哪一端漏了 `vue-tsc` 就會紅。
+ */
+async function runSpendByYearChecks(): Promise<void> {
+  const guards = '★ §6e／§7 #175：「每年花費」每一列印的是張數不是場數，而且與頁首那句「250 張票」同一個定義'
+
+  const rows = await sql(
+    `select p.username, public.user_year_stats(p.username, null) as stats
+       from public.profile p
+       join auth.users u on u.id = p.id
+      where u.email = $1`,
+    // ⚠️ 以 email 精確指定，不用 `limit 1`。email 從環境變數來，不進版控。
+    [process.env.IMPORT_TARGET_EMAIL ?? ''],
+  )
+
+  const stats = rows[0]?.stats as YearStats | undefined
+  const byYear = stats?.by_year
+  const totals = stats?.totals
+  if (!byYear?.length || !totals) {
+    skip('frontend/spend-by-year', guards, 'IMPORT_TARGET_EMAIL 沒設或該帳號沒有紀錄 ⇒ 拿不到真實資料可對帳')
+    return
+  }
+
+  // ① 從**渲染出來的字串**把張數讀回來，加總 === DB 的 totals.tickets。
+  //    正則要求「數字 + 張」，所以量詞被改掉、順序被對調、數字被換成場數，三種都紅。
+  const sumUi = byYear.reduce((acc, y) => {
+    const m = /(\d+)\s*張/.exec(spendCountsText(y.records, y.tickets))
+    return acc + (m ? Number(m[1]) : Number.NaN)
+  }, 0)
+  const sumDb = Number(totals.tickets ?? 0)
+  record('frontend/spend-by-year-tickets', guards, sumUi === sumDb, `列上印出來的張數加總 ${sumUi} vs DB 的 totals.tickets ${sumDb}`)
+
+  // ② ★ 對照組：這組資料真的分辨得出「場數冒充張數」嗎？
+  //    沒有這一條的話，①在「每場都剛好一張」的帳號上會變成同語反覆而照樣全綠。
+  const sumRecords = byYear.reduce((acc, y) => acc + Number(y.records ?? 0), 0)
+  const differs = sumRecords !== sumDb
+  record('frontend/spend-by-year-discriminates', guards, differs, differs
+    ? `用場數冒充張數會得到 ${sumRecords}，與 ${sumDb} 不同 ⇒ ①分辨得出參數對調`
+    : `⚠️ 這組資料下場數與張數同解（都是 ${sumDb}）⇒ 上面那條**分辨不出**參數對調，等於沒在守`)
+
+  // ③ 指定年份時 `by_year` 真的是空的——這是「`/app` 必須吃 `allStats` 而不是
+  //    `stats`」的**理由**。`tests/stats.test.ts` 那條原始碼斷言擋的是寫法，
+  //    這一條負責證明那個坑還在。哪天 RPC 改成指定年份也回 by_year，這條會紅，
+  //    到時候那條原始碼斷言就可以退休了。
+  const username = rows[0]?.username as string
+  const someYear = byYear[0]?.year
+  const scoped = (await sql('select public.user_year_stats($1, $2) as stats', [username, someYear]))[0]?.stats as YearStats | undefined
+  const scopedLen = scoped?.by_year?.length ?? 0
+  const scopedDetail = `p_year=${someYear} 時 by_year 有 ${scopedLen} 列（期望 0）——`
+    + '不是 0 的話，「/app 一定要用 allStats」那條理由與它的原始碼斷言都要重新檢討'
+  record('frontend/spend-by-year-scoped-empty', guards, scopedLen === 0, scopedDetail)
 }
 
 async function runHttpChecks(env: HttpEnv): Promise<void> {
@@ -635,6 +714,7 @@ await runSqlFile('scripts/verify-admin.sql', 'Step 7 審核與合併的資料庫
 
 console.log('\n── 前端對帳（真實資料 × 真正的前端函式）──')
 await runMonthlyBaselineChecks()
+await runSpendByYearChecks()
 
 if (!sqlOnly) {
   console.log('\n── HTTP 斷言（真實 PostgREST + 真實使用者 JWT）──')

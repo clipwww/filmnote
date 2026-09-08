@@ -7,6 +7,13 @@ export interface MyRecord extends TicketCardRecord {
   /** 分組用，等同 `watchedOn` 的前四碼。 */
   year: string
   formatCode: string | null
+  /**
+   * 作品的識別。多刷排行（band 7）以 `film_id` 分組，抽屜要把排行的一列
+   * 對回紀錄只能靠它——片名會撞、`slug` 對未審核的 UGC 作品是 null。
+   * DB 上 NOT NULL，所以這裡不宣告成可選：宣告成可選的話，map 忘了帶
+   * 會 typecheck 全綠而抽屜永遠是空的。
+   */
+  filmId: string
 }
 
 /**
@@ -80,6 +87,7 @@ export function useMyRecords() {
 
     return rows.map(r => ({
       id: r.id,
+      filmId: r.film_id,
       watchedOn: r.watched_on,
       year: String(r.watched_on).slice(0, 4),
       watchedTime: r.watched_time,

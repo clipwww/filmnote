@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import type { EChartsOption } from 'echarts'
 import type { HourGrid } from '~/utils/stats'
+// 顯式匯入而不是靠 auto-import：這是一個**新加的** app/utils 檔，而踩雷 #173 的
+// 形狀正是「模組圖沒更新 ⇒ 頁面整個畫不出來，而 typecheck / lint / test 四個全綠」。
+// 寫死這一行就完全不依賴 auto-import 的探索時機。
+import { hourHeatmapHeight, hourHeatmapOption } from '~/utils/hour-heatmap-option'
 
 /**
  * 時段熱點圖（`SCREENS.md §9` band 3）。**直式：星期 7 欄 × 時段列。**
@@ -8,77 +11,82 @@ import type { HourGrid } from '~/utils/stats'
  * 方向沿用舊專案——7 欄天生塞得進 375px，永遠不需要橫向捲動。這是舊碼裡
  * 最有價值的判斷（§5.5）。
  *
- * ── 三條硬限制 ────────────────────────────────────────────────
- * 1. **兩軸都必須 `type:'category'` 且 `boundaryGap: true`**，違反會在
- *    dev build 直接 throw。時段軸必須是字串桶，不能用 value 軸做連續小時。
- *    `visualMap` 是必需元件（可 `show:false`）（§5.3-7）。
- * 2. **`cartesian2d` heatmap 完全不畫空格**（實測 3 筆資料的 7×6 格盤只產生
- *    5 個 path）。7×N 全格必須明確餵 `value: 0`，否則「從未」的格子直接消失、
- *    露出卡片底色，看起來像破洞（§5.3-6）。補格在 `hourGrid()`，有測試守著。
- * 3. **`visualMap.pieces` 用 `gt`/`lte` 不用 `min`/`max`**（§5.3-9）。
- *    邊界值會掉進兩個 piece 之間的縫裡，靜默不畫，console 零錯誤——
- *    design 是逐像素掃 112 格對帳資料表才抓到的。
+ * ── option 在哪 ──────────────────────────────────────────────
+ * 建構搬到 `~/utils/hour-heatmap-option.ts` 了（那三條硬限制的註解也在那裡）。
+ * 唯一的理由是可測：「兩條總和軸真的存在、而且跟格盤對齊」只有在能離開瀏覽器
+ * render 一次的情況下才驗得到，而 SFC 進不了 vitest。
+ *
+ * ── 這張圖有三種可點的東西 ────────────────────────────────────
+ * 1. 112 個格子（含值為 0 的）→ `{ kind: 'slot' }`
+ * 2. 底部那一列每個星期的總和 → `{ kind: 'weekday' }`
+ * 3. 右側那一欄每個時段的總和 → `{ kind: 'hour' }`
+ * 原本的星期／時段標籤**維持 silent**（沒有 `triggerEvent` 就是 silent），
+ * 它們不是按鈕。
  */
 const props = defineProps<{ grid: HourGrid }>()
 
-const emit = defineEmits<{ pick: [cell: { weekday: number, rowLabel: string }] }>()
+/**
+ * ⚠️ **這是 breaking change。** 舊的形狀是 `{ weekday, rowLabel }`，呼叫端寫
+ * `@pick="picked = { kind: 'slot', ...$event }"`。現在 kind 由這裡決定，
+ * 兩頁都必須改成直接吃 `$event`。
+ */
+const emit = defineEmits<{
+  pick: [pick:
+    | { kind: 'slot', weekday: number, rowLabel: string }
+    | { kind: 'weekday', weekday: number }
+    | { kind: 'hour', rowLabel: string }]
+}>()
 
 const colorMode = useColorMode()
 const isDark = computed(() => colorMode.value === 'dark')
 
-/** 16 列 × 22px + 軸標籤。列數會隨資料變（真有清晨場時軸會往前延伸）。 */
-const height = computed(() => `${props.grid.rows.length * 22 + 40}px`)
+/**
+ * 高度公式在 option 檔裡（`rows.length * 22 + 60`）。列數會隨資料變（真有清晨場
+ * 時軸會往前延伸），所以 `/u/` 的 `<ClientOnly> #fallback` 骨架也綁同一支函式，
+ * 不要再手抄一次數字。
+ */
+const height = computed(() => hourHeatmapHeight(props.grid))
 
-const option = computed<EChartsOption>(() => {
-  const p = chartPalette(isDark.value)
-  const ax = axisStyle(isDark.value)
-  return {
-    ...baseChartOption(isDark.value),
-    tooltip: {
-      ...baseTooltip(isDark.value),
-      // 見 AttendanceCalendar 的同一條註解。
-      formatter: (params: unknown) => {
-        const [x, y, v] = (params as { data: [number, number, number] }).data
-        return `週${WEEKDAY_LABELS[x]}\u3000${props.grid.rows[y]}\u3000${v} 場`
-      },
-    },
-    grid: { left: 52, right: 10, top: 24, bottom: 8 },
-    xAxis: {
-      type: 'category' as const,
-      data: [...WEEKDAY_LABELS],
-      boundaryGap: true, // ★ 違反會 throw
-      position: 'top' as const, // §9.1 的樣板把星期放在最上面一列
-      ...ax,
-    },
-    yAxis: {
-      type: 'category' as const,
-      data: props.grid.rows,
-      boundaryGap: true, // ★ 同上
-      inverse: true, // 09:00 在上、午夜場在下
-      ...ax,
-    },
-    visualMap: {
-      type: 'piecewise' as const,
-      show: false,
-      pieces: heatPieces(isDark.value, props.grid.max),
-    },
-    series: [{
-      type: 'heatmap' as const,
-      data: props.grid.data,
-      itemStyle: { borderWidth: 2, borderColor: p.sheet },
-      // hover 不換色（§6：沒有每張卡片的 hover transition），只留 tooltip
-      emphasis: { disabled: true },
-    }],
+const option = computed(() => hourHeatmapOption(props.grid, isDark.value))
+
+/**
+ * ECharts 的 click。三種來源：
+ *
+ * - **格子**：`params.data` 是 `[x, y, value]`。
+ * - **軸標籤**：`params.data` 是 undefined，改帶 `targetType: 'axisLabel'` 與
+ *   `componentType: 'xAxis' | 'yAxis'`＋`componentIndex`（源頭是 echarts 的
+ *   `AxisBuilder.makeAxisEventDataBase`）。只有設了 `triggerEvent` 的軸會送，
+ *   而我們只在第二條（總和）軸上設，所以 `componentIndex` 一定是 1。
+ *
+ * ⚠️ **不要改用 `params.value` 反查是哪一欄。** 兩條 x 軸的原始類目一模一樣
+ * （都是「一…日」），而總和的數字會重複——David 的欄總和裡週三與週四都是 13。
+ * 用 `dataIndex`（category 軸的類目索引）。
+ */
+function onPick(params: {
+  data?: unknown
+  targetType?: string
+  componentType?: string
+  dataIndex?: number
+}) {
+  if (params.targetType === 'axisLabel' && typeof params.dataIndex === 'number') {
+    if (params.componentType === 'xAxis') {
+      emit('pick', { kind: 'weekday', weekday: params.dataIndex + 1 }) // 欄索引 0..6 → isodow 1..7
+      return
+    }
+    if (params.componentType === 'yAxis') {
+      const rowLabel = props.grid.rows[params.dataIndex]
+      if (rowLabel)
+        emit('pick', { kind: 'hour', rowLabel })
+      return
+    }
+    return
   }
-})
-
-function onPick(params: { data?: unknown }) {
   const d = params.data as [number, number, number] | undefined
   if (!Array.isArray(d))
     return
   const rowLabel = props.grid.rows[d[1]]
   if (rowLabel)
-    emit('pick', { weekday: d[0] + 1, rowLabel }) // 欄索引 0..6 → isodow 1..7
+    emit('pick', { kind: 'slot', weekday: d[0] + 1, rowLabel }) // 欄索引 0..6 → isodow 1..7
 }
 </script>
 
@@ -93,7 +101,7 @@ function onPick(params: { data?: unknown }) {
       <BaseChart :option="option" :height="height" label="星期與時段的熱點圖" @pick="onPick" />
     </div>
     <p class="mt-2 text-xs text-muted">
-      點一格看那個時段看了什麼
+      點一格看那個時段看了什麼；外側的總和也可以點
     </p>
   </div>
 </template>

@@ -1,6 +1,7 @@
 // 相對匯入而不是 `~/utils/…`：vitest 的 `~` 別名指向 src/（管線那一側），
 // 走別名的話單元測試會 resolve 不到。同層檔案用相對路徑最不會出事。
 import { WEEK_START } from './chart-theme'
+import { displayTitle } from './film-title'
 
 /**
  * `user_year_stats` RPC 的回傳形狀，以及把它轉成各張圖要的資料。
@@ -121,6 +122,24 @@ export interface HourGrid {
   max: number
   /** 有幾筆紀錄因為沒有時間而進不了這張圖。 */
   missing: number
+  /**
+   * 每一欄（星期）的總和，長度固定 7。
+   *
+   * ★★ **總和不進 `data`、不進 `max`。** ★★
+   * 實測 David（174 筆）：單格最大 9、欄總和最大 60。兩個方向都是災難，
+   * 而且兩種都零錯誤訊息：
+   * - 總和當成第 8 欄餵進 `data` ⇒ `max` 從 9 變 60 ⇒ `heatPieces(60)` 第一段是
+   *   `{gt:0, lte:10}`，真實的 112 格（值域 0–9）**全部塌進最淺的兩階**，整張圖變平。
+   * - 總和沿用 `max=9` 的色階 ⇒ `{gt:7}` 那一段把 7 個欄總和裡的 5 個塗成最深的
+   *   `heat[6]`，跟真正的尖峰（9）同色，色階的語意當場失效。
+   * 所以總和只能畫在格盤**外側**（第二組 category 軸的純文字標籤），
+   * 見 `app/utils/hour-heatmap-option.ts`。
+   */
+  colTotals: number[]
+  /** 每一列（時段）的總和，長度 = `rows.length`。**不可寫死 16**，列數隨資料變。 */
+  rowTotals: number[]
+  /** `colTotals` 與 `rowTotals` 的共同總和。母體不含沒記時間的紀錄（見 `missing`）。 */
+  total: number
 }
 
 /**
@@ -170,16 +189,25 @@ export function hourGrid(rows: YearStats['weekday_hour'], missing = 0): HourGrid
   }
 
   const data: [number, number, number][] = []
+  // ★ 總和跟 data／max 完全分開累加，理由寫在 `HourGrid.colTotals` 上方。
+  const colTotals = Array.from<number>({ length: 7 }).fill(0)
+  const rowTotals = Array.from<number>({ length: labels.length }).fill(0)
+  let total = 0
   let max = 0
   for (let x = 0; x < 7; x++) {
     for (let y = 0; y < labels.length; y++) {
       const v = counts.get(`${x}:${y}`) ?? 0
       data.push([x, y, v])
+      // `?? 0` 而不是 `!`：tsconfig 開了 noUncheckedIndexedAccess，
+      // 索引存取的型別帶 undefined。兩個陣列的長度都是上面剛建好的，實際取不到 undefined。
+      colTotals[x] = (colTotals[x] ?? 0) + v
+      rowTotals[y] = (rowTotals[y] ?? 0) + v
+      total += v
       if (v > max)
         max = v
     }
   }
-  return { rows: labels, data, max, missing }
+  return { rows: labels, data, max, missing, colTotals, rowTotals, total }
 }
 
 /** 「你 71% 的場次在週五到週日的晚上」——熱點圖上方那句話。 */
@@ -278,22 +306,44 @@ export function monthlyBaselineSeries(
 
 /* ─────────────────────────── 分布長條 ─────────────────────────── */
 
-export interface DistItem { name: string, records: number }
+export interface DistItem {
+  name: string
+  records: number
+  /**
+   * 只有「其他 N 家」那一列會有：被它收進來的長尾原件，**順序與上游一致**
+   * （`user_year_stats` 的 venues 子查詢已經 `order by n desc, name`）。
+   * 給「展開看完整清單」用（`DistributionBars` 靠「有沒有這一欄」決定要不要給展開鈕）。
+   *
+   * ⚠️ 不要在前端重排、也不要改名——上游已經排好，前端再排一次
+   *   只是多一個會跟上游漂移、而且沒有人會發現的地方。
+   * ⚠️ 一般列**不可以**帶 `rest: []`：那會讓每一列都長出一顆點開沒東西的鈕。
+   */
+  rest?: DistItem[]
+}
 
 /**
- * 長尾收成「其他 N 家」。
+ * 長尾收成「其他 N 家」，並把被收進來的原件掛在那一列的 `rest` 上。
  *
- * 保留原始筆數而不是百分比：長條圖的長度由 ECharts 依 max 算，
- * 先轉百分比只會多一次精度損失。
+ * 保留原始筆數而不是百分比：長條的長度由 `DistributionBars` 依第一列當基準算，
+ * 先轉百分比只會多一次精度損失。（這一句原本寫「由 ECharts 依 max 算」——
+ * 這張圖從來不是 ECharts，是 HTML 排版；順手更正。）
  */
 export function topWithRest(items: DistItem[], limit: number, restLabel: (n: number) => string): DistItem[] {
-  if (items.length <= limit)
+  // `<= limit`：本來就放得下，一列都不用收。
+  // `=== limit + 1`：只多一筆。聚成「其他 1 家」會得到一顆點開只有一列的展開鈕
+  //   ——那比直接多畫一列還糟。而且這不是假想的邊界：實測 David 全期的國別與
+  //   版本**正好都是 5**（= 呼叫端傳的 limit），只要多一個沒看過的國別或版本
+  //   就會踩到，距離只有一筆紀錄。
+  if (items.length <= limit + 1)
     return [...items]
   const head = items.slice(0, limit)
   const tail = items.slice(limit)
   head.push({
     name: restLabel(tail.length),
+    // ★ `records` 是加總、`rest` 是原件，**兩者必須永遠對得起來**。
+    //   那也是最容易抓到「slice 切錯」的斷言（見 tests/stats.test.ts）。
     records: tail.reduce((n, i) => n + i.records, 0),
+    rest: tail,
   })
   return head
 }
@@ -421,6 +471,91 @@ export function dayTitle(date: string): string {
 export function slotTitle(weekday: number, rowLabel: string): string {
   const name = WEEKDAY_LABELS[weekday - 1] ?? ''
   return `週${name}　${rowLabel}`
+}
+
+/** 點星期總和（底部那一列）時的抽屜標題：`週六\u3000全部時段`。分隔符是 U+3000（全形空白）。 */
+export function weekdayTitle(weekday: number): string {
+  const name = WEEKDAY_LABELS[weekday - 1] ?? ''
+  return `週${name}　全部時段`
+}
+
+/** 點時段總和（右側那一欄）時的抽屜標題：`21:00\u3000全部星期`。分隔符是 U+3000（全形空白）。 */
+export function hourRowTitle(rowLabel: string): string {
+  return `${rowLabel}　全部星期`
+}
+
+/**
+ * 某一筆紀錄要不要算進「星期總和」那一條抽屜。
+ *
+ * ⚠️ **`!!watchedTime` 這個條件不能省，而且它在真實資料上永遠測不出來。**
+ * 熱點圖的母體是 `user_year_stats` 的 `weekday_hour` 子查詢，那支 SQL 帶
+ * `where watched_time is not null`；而頁面手上的 `records` 是全部。少了這個條件，
+ * 抽屜列出的張數會比圖上的欄總和多——而 David（唯一有資料的帳號）的
+ * `records_without_time` 是 0，點一百次也不會現形。只有合成資料的單元測試抓得到。
+ *
+ * （時段那一條靠 `inHourRow(null, …) === false` 天然免疫，不需要這支。）
+ *
+ * 之所以是一支匯出的純函式而不是寫在 `.vue` 的 inline computed 裡：
+ * 寫在 computed 裡 vitest 摸不到，就沒有任何東西守得住上面那段。
+ */
+export function matchesWeekdayPick(
+  r: { watchedOn?: string | null, watchedTime?: string | null },
+  weekday: number,
+): boolean {
+  return !!r.watchedTime && isoDow(r.watchedOn ?? '') === weekday
+}
+
+/**
+ * 多刷排行（band 7）點一列時的抽屜標題：
+ * 全期「少女與戰車 劇場版 + 全形空白 + 10 次」；
+ * 指定年份「少女與戰車 最終章 第４話 + 全形空白 + 2024 年 + 全形空白 + 3 次」。
+ *
+ * ⚠️ 這一段刻意不貼字面的 U+3000：**oxlint 的 `no-irregular-whitespace` 擋註解、
+ * 不擋樣板字串**（`skipStrings` 預設開、`skipComments` 預設關）。實際的分隔符
+ * 看下面的樣板字串，那裡才是字面的 U+3000。
+ *
+ * ★ **一定要帶次數。** 那是唯一能讓「排行說 10、抽屜列 7」被肉眼看見的地方
+ *   （踩雷 #169：抽屜開得起來不等於列得出東西，空抽屜會理直氣壯地說謊）。
+ *   這個數字刻意來自**排行上那個數字**（圖的宣稱），不是抽屜實際列出幾張——
+ *   兩邊一致才是對的，用同一個來源就永遠看不出不一致。
+ *
+ * ★ **指定年份時一定要帶年。** 多刷的語意在全期與單年是兩件事
+ *   （`SCREENS §9` 2026-09-06 裁決第 3 條），標題必須說得出自己涵蓋什麼範圍。
+ *   全期不另外寫「全部年度」——每張票根卡自己帶 `show-year`。
+ *
+ * 分隔符是 U+3000（`slotTitle` 同一套寫法）。
+ */
+export function repeatTitle(titleZh: string | null | undefined, year: number | null, records: number): string {
+  const name = displayTitle(titleZh) || '（作品不明）'
+  return year === null ? `${name}　${records} 次` : `${name}　${year} 年　${records} 次`
+}
+
+/**
+ * 某一筆紀錄要不要算進「多刷排行」那一條抽屜。
+ *
+ * ⚠️ **`filmId` 是必填而不是可選的，這是刻意的。**
+ * `/app` 那邊有 `MyRecord` 介面擋著，忘了帶 `filmId` 是編譯錯誤；
+ * 但 `/u/` 的 `cards` 是沒有型別標註的 inline object literal，宣告成可選的話
+ * 忘了加 `filmId` 會 **typecheck 全綠、抽屜永遠是空的、標題還理直氣壯寫著「10 次」**。
+ * 保護剛好只長在不會出錯的那一邊。必填才會強制兩個呼叫端都供貨。
+ *
+ * ⚠️ 只用 `film_id` 對，**不要用片名或 slug**（`BUILD_PLAN` 附錄第 31 條：
+ * 多刷以 film_id 分組）。片名會撞（David 就有「少女與戰車最終章 第1話」與
+ * 「《少女與戰車 最終章》 第3話」這種同系列近似名），slug 對未審核 UGC
+ * 拿得到卻連過去 404。
+ *
+ * ⚠️ 年份比對用 `startsWith('2024-')` 不是 `new Date(...).getFullYear()`——
+ * 同 `isoDow` 的理由：`watched_on` 是台北牆上時間的日期字串，任何 Date 解析
+ * 都會在 UTC 以西的時區退一天而且不報錯。
+ */
+export function inRepeatScope(
+  r: { filmId: string | null, watchedOn?: string | null },
+  filmId: string,
+  year: number | null,
+): boolean {
+  if (!r.filmId || r.filmId !== filmId)
+    return false
+  return year === null || String(r.watchedOn ?? '').startsWith(`${year}-`)
 }
 
 /* ─────────────────────── 圖說（`/app` 與 `/u/` 共用） ─────────────────────── */
@@ -625,4 +760,34 @@ export function spendText(amount: number, currency: string, partial: boolean): s
     ? `NT$${Number(amount).toLocaleString('zh-Hant-TW')}`
     : `${currency} ${Number(amount).toLocaleString('zh-Hant-TW')}`
   return partial ? `${base} 以上` : base
+}
+
+/**
+ * 「每年花費」列尾的場次與張數。
+ *
+ * 整列的形狀是 `{金額} / {場數} 場 / {票數} 張`（David 2026-09-07 逐字指定的
+ * 顯示格式），金額那一段由 `spendText()` 負責，這一支只負責後面兩段。
+ *
+ * ⚠️ **分隔符是斜線，不是站內慣例的全形空白。** `DESIGN_SYSTEM §0` 與
+ *    `charts.md §2.2` 定的量詞串用全形空白（`slotTitle()` 的「週五\u300021:00」），
+ *    這裡刻意不照那條走——David 逐字寫的是斜線，而 `UserSpendSummary` 的
+ *    「只涵蓋 3 / 5 筆紀錄」已經有先例。**不要順手改成全形空白或中點**
+ *    （中點串是 Letterboxd 的簽名，這個產品刻意不長那樣）。
+ *
+ * ⚠️ **場次與張數是兩個不同的數字**，一場可能買多張票（實測 David 2019 年
+ *    25 場 37 張）。順序不可對調，而且測試的樣本必須挑 `records !== tickets`
+ *    的年份——拿 2014 年（3 場 3 張）當測資的話，把兩個參數對調照樣綠
+ *    （踩雷 #175：測試資料必須真的走得到要測的分支）。
+ *
+ * ⚠️ 兩個數字都取自 RPC 的 `by_year`（`tk = sum(coalesce(ticket_count, 1))`），
+ *    跟頁首那句「總共看了 174 場、250 張票」是**同一個定義**。實測 `by_year`
+ *    的加總正好等於 `totals`（174／250／57,873），不要在別的地方另算一套。
+ *
+ * ★ 回傳的是**一整串**（含中間那個斜線）而不是兩段：這一段整體是不換行的原子，
+ *   換行機會只留在它與金額之間的那個斜線上（見 `SpendByYear.vue` 的模板）。
+ *   拆成兩個 `whitespace-nowrap` 的元素反而會讓分隔空白落在 nowrap 內部而
+ *   失去換行機會——nowrap 裡的空白**不產生斷行點**。
+ */
+export function spendCountsText(records: number, tickets: number): string {
+  return `${records} 場 / ${tickets} 張`
 }

@@ -45,7 +45,7 @@ export interface UserSpend {
   visibleRecords: number
   /** 其中讀得到票價的有幾筆。 */
   countedRecords: number
-  /** 讀不到票價的有幾筆。**本人是「沒記」、路人是「沒公開」，文案不可共用。** */
+  /** 讀不到票價的有幾筆。**本人是「沒記」、路人是「沒公開」，文案不可共用。 */
   unknownRecords: number
   /** 總額涵蓋不完整。 */
   isPartial: boolean
@@ -53,8 +53,12 @@ export interface UserSpend {
    * 逐年。⚠️ `spend_is_partial` 在這裡是**逐年**的旗標，那正是這張圖要的粒度
    * ——全期把十三年混在一起的那個 true 沒有用（只要任何一年有未公開票價
    * 就會是 true），標在圖上會讓每一年都掛著同一個但書。
+   *
+   * ⚠️ `tickets` 與 `records` 是**兩個不同的數字**（一場可能買多張票）。
+   * 兩個都是 RPC 的 `by_year` 本來就在回的欄位，而且**本來就對匿名公開**
+   *（`/api/u/{username}/stats` 的白名單也有）——把它們印在 band 上不是新的外洩。
    */
-  byYear: { year: number, spend: number, records: number, isPartial: boolean }[]
+  byYear: { year: number, spend: number, records: number, tickets: number, isPartial: boolean }[]
 }
 
 export function useUserSpend(username: Ref<string | null | undefined>) {
@@ -93,7 +97,11 @@ export function useUserSpend(username: Ref<string | null | undefined>) {
         unknownRecords: t.spend_unknown_records ?? 0,
         isPartial: !!t.spend_is_partial,
         byYear: (s.by_year ?? [])
-          .map(y => ({ year: y.year, spend: y.spend ?? 0, records: y.records, isPartial: !!y.spend_is_partial }))
+          // ⚠️ `spend` 在 DB 是 `numeric(12,2)`。`Number()` 不是裝飾：`SpendByYear`
+          //    的 `width()` 用 `spend === 0` 嚴格比較決定「免費那一列的條寬是 0」，
+          //    要是 JSON 那層把它送成字串 `'0.00'`，那一列會靜默長出一小段條，
+          //    而右邊的字寫著「免費」——圖與字互相矛盾（踩雷 #171 的配套）。
+          .map(y => ({ year: y.year, spend: Number(y.spend ?? 0), records: y.records, tickets: y.tickets, isPartial: !!y.spend_is_partial }))
           .sort((a, b) => b.year - a.year),
       }
     },

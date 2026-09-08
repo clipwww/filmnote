@@ -93,7 +93,8 @@ export async function runPublicProfileChecks(r: Reporter, username: string | nul
   }
 
   // ── 抽屜的母體：匿名翻得完，而且圖上那一格的數字對得起來 ────────────────
-  const acc: { id: string, watchedOn: string, watchedTime: string | null }[] = []
+  // `film` 放寬到含 id：多刷排行以 `film_id` 分組，抽屜要靠它把排行的一列對回紀錄。
+  const acc: { id: string, watchedOn: string, watchedTime: string | null, film?: { id?: string | null } | null }[] = []
   const total = l.page?.total ?? 0
   for (let off = 0; off < total; off += 200) {
     const page = JSON.parse((await anon(`/api/u/${username}?limit=200&offset=${off}`)).text)
@@ -114,6 +115,58 @@ export async function runPublicProfileChecks(r: Reporter, username: string | nul
       isoDow(x.watchedOn) === peak.weekday
       && Number(String(x.watchedTime).slice(0, 2)) === peak.hour).length
     rec('u/heatmap-matches-drawer', fromList === peak.records, `熱點圖 週${peak.weekday} ${peak.hour}時 說 ${peak.records} 場，匿名列表重算得 ${fromList} 筆`)
+  }
+
+  /*
+   * ── 多刷排行（band 7）與抽屜的母體 ──────────────────────────────────────
+   *
+   * ⚠️ **這兩條不檢查抽屜，它們檢查的是資料層。** 名字刻意不叫 `matches-drawer`：
+   *    這裡做的是「把 `/stats` 的 repeats 跟 `/api/u/{u}` 的列表在腳本裡重算一次」，
+   *    所以下面四種弄壞法它們**全都會綠**——
+   *      ① 頁面的 `@pick` 寫成 `picked = {…}` 而跳過 `await ensureAllRecords()`
+   *      ② `inRepeatScope` 少了年份條件
+   *      ③ 過濾 `visible` 而不是 `cards`
+   *      ④ TicketCard 忘了傳 `show-year`
+   *    那四件事這個 repo 沒有東西自動守得住（沒有 @vue/test-utils、沒有 happy-dom），
+   *    只能靠瀏覽器手動點。**被略過的斷言等於不存在，冒充的斷言比略過更糟。**
+   */
+  const repeats: { film_id: string, title_zh: string | null, records: number }[] = s.repeats ?? []
+  const topRepeat = [...repeats].sort((a, b) => b.records - a.records)[0]
+  if (!topRepeat) {
+    r.skip('u/repeat-film-id-joins', `${username} 沒有任何多刷作品 —— 這一條守的是「repeats 的 film_id 與列表的 film.id 是同一個識別空間」，沒有多刷就沒得比。`, GUARDS)
+    r.skip('u/repeat-scope-follows-year', '同上：沒有多刷作品可以拿來驗年份 scope。', GUARDS)
+  }
+  else {
+    // ① 識別空間：`film.id` 真的有送到 client，而且對得起 repeats 的 film_id。
+    //    端點是逐欄挑白名單的（`venues[].venue_id` 就已經被挑掉了），
+    //    哪天 `id` 從 select 掉出去，這裡的 fromList 會變 0。
+    const fromList = acc.filter(x => x.film?.id === topRepeat.film_id).length
+    rec('u/repeat-film-id-joins', fromList === topRepeat.records, `多刷排行「${topRepeat.title_zh}」說 ${topRepeat.records} 次，匿名列表用 film.id 重算得 ${fromList} 筆`)
+    // ★ 對照組：兩邊都是 0 的話上面那條是空轉（film.id 整個沒送出來就是這樣）
+    rec('u/repeat-film-id-discriminates', topRepeat.records > 1 && fromList > 0, `★ 對照組：最高多刷 ${topRepeat.records} 次、列表重算 ${fromList} 筆——列表這邊是 0 的話上面那條是假綠燈`)
+
+    // ② 年份 scope：指定年份時 repeats 的數字只算那一年。
+    //    挑「那部片最常看的那一年」，因為只有 >1 次才進得了 repeats。
+    const byYear = new Map<string, number>()
+    for (const x of acc) {
+      if (x.film?.id !== topRepeat.film_id)
+        continue
+      const yy = String(x.watchedOn).slice(0, 4)
+      byYear.set(yy, (byYear.get(yy) ?? 0) + 1)
+    }
+    const best = [...byYear.entries()].sort((a, b) => b[1] - a[1])[0]
+    if (!best || best[1] < 2) {
+      r.skip('u/repeat-scope-follows-year', `「${topRepeat.title_zh}」在任何單一年份都只看過 1 次（全期 ${topRepeat.records} 次分散在 ${byYear.size} 個年份），單年不會進 repeats ⇒ 沒得比。這一條守的是「指定年份時 repeats 只算那一年」。`, GUARDS)
+    }
+    else {
+      const [yTop, yCount] = best
+      const scopedStats = JSON.parse((await anon(`/api/u/${username}/stats?year=${yTop}`)).text)
+      const hit = (scopedStats.repeats ?? []).find((x: { film_id: string }) => x.film_id === topRepeat.film_id)
+      rec('u/repeat-scope-follows-year', hit?.records === yCount, `${yTop} 年的 repeats 對「${topRepeat.title_zh}」說 ${hit?.records ?? '（不在清單裡）'} 次，匿名列表過濾 ${yTop} 重算得 ${yCount} 筆`)
+      // ★ 對照組：單年一定要真的比全期少，否則上面那條在比兩份一樣的東西
+      //   （`?year=` 被忽略時就是這個形狀，而每個數字看起來都合理）
+      rec('u/repeat-scope-discriminates', yCount < topRepeat.records, `★ 對照組：${yTop} 年 ${yCount} 次 vs 全期 ${topRepeat.records} 次——一樣的話 year 參數可能整個被忽略了`)
+    }
   }
 
   // ── HTTP 快取標頭（踩雷 #1）───────────────────────────────────────────

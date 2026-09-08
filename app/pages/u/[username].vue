@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import type { StatSegment } from '~/utils/stat-line'
+// 顯式匯入：新加的 app/utils 檔，不依賴 auto-import 的探索時機（踩雷 #173）。
+import { hourHeatmapHeight } from '~/utils/hour-heatmap-option'
 
 /**
  * `/u/[username]` 公開個人頁（`SCREENS §2`，SSR、`private, no-store`）。
@@ -189,6 +191,12 @@ const allRecords = computed(() =>
  */
 const cards = computed(() => allRecords.value.map(r => ({
   id: r.id ?? '',
+  // ★ 多刷排行的抽屜要靠它把排行的一列對回紀錄（band 7 以 `film_id` 分組）。
+  //   `film.id` 確實在 payload 裡：端點的 select 是
+  //   `film_public.select('id,slug,…')`，`filmById` 用 `{ ...f, ugc_poster_url }` 展開。
+  //   `?? null` 是保險——匿名讀得到的紀錄依 `record_read` policy 必然讀得到 film，
+  //   null 只會讓它比不中而不是爆掉。
+  filmId: r.film?.id ?? null,
   year: String(r.watchedOn ?? '').slice(0, 4) || '未知',
   watchedOn: r.watchedOn,
   watchedTime: r.watchedTime,
@@ -243,6 +251,28 @@ const stripRows = computed(() => yearStripRows(
  *    所以下面那條 band 一定要包在 `<ClientOnly>` 裡。
  */
 const { spend } = useUserSpend(computed(() => profile.value?.username ?? null))
+
+/**
+ * 「每年花費」那條 band 的圖說。
+ *
+ * ★ **這條 band 恆為全期，不跟著上方的年份切換。** `useUserSpend()` 打的是
+ *   `user_year_stats(username, null)`，而 RPC 的 `by_year` 只有 `p_year is null`
+ *   時才有內容 ⇒ 選了 2019 之後這條仍然是十三年的清單，而頁面上其他 band
+ *   全都變成 2019。
+ *
+ * ⚠️ 這件事以前**完全沒有寫在畫面上**：本人視角只有一句「只有你看得到這一段。」，
+ *   路人視角是 `null`。`SCREENS §9` 第 3 條要求每一句圖說都說得出自己涵蓋什麼
+ *   範圍——同一張圖跟旁邊的圖範圍不同而畫面上沒有任何記號，最容易被讀成
+ *   「資料錯了」。所以選了年份時兩種觀看者都要看到那一句。
+ *   `/app` 的 band 8 共用**最後那一句的字面**（前半段那邊不必分本人／路人，
+ *   因為觀看者永遠是本人）。要改那句話的時候兩邊一起改。
+ */
+const spendInsight = computed(() => {
+  const scope = selectedYear.value === null ? '' : '這一條不隨上方的年份切換。'
+  if (spend.value?.isOwn)
+    return `你自己記下的票價。只有你看得到這一段。${scope}`
+  return scope ? `公開紀錄的票價，逐年合計。${scope}` : null
+})
 
 /** §9.3 的中間態：資料太少時不畫圖，兩三個點的圖比沒有圖更糟。 */
 const CHART_THRESHOLD = 10
@@ -302,6 +332,12 @@ const averageLegendLabel = computed(() => {
 type Picked
   = | { kind: 'day', date: string }
     | { kind: 'slot', weekday: number, rowLabel: string }
+    // 熱點圖格盤外側的兩條總和軌道（`HourHeatmap` 的第二組軸標籤）。
+    | { kind: 'weekday', weekday: number }
+    | { kind: 'hour', rowLabel: string }
+    // band 7 多刷排行的一列。`records` 是**排行上那個數字**，帶進標題是刻意的
+    // ——跟抽屜實際列出幾張擺在一起才看得出不一致（踩雷 #169）。
+    | { kind: 'film', filmId: string, titleZh: string | null, records: number }
 
 const picked = ref<Picked | null>(null)
 const drawerOpen = computed({
@@ -322,7 +358,41 @@ const drawerTitle = computed(() => {
   const p = picked.value
   if (!p)
     return ''
-  return p.kind === 'day' ? dayTitle(p.date) : slotTitle(p.weekday, p.rowLabel)
+  if (p.kind === 'day')
+    return dayTitle(p.date)
+  if (p.kind === 'weekday')
+    return weekdayTitle(p.weekday)
+  if (p.kind === 'hour')
+    return hourRowTitle(p.rowLabel)
+  // 多刷：標題帶次數與（指定年份時的）年份，與 `/app` 用的是同一支。
+  if (p.kind === 'film')
+    return repeatTitle(p.titleZh, selectedYear.value, p.records)
+  return slotTitle(p.weekday, p.rowLabel)
+})
+
+/** 抽屜空了的時候那句話。五種 kind 讀起來各不相同，不能共用「這個時段」。 */
+const drawerEmptyText = computed(() => {
+  switch (picked.value?.kind) {
+    // day（出席圖點一天）維持原文案，不在這一項的範圍內
+    case 'weekday': return '這一天沒有公開的紀錄。'
+    case 'hour': return '這個時段沒有公開的紀錄。'
+    // 「這個時段」對一部片是錯的。這一句在多刷上**幾乎不該出現**：
+    // 排行說 N 次就該列得出 N 張，看到它就是有東西壞了。
+    case 'film': return '沒有公開的紀錄可以列出。'
+    default: return '這個時段沒有公開的紀錄。'
+  }
+})
+
+/**
+ * 換年份就把抽屜關掉。
+ *
+ * 多刷的標題把「排行上那個數字」烤進了 `picked`，而 `drawerRecords` 是隨
+ * `selectedYear` 重算的 computed——年份在抽屜開著時變動，會出現
+ * 「標題 10 次、內容 1 張」。UDrawer 是 modal、年表在遮罩底下，
+ * 所以實務上大概點不到；但這是一行就能根絕的說謊管道，不留。
+ */
+watch(selectedYear, () => {
+  picked.value = null
 })
 
 const drawerRecords = computed(() => {
@@ -331,13 +401,29 @@ const drawerRecords = computed(() => {
     return []
   if (p.kind === 'day')
     return cards.value.filter(r => r.watchedOn === p.date)
+  // ★ 多刷：過濾的是 `cards` **不是 `filtered`、更不是 `visible`**。
+  //   `visible = filtered.slice(0, shown)`（預設 24）——用它的話抽屜會被下方列表的
+  //   分頁狀態悄悄截斷，而且是「使用者按過幾次『再顯示 24 筆』就多列幾張」。
+  // ★ `selectedYear` 一定要傳進去：band 7 吃的 `stats` 就是這個 scope。
+  if (p.kind === 'film')
+    return cards.value.filter(r => inRepeatScope(r, p.filmId, selectedYear.value))
   // 抽屜的過濾必須跟熱點圖的 scope 一致，否則點一格說 8 場、抽屜列出 24 張。
   // `watchedOn` 在 API 的型別上可以是 null；`isoDow('')` 回 null ⇒ 那一筆自然
   // 不會等於任何 weekday，跟它本來就進不了熱點圖是一致的。
+  const inScope = (r: { year?: string }) =>
+    selectedYear.value === null || r.year === String(selectedYear.value)
+  // ★ 星期總和的過濾述詞在 utils/stats.ts——它含一條「熱點圖的母體不含沒記時間的
+  //   紀錄」的條件，真實資料上永遠測不出來（records_without_time = 0），
+  //   寫成 inline computed 就沒有任何測試守得住。與 `/app` 用的是同一支。
+  if (p.kind === 'weekday')
+    return cards.value.filter(r => matchesWeekdayPick(r, p.weekday) && inScope(r))
+  // 時段總和：`inHourRow(null, …) === false`，對沒記時間的紀錄天然免疫。
+  if (p.kind === 'hour')
+    return cards.value.filter(r => inHourRow(r.watchedTime, p.rowLabel) && inScope(r))
   return cards.value.filter(r =>
     isoDow(r.watchedOn ?? '') === p.weekday
     && inHourRow(r.watchedTime, p.rowLabel)
-    && (selectedYear.value === null || r.year === String(selectedYear.value)))
+    && inScope(r))
 })
 </script>
 
@@ -409,9 +495,20 @@ const drawerRecords = computed(() => {
         <!-- ── 時段熱點圖 ── -->
         <ChartBand title="時段" :insight="hourInsight" :note="hourNote">
           <ClientOnly>
-            <HourHeatmap :grid="grid" @pick="pick({ kind: 'slot', ...$event })" />
+            <!--
+              ★ 一定要走 `pick()` 不是 `picked = $event`：`pick()` 會先
+              `await ensureAllRecords()` 補資料（踩雷 #169）。少了它抽屜開起來是空的，
+              而且下面整份列表會一起消失——typecheck / lint / test 全綠。
+              kind 由 HourHeatmap 決定（格子／星期總和／時段總和），這裡不要再包一層。
+            -->
+            <HourHeatmap :grid="grid" @pick="pick($event)" />
             <template #fallback>
-              <USkeleton class="h-[392px] max-w-[420px] rounded-sm" />
+              <!--
+                骨架高度綁 `hourHeatmapHeight()`，跟圖表本身是同一支函式。
+                以前這裡是硬寫的 `h-[392px]`，跟 HourHeatmap 的高度公式沒有任何連結，
+                公式一改就靜靜 CLS 20px（沒有任何測試守得住一個 Tailwind 字面值）。
+              -->
+              <USkeleton class="max-w-[420px] rounded-sm" :style="{ height: hourHeatmapHeight(grid) }" />
             </template>
           </ClientOnly>
         </ChartBand>
@@ -477,7 +574,16 @@ const drawerRecords = computed(() => {
             ? '這些年來看過兩次以上的作品。'
             : `${selectedYear} 年內看過兩次以上的作品。`"
         >
-          <RepeatList :items="stats?.repeats ?? []" />
+          <!--
+            ★ **一定要走 `pick()` 不是 `picked = …`**：`pick()` 會先
+              `await ensureAllRecords()` 把 200 筆以外的紀錄補齊（踩雷 #169）。
+              直接指派在 David 的 174 筆上看起來完全正常，>200 筆的人抽屜會短於
+              排行上的數字，typecheck／lint／test 全綠、console 零錯誤。
+          -->
+          <RepeatList
+            :items="stats?.repeats ?? []"
+            @pick="pick({ kind: 'film', ...$event })"
+          />
         </ChartBand>
       </template>
 
@@ -500,9 +606,7 @@ const drawerRecords = computed(() => {
         <ChartBand
           v-if="spend?.canSeeMoney"
           title="每年花費"
-          :insight="spend.isOwn
-            ? '你自己記下的票價。只有你看得到這一段。'
-            : null"
+          :insight="spendInsight"
         >
           <SpendByYear :by-year="spend.byYear" :currency="spend.currency" :is-own="spend.isOwn" />
         </ChartBand>
@@ -543,7 +647,7 @@ const drawerRecords = computed(() => {
       <template #body>
         <div class="mx-auto max-w-3xl">
           <p v-if="!drawerRecords.length" class="py-6 text-center text-muted">
-            這個時段沒有公開的紀錄。
+            {{ drawerEmptyText }}
           </p>
           <!--
             ★ `show-year` 是必要的：抽屜的內容跨年份聚合，而標題不一定帶年——

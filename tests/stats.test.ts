@@ -1,5 +1,9 @@
 import type { YearStats } from '../app/utils/stats'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import * as echarts from 'echarts'
 import { describe, expect, it } from 'vitest'
+import { hourHeatmapHeight, hourHeatmapOption } from '../app/utils/hour-heatmap-option'
 import {
   calendarSeries,
   dayTitle,
@@ -7,17 +11,24 @@ import {
   homeVenue,
   hourGrid,
   hourInsightText,
+  hourRowTitle,
   inHourRow,
+  inRepeatScope,
   isoDow,
+  matchesWeekdayPick,
   MIDNIGHT_LABEL,
   monthlyBaselineSeries,
   monthlySeries,
   monthlySeriesToDate,
   peakStandsOut,
+  repeatTitle,
   slotTitle,
+  spendCountsText,
   spendText,
   topWithRest,
   venueInsightText,
+  WEEKDAY_LABELS,
+  weekdayTitle,
   weekendEveningShare,
   weekIndexInYear,
   yearStripRows,
@@ -105,6 +116,300 @@ describe('時段熱點圖', () => {
       { weekday: 2, hour: 14, records: 3 },
     ])
     expect(share).toBe(70)
+  })
+})
+
+/**
+ * 形狀照 David 實測（2026-09-07，clipwww@gmail.com，174 筆）：
+ * **單格最大 9、欄總和最大 60**——差 6.7 倍，這正是「總和不能當格子畫」的理由。
+ * 每一格的數字是合成的（真實的逐格分布不放進 repo），但三個關鍵量是真的：
+ * 欄總和 [6,5,13,13,41,60,36]、總計 174、最大單格 9。
+ */
+const DAVID_SHAPED: YearStats['weekday_hour'] = [
+  // 週六 60：兩個 9 的尖峰 + 7 個 6
+  { weekday: 6, hour: 10, records: 9 },
+  { weekday: 6, hour: 14, records: 9 },
+  { weekday: 6, hour: 11, records: 6 },
+  { weekday: 6, hour: 13, records: 6 },
+  { weekday: 6, hour: 16, records: 6 },
+  { weekday: 6, hour: 19, records: 6 },
+  { weekday: 6, hour: 21, records: 6 },
+  { weekday: 6, hour: 22, records: 6 },
+  { weekday: 6, hour: 23, records: 6 },
+  // 週五 41
+  { weekday: 5, hour: 17, records: 5 },
+  { weekday: 5, hour: 18, records: 5 },
+  { weekday: 5, hour: 19, records: 7 },
+  { weekday: 5, hour: 20, records: 8 },
+  { weekday: 5, hour: 21, records: 8 },
+  { weekday: 5, hour: 22, records: 8 },
+  // 週日 36
+  { weekday: 7, hour: 12, records: 6 },
+  { weekday: 7, hour: 13, records: 6 },
+  { weekday: 7, hour: 14, records: 6 },
+  { weekday: 7, hour: 15, records: 6 },
+  { weekday: 7, hour: 16, records: 6 },
+  { weekday: 7, hour: 17, records: 6 },
+  // 週三 13、週四 13（**兩個一樣的欄總和是刻意的**：任何「用總和的數字反查
+  // 是哪一欄」的實作都會被這一對咬到）
+  { weekday: 3, hour: 19, records: 7 },
+  { weekday: 3, hour: 20, records: 6 },
+  { weekday: 4, hour: 19, records: 7 },
+  { weekday: 4, hour: 20, records: 6 },
+  // 週一 6、週二 5
+  { weekday: 1, hour: 21, records: 6 },
+  { weekday: 2, hour: 22, records: 5 },
+]
+
+describe('時段熱點圖的軸外總和', () => {
+  it('欄／列總和的長度與三方相等', () => {
+    const g = hourGrid(DAVID_SHAPED)
+    expect(g.colTotals.length).toBe(7)
+    expect(g.rowTotals.length).toBe(g.rows.length) // ★ 不可寫死 16
+    expect(g.colTotals).toEqual([6, 5, 13, 13, 41, 60, 36])
+    expect(g.total).toBe(174)
+    expect(g.colTotals.reduce((a, b) => a + b, 0)).toBe(g.total)
+    expect(g.rowTotals.reduce((a, b) => a + b, 0)).toBe(g.total)
+  })
+
+  /**
+   * ★★ 這兩條是這一項唯一真正的護欄：**總和不進 `data`、不進 `max`。**
+   *
+   * 既有的 `data.length === 7 * rows.length` 只擋得住「多一欄」，擋不住
+   * 「多一列」也擋不住「把總和寫進既有格子」。這裡改成對每一筆 data 的座標
+   * 與值域下斷言，兩個方向都會紅：
+   * - 塞成第 8 欄 ⇒ `d[0] < 7` 假；塞成第 17 列 ⇒ `d[1] < rows.length` 假。
+   * - 總和沿用同一個色階（`max` 被總和撐大）⇒ 第二條的 60 ≠ 9。
+   */
+  it('★ 總和不在 data 的座標範圍內', () => {
+    const g = hourGrid(DAVID_SHAPED)
+    expect(g.data.every(d => d[0] >= 0 && d[0] < 7)).toBe(true)
+    expect(g.data.every(d => d[1] >= 0 && d[1] < g.rows.length)).toBe(true)
+    expect(g.data.length).toBe(7 * g.rows.length)
+  })
+
+  it('★ max 是最大的「格」不是最大的「總和」——9 不是 60', () => {
+    const g = hourGrid(DAVID_SHAPED)
+    expect(g.max).toBe(9)
+    expect(Math.max(...g.data.map(d => d[2]))).toBe(g.max)
+    // 前提檢查：兩者若一樣大，上面那條就分辨不出任何東西
+    expect(Math.max(...g.colTotals)).toBeGreaterThan(g.max)
+  })
+
+  it('列總和跟著 rows.length 走——真的有清晨場時是 19 列不是 16', () => {
+    const g = hourGrid([...DAVID_SHAPED, { weekday: 3, hour: 6, records: 2 }])
+    expect(g.rows[0]).toBe('06:00')
+    expect(g.rows.length).toBe(19) // 06..23 共 18 列 + 午夜場
+    expect(g.rowTotals.length).toBe(g.rows.length)
+    expect(g.rowTotals[0]).toBe(2)
+    expect(g.total).toBe(176)
+    // ★ 三方相等在**這個列數**也要成立。只驗長度不夠：實測過一個「初始化長度對、
+    //   但累加時有 y < 16 的守衛」的變異——長度那條照樣綠，只有這一條會紅。
+    expect(g.rowTotals.reduce((a, b) => a + b, 0)).toBe(g.total)
+    expect(g.colTotals.reduce((a, b) => a + b, 0)).toBe(g.total)
+  })
+
+  /**
+   * 列總和與 `inHourRow()` 之間的一致性——**今天靠一個巧合對齊**。
+   * `hourGrid()` 的 rowIndex 對放不進軸的小時會折進午夜場，而 `inHourRow()`
+   * 的午夜場只認 00/01/02。兩者一致是因為 startHour 一定往前延伸涵蓋 03–08。
+   * 這一條把「圖上那一列的總和」與「抽屜會列出幾張」綁在一起。
+   */
+  it('每一列的總和 = 用 inHourRow 過濾同一批紀錄的張數', () => {
+    const raw = [
+      { watchedTime: '09:30' },
+      { watchedTime: '10:05' },
+      { watchedTime: '10:59' },
+      { watchedTime: '00:10' },
+      { watchedTime: '01:45' },
+      { watchedTime: '02:00' },
+      { watchedTime: '23:15' },
+    ]
+    const g = hourGrid(raw.map(r => ({
+      weekday: 3,
+      hour: Number(r.watchedTime.slice(0, 2)),
+      records: 1,
+    })))
+    for (const [y, label] of g.rows.entries())
+      expect([label, g.rowTotals[y]]).toEqual([label, raw.filter(r => inHourRow(r.watchedTime, label)).length])
+    expect(g.rowTotals[g.rows.length - 1]).toBe(3) // 午夜場那三筆
+  })
+
+  it('抽屜標題用全形空白，不用中點', () => {
+    expect(weekdayTitle(6)).toBe('週六　全部時段')
+    expect(hourRowTitle('21:00')).toBe('21:00　全部星期')
+    expect(hourRowTitle(MIDNIGHT_LABEL)).toBe('午夜場　全部星期')
+    expect(weekdayTitle(6)).not.toContain('・')
+    expect(hourRowTitle('21:00')).not.toContain('・')
+  })
+
+  /**
+   * ★ 星期總和的抽屜**必須排除沒記時間的紀錄**。
+   *
+   * 熱點圖的母體是 RPC 的 `weekday_hour`，那支 SQL 帶
+   * `where watched_time is not null`；頁面手上的 `records` 是全部。
+   * David 的 `records_without_time` 是 0，**真實資料上點一百次也不會現形**——
+   * 只有這條合成資料抓得到。把 `!!r.watchedTime` 拿掉，下面會從 1 變 2。
+   */
+  it('★ matchesWeekdayPick 排除沒記時間的紀錄', () => {
+    const rows = [
+      { watchedOn: '2026-09-05', watchedTime: '21:00' }, // 週六
+      { watchedOn: '2026-09-05', watchedTime: null }, // 同一天，但沒記時間 ⇒ 不算
+      { watchedOn: '2026-09-04', watchedTime: '21:00' }, // 週五
+      { watchedOn: null, watchedTime: '21:00' },
+    ]
+    expect(rows.filter(r => matchesWeekdayPick(r, 6)).length).toBe(1)
+    expect(rows.filter(r => matchesWeekdayPick(r, 5)).length).toBe(1)
+    expect(rows.filter(r => matchesWeekdayPick(r, 1)).length).toBe(0)
+  })
+})
+
+/**
+ * ★ 把 option **真的 render 一次**再下斷言。
+ *
+ * `echarts.init(null, null, { ssr: true, renderer: 'svg' })` 在純 node 裡就跑得起來
+ * ——不開瀏覽器、不佔 port、不需要 node-canvas。這是唯一能在 `pnpm test` 裡證明
+ * 「兩條總和軸真的存在且對齊」的方法。
+ *
+ * 對 option 欄位下斷言（`grid.right === 36`、`yAxis[1].inverse === true`）大半是
+ * 「照抄原始碼」型的變更偵測器：改了數字就紅，但它答不出「36 夠不夠」「總和有沒有
+ * 對齊列」。render 出來的 SVG 才答得出，而且它抓得到三件 option 斷言抓不到的事：
+ * 標籤被 `interval:'auto'` 吃掉、`inverse` 反了、formatter 索引 off-by-one
+ * ——後兩者都是「每個數字看起來都合理」的靜默錯誤。
+ */
+describe('時段熱點圖的 option（SSR SVG render）', () => {
+  /** 375px 裝置扣掉頁面 px-4 與 ChartBand px-4 後，canvas 實際可用寬。 */
+  const CANVAS_W = 311
+  const GRID_RIGHT = 36
+  /** 12px sans 的數字前進寬約 0.6em。用來估三位數總和的右緣，見下面那條測試。 */
+  const DIGIT_ADVANCE = 7.2
+
+  interface SvgText { x: number, y: number, anchor: string, text: string }
+
+  function renderTexts(grid: ReturnType<typeof hourGrid>): { texts: SvgText[], paths: number } {
+    const chart = echarts.init(null, null, {
+      renderer: 'svg',
+      ssr: true,
+      width: CANVAS_W,
+      height: Number.parseInt(hourHeatmapHeight(grid), 10),
+    })
+    chart.setOption(hourHeatmapOption(grid, false))
+    const svg = chart.renderToSVGString()
+    chart.dispose()
+
+    const texts: SvgText[] = []
+    const re = /<text\b([^>]*)>([^<]*)<\/text>/g
+    let m = re.exec(svg)
+    while (m) {
+      const attrs = m[1] ?? ''
+      const t = /transform="translate\(([-\d.]+) ([-\d.]+)\)"/.exec(attrs)
+      texts.push({
+        x: Number(t?.[1] ?? Number.NaN),
+        y: Number(t?.[2] ?? Number.NaN),
+        anchor: /text-anchor="(\w+)"/.exec(attrs)?.[1] ?? '',
+        text: m[2] ?? '',
+      })
+      m = re.exec(svg)
+    }
+    return { texts, paths: (svg.match(/<path/g) ?? []).length }
+  }
+
+  /** 左側時段標籤（`text-anchor="end"`），由上到下。 */
+  const leftLabels = (t: SvgText[]) => t.filter(v => v.anchor === 'end').sort((a, b) => a.y - b.y)
+  /** 右側時段總和（`text-anchor="start"`），由上到下。 */
+  const rightTotals = (t: SvgText[]) => t.filter(v => v.anchor === 'start').sort((a, b) => a.y - b.y)
+  /** 上／下兩排（`text-anchor="middle"`）：y 小的是星期、y 大的是星期總和。 */
+  const midRow = (t: SvgText[], bottom: boolean) => {
+    const mid = t.filter(v => v.anchor === 'middle')
+    const split = (Math.min(...mid.map(v => v.y)) + Math.max(...mid.map(v => v.y))) / 2
+    return mid.filter(v => (bottom ? v.y > split : v.y < split)).sort((a, b) => a.x - b.x)
+  }
+
+  it('四條軸的標籤一個都不少（`interval: 0`；掉一個看起來就是「0 場」）', () => {
+    const g = hourGrid(DAVID_SHAPED)
+    const { texts, paths } = renderTexts(g)
+    // 16 列標籤 + 16 列總和 + 7 星期 + 7 欄總和
+    expect(texts.length).toBe(g.rows.length * 2 + 14)
+    // 而且**沒有多畫任何格子**——總和是文字不是 heatmap 的 item。
+    // （axisLine / axisTick 在 axisStyle 裡都是 show:false，所以 path 只剩格子。）
+    expect(paths).toBe(7 * g.rows.length)
+  })
+
+  it('★ 右側總和與左側時段標籤逐列對齊（inverse + formatter 索引的真證據）', () => {
+    const g = hourGrid(DAVID_SHAPED)
+    const { texts } = renderTexts(g)
+    const left = leftLabels(texts)
+    const right = rightTotals(texts)
+
+    // 左邊那一排就是 rows 本身，由上到下（inverse:true ⇒ 09:00 在上、午夜場在下）
+    expect(left.map(v => v.text)).toEqual(g.rows)
+    // 右邊那一排必須是 rowTotals 的同一個順序
+    expect(right.map(v => v.text)).toEqual(g.rowTotals.map(String))
+    // ★ 而且逐列同高。少了 inverse ⇒ 右邊整組上下顛倒，y 對不上；
+    //   formatter 索引差 1 ⇒ 上面那條先紅。
+    expect(right.map(v => v.y)).toEqual(left.map(v => v.y))
+  })
+
+  it('★ 底部總和與上方星期標籤逐欄對齊', () => {
+    const g = hourGrid(DAVID_SHAPED)
+    const { texts } = renderTexts(g)
+    const top = midRow(texts, false)
+    const bottom = midRow(texts, true)
+
+    expect(top.map(v => v.text)).toEqual([...WEEKDAY_LABELS])
+    expect(bottom.map(v => v.text)).toEqual(['6', '5', '13', '13', '41', '60', '36'])
+    expect(bottom.map(v => v.x)).toEqual(top.map(v => v.x))
+    // 底部那一排真的在格盤下面，不是疊在星期標籤上
+    expect(Math.min(...bottom.map(v => v.y))).toBeGreaterThan(Math.max(...top.map(v => v.y)))
+  })
+
+  it('★ grid.right 留得下三位數總和（375px 的 311px canvas）', () => {
+    // 右側是**列**總和，所以要把某一列推到三位數：七天各 20 場 ⇒ 20:00 那列 152
+    const heavy = hourGrid([
+      ...DAVID_SHAPED,
+      ...Array.from({ length: 7 }, (_, i) => ({ weekday: i + 1, hour: 20, records: 20 })),
+    ])
+    const { texts } = renderTexts(heavy)
+    const right = rightTotals(texts)
+    const widest = Math.max(...right.map(v => v.text.length))
+    expect(widest).toBeGreaterThanOrEqual(3) // 前提：真的量到三位數
+
+    // 右側總和是 text-anchor="start"，起點 = 寬 − grid.right + axisLabel 預設 margin(8)
+    const originX = right[0]?.x ?? Number.NaN
+    expect(originX).toBe(CANVAS_W - GRID_RIGHT + 8)
+    // ⚠️ 字寬是估的（12px sans 的數字約 0.6em），不是瀏覽器像素量測。
+    //    這一條守的是「右緣留白必須放得下三位數」——把 grid.right 改回 10 會立刻紅。
+    expect(originX + widest * DIGIT_ADVANCE).toBeLessThanOrEqual(CANVAS_W)
+  })
+
+  interface AxisShape { triggerEvent?: boolean, tooltip?: { show?: boolean } }
+  const shape = () => hourHeatmapOption(hourGrid(DAVID_SHAPED), false) as unknown as {
+    xAxis: AxisShape[]
+    yAxis: AxisShape[]
+    visualMap: { seriesIndex?: number }
+  }
+
+  it('★ triggerEvent 的軸一定同時關掉 axis tooltip（否則滑過標籤會冒泡泡）', () => {
+    const o = shape()
+    // `setTooltipConfig()` 對每一個軸標籤無條件塞 tooltipConfig，標籤一旦因為
+    // triggerEvent 變成 non-silent，滑過去就會冒出一個只寫著「六」或「60」的泡泡。
+    // 這是 SVG 看不出來的迴歸，只能在 option 這一層擋。
+    for (const a of [...o.xAxis, ...o.yAxis]) {
+      if (a.triggerEvent)
+        expect(a.tooltip?.show).toBe(false)
+    }
+    // 只有第二組軸可觸發；原本的星期／時段標籤維持 silent（沒有 triggerEvent 就是 silent）
+    expect([o.xAxis[0]?.triggerEvent, o.yAxis[0]?.triggerEvent]).toEqual([undefined, undefined])
+    expect([o.xAxis[1]?.triggerEvent, o.yAxis[1]?.triggerEvent]).toEqual([true, true])
+  })
+
+  it('visualMap 有 seriesIndex（踩雷 #86 的預防針）', () => {
+    expect(shape().visualMap.seriesIndex).toBe(0)
+  })
+
+  it('高度公式：16 列是 412px（`/u/` 的骨架綁同一支，不要手抄）', () => {
+    expect(hourHeatmapHeight(hourGrid(DAVID_SHAPED))).toBe('412px')
+    expect(hourHeatmapHeight(hourGrid([{ weekday: 3, hour: 6, records: 1 }]))).toBe('478px')
   })
 })
 
@@ -202,15 +507,56 @@ describe('分布', () => {
     { venue_id: 'e', name: 'Y', city: null, kind: null, records: 3 },
   ]
 
-  it('長尾收成「其他 N 家」並保留筆數總和', () => {
+  it('長尾收成「其他 N 家」並保留筆數總和，而且把原件帶著走', () => {
     const out = topWithRest(venues.map(v => ({ name: v.name!, records: v.records })), 3, n => `其他 ${n} 家`)
     expect(out.length).toBe(4)
-    expect(out[3]).toEqual({ name: '其他 2 家', records: 8 })
+    expect(out[3]).toEqual({
+      name: '其他 2 家',
+      records: 8,
+      // ★ 順序必須與上游一致（`user_year_stats` 已經 `order by n desc, name`），
+      //   前端不得重排。
+      rest: [{ name: 'X', records: 5 }, { name: 'Y', records: 3 }],
+    })
   })
 
-  it('不足 limit 時原樣回傳，不加一條空的「其他 0 家」', () => {
+  it('★ 加總與原件必須永遠對得起來——這一條抓的是 slice 切錯／順序被重排', () => {
+    // ⚠️ 這一條刻意造 9 筆（limit + 4）。實測 David 的真資料在「版本」與「國別」
+    //   兩個分布上任何視角都 ≤5 筆 ⇒ 那兩條路徑上線時**沒有被真實資料走過**。
+    //   不要為了「跟其他條一致」把筆數降到 ≤ limit + 1，那會退回早退路徑，
+    //   等於什麼都沒測。
+    const many = Array.from({ length: 9 }, (_, i) => ({ name: `V${i}`, records: 9 - i }))
+    const out = topWithRest(many, 5, n => `其他 ${n} 家`)
+    expect(out.length).toBe(6)
+    const restRow = out[5]!
+    expect(restRow.name).toBe('其他 4 家')
+    expect(restRow.rest).toHaveLength(4)
+    // 加總 == 原件相加
+    expect(restRow.rest!.reduce((n, r) => n + r.records, 0)).toBe(restRow.records)
+    // 頭尾接回去要一字不差等於原本的全部：一筆都不能少、順序不能變
+    expect([...out.slice(0, 5), ...restRow.rest!]).toEqual(many)
+    // head 那五列一列都不該帶 rest（否則每一列都會長出一顆點開沒東西的鈕）
+    expect(out.slice(0, 5).some(r => 'rest' in r)).toBe(false)
+  })
+
+  it('★ 只多一筆時直接併進 head，不生「其他 1 家」那顆點開只有一列的鈕', () => {
+    // 實測 David 全期的國別與版本**正好都是 5**（= 呼叫端的 limit），
+    // 只要多一個沒看過的國別就會走到這裡。這不是假想的邊界。
+    const six = Array.from({ length: 6 }, (_, i) => ({ name: `C${i}`, records: 6 - i }))
+    const out = topWithRest(six, 5, n => `其他 ${n} 國`)
+    expect(out).toEqual(six)
+    expect(out.some(r => r.name.startsWith('其他'))).toBe(false)
+    expect(out.some(r => 'rest' in r)).toBe(false)
+  })
+
+  it('不足 limit 時原樣回傳，不加一條空的「其他 0 家」，也不掛空的 rest', () => {
+    // ⚠️ 這一條**刻意**走 `items.length <= limit + 1` 的早退路徑。
+    //   不要為了「統一」把測資加到 6 筆——那會讓它跟上面那條重複，
+    //   而早退路徑就沒有人守了。
     const items = [{ name: 'A', records: 1 }]
-    expect(topWithRest(items, 3, n => `其他 ${n} 家`)).toEqual(items)
+    const out = topWithRest(items, 3, n => `其他 ${n} 家`)
+    expect(out).toEqual(items)
+    // `toEqual` 會忽略 undefined，但 `rest: []` 會被它抓到；寫明白比較不會被改掉
+    expect('rest' in out[0]!).toBe(false)
   })
 
   it('主場與佔比', () => {
@@ -302,6 +648,84 @@ describe('點格子 → 底部片單', () => {
   })
 })
 
+/**
+ * 多刷排行（band 7）點一列 → 抽屜。
+ *
+ * ⚠️ **這裡守得到的只有這兩支純函式。** 這個 repo 沒有 `@vue/test-utils`、
+ * 沒有 happy-dom（查過 package.json），所以 `.vue` 裡的接線——`@pick` 有沒有走
+ * `/u/` 的 `pick()`、`activeYear` 有沒有真的傳進來、過濾的是 `cards` 還是 `visible`、
+ * `show-year` 有沒有傳——**一條自動檢查都沒有**。那幾件事只能靠瀏覽器手動驗。
+ */
+describe('多刷排行 → 抽屜', () => {
+  it('標題帶次數（那是唯一能讓「排行說 10、抽屜列 7」現形的地方）', () => {
+    // 《》被 displayTitle 剝掉，跟排行列上的片名長得一樣
+    expect(repeatTitle('《少女與戰車 最終章》 第４話', null, 4)).toBe('少女與戰車 最終章 第４話　4 次')
+    expect(repeatTitle('少女與戰車 劇場版', null, 10)).toBe('少女與戰車 劇場版　10 次')
+  })
+
+  it('指定年份時標題一定要帶年（語意在全期與單年是兩件事）', () => {
+    expect(repeatTitle('《少女與戰車 最終章》 第４話', 2024, 3)).toBe('少女與戰車 最終章 第４話　2024 年　3 次')
+    expect(repeatTitle('天氣之子', 2020, 2)).toBe('天氣之子　2020 年　2 次')
+  })
+
+  it('分隔符是 U+3000 不是半形空白', () => {
+    // 完整字串比對已經釘死格式；這條是補刀，說清楚被釘死的是哪一個字元。
+    expect(repeatTitle('X', null, 2)).toBe('X　2 次')
+    expect(repeatTitle('X', 2020, 2)).toBe('X　2020 年　2 次')
+  })
+
+  it('片名缺席時不留白', () => {
+    expect(repeatTitle(null, null, 2)).toBe('（作品不明）　2 次')
+    expect(repeatTitle('', 2019, 3)).toBe('（作品不明）　2019 年　3 次')
+  })
+
+  /**
+   * 真實資料的形狀：《少女與戰車 最終章》第４話全期 4 筆，其中 2024 年 3 筆、
+   * 2023-11-04 那一筆是差額（`pnpm db:sql` 逐年 group 量過）。
+   * 刻意**不要**讓測試資料全部同年——那樣把年份條件拿掉照樣綠（踩雷 #175）。
+   */
+  const ep4 = 'f-ep4'
+  const other = 'f-other'
+  const rows = [
+    { filmId: ep4, watchedOn: '2024-05-11' },
+    { filmId: ep4, watchedOn: '2024-06-01' },
+    { filmId: ep4, watchedOn: '2024-06-08' },
+    { filmId: ep4, watchedOn: '2023-11-04' }, // ← 唯一的差額
+    { filmId: other, watchedOn: '2024-05-11' },
+    { filmId: null, watchedOn: '2024-05-11' }, // film 讀不到的紀錄
+  ]
+
+  it('指定年份時只列那一年（scope 跟排行一致）', () => {
+    expect(rows.filter(r => inRepeatScope(r, ep4, 2024))).toHaveLength(3)
+    // 2023 那一筆單獨拿出來看：同一部片，但不在 scope 內
+    expect(inRepeatScope({ filmId: ep4, watchedOn: '2023-11-04' }, ep4, 2024)).toBe(false)
+  })
+
+  it('全期（year=null）不套年份條件', () => {
+    expect(rows.filter(r => inRepeatScope(r, ep4, null))).toHaveLength(4)
+  })
+
+  it('只用 film_id 對，不同片與讀不到 film 的一律排除', () => {
+    expect(inRepeatScope({ filmId: other, watchedOn: '2024-05-11' }, ep4, 2024)).toBe(false)
+    expect(inRepeatScope({ filmId: other, watchedOn: '2024-05-11' }, ep4, null)).toBe(false)
+    // ★ `/u/` 的 cards 忘了帶 filmId 就是這個形狀：抽屜永遠空，標題還寫著「N 次」
+    expect(inRepeatScope({ filmId: null, watchedOn: '2024-05-11' }, ep4, null)).toBe(false)
+  })
+
+  it('年份用字串前綴比，不經過 Date（時區會讓它退一天且不報錯）', () => {
+    const tz = process.env.TZ
+    process.env.TZ = 'America/New_York'
+    try {
+      // 台北時間 2024-01-01 的紀錄，在紐約解析會變成 2023-12-31
+      expect(inRepeatScope({ filmId: ep4, watchedOn: '2024-01-01' }, ep4, 2024)).toBe(true)
+      expect(inRepeatScope({ filmId: ep4, watchedOn: '2024-12-31' }, ep4, 2024)).toBe(true)
+    }
+    finally {
+      process.env.TZ = tz
+    }
+  })
+})
+
 describe('金額的呈現', () => {
   it('一般金額', () => {
     expect(spendText(2980, 'TWD', false)).toBe('NT$2,980')
@@ -329,6 +753,38 @@ describe('金額的呈現', () => {
   it('非 TWD 不硬套 NT$', () => {
     expect(spendText(1200, 'JPY', false)).toBe('JPY 1,200')
     expect(spendText(1200, 'JPY', true)).toBe('JPY 1,200 以上')
+  })
+
+  it('★ 場數與張數是兩個不同的數字，順序不可對調', () => {
+    // 實測 David 2019 年 25 場、37 張（user_year_stats 的 by_year，2026-09-07）。
+    // ⚠️ 這裡**不可以**拿 2014 年（3 場 3 張）當樣本——那一年 records === tickets，
+    //    把兩個參數對調照樣綠，這條就變成空轉的（踩雷 #175）。
+    expect(spendCountsText(25, 37)).toBe('25 場 / 37 張')
+    expect(spendCountsText(25, 37)).not.toBe('37 場 / 25 張')
+  })
+
+  it('一場一張的年份也照印兩個數字，不合併', () => {
+    // 2014 年 3 場 3 張。合併成「3 場」會讓「場」與「張」的區別在某些年份憑空消失。
+    expect(spendCountsText(3, 3)).toBe('3 場 / 3 張')
+  })
+
+  it('分隔是半形空白包住的斜線，不是中點也不是全形空白', () => {
+    // David 2026-09-07 逐字指定 `{金額} / {場數} 場 / {票數} 張`。
+    // 中點串是 Letterboxd 的簽名，這個產品刻意不長那樣（DESIGN_SYSTEM §0）。
+    expect(spendCountsText(21, 27)).toContain(' / ')
+    expect(spendCountsText(21, 27)).not.toContain('・')
+    expect(spendCountsText(21, 27)).not.toContain('　')
+  })
+
+  it('★ 金額那一段與場次那一段之間有分隔，整列讀得出三段', () => {
+    // 這是「整列長什麼樣」在單元測試層面唯一守得到的部分：兩支函式各自的輸出，
+    // 中間那個斜線由模板的純文字節點提供（見 SpendByYear.vue 的註解）。
+    // 順序（金額在左）由下面「原始碼接線」那個 describe 守——沒有元件測試基礎設施。
+    expect(`${spendText(7236, 'TWD', true)} / ${spendCountsText(21, 27)}`)
+      .toBe('NT$7,236 以上 / 21 場 / 27 張')
+    // 2015 年：0 且完整 ⇒「免費」，而場次張數照印（NT$0 不等於隱藏，SCREENS §12.1）
+    expect(`${spendText(0, 'TWD', false)} / ${spendCountsText(2, 5)}`)
+      .toBe('免費 / 2 場 / 5 張')
   })
 })
 
@@ -428,5 +884,145 @@ describe('圖說：「最」要是真的', () => {
     const text = venueInsightText(flat, 103, '全部年度')!
     expect(text).not.toContain('主場')
     expect(text).toContain('最常去的三家')
+  })
+})
+
+/**
+ * ── 「每年花費」的接線（掃原始碼）────────────────────────────────────────────
+ *
+ * ★★ **為什麼要掃原始碼**：這個 repo 沒有元件測試基礎設施（`tests/` 全是純
+ * `.ts`、`vitest.config.ts` 的 include 只有 `tests/**` 的 `.test.ts`、沒有
+ * `@vue/test-utils`）。所以「整列是不是照 `{金額} / {場數} 場 / {票數} 張` 的
+ * 順序排」在單元測試層面驗不到——把模板兩個 `span` 對調，`pnpm test`、
+ * `typecheck`、`verify:all` 會**全部是綠的**，而畫面上金額跑到最後面。
+ *
+ * ★★ **為什麼在這裡而不是 `scripts/verify-all.ts`**：這幾條不需要資料庫，
+ * 放在 `pnpm test` 裡每次都會跑。verify-all 那邊留的是需要真實資料的那一半
+ *（`runSpendByYearChecks()`：列上印出來的張數加總 vs DB 的 `totals.tickets`）。
+ *
+ * ⚠️ **掃之前一定要先把註解剝掉**（踩雷 #166）。這個 repo 已經在同一個位置跌過
+ * 一次：字串比對的斷言被註解餵飽，把呼叫整個刪掉照樣綠，因為註解裡剛好寫著那個
+ * 函式名——而這一輪 `SpendByYear.vue` 與這個檔案的註解裡都寫了好幾次
+ * `spendCountsText`。`strip()` 的形狀照抄 `scripts/verify-all.ts` 的 `stripComments()`。
+ */
+const srcRoot = (p: string) => fileURLToPath(new URL(`../${p}`, import.meta.url))
+function strip(src: string): string {
+  return src
+    .replace(/<!--[\s\S]*?-->/g, ' ') // template 註解
+    .replace(/\/\*[\s\S]*?\*\//g, ' ') // 區塊註解（含 JSDoc）
+    .replace(/^\s*\/\/.*$/gm, ' ') // 整行的行註解
+}
+const readCode = (p: string) => strip(readFileSync(srcRoot(p), 'utf8'))
+
+const SPEND_COMPONENT = 'app/components/SpendByYear.vue'
+const DASHBOARD = 'app/pages/app/index.vue'
+
+describe('「每年花費」每一列的三段（原始碼接線）', () => {
+  it('正向對照：路徑是活的，而且 strip() 真的剝掉了註解', () => {
+    // 這一條紅了代表下面每一條都不算數：不是路徑錯，就是 strip() 把整份吃光，
+    // 或是它根本沒剝到東西（那樣「找得到某個名字」就會被註解餵飽）。
+    const raw = readFileSync(srcRoot(SPEND_COMPONENT), 'utf8')
+    const code = readCode(SPEND_COMPONENT)
+    expect(raw, '檔案不見了或路徑錯了').toContain('<template>')
+    expect(code, 'strip() 把整份吃光了').toContain('<template>')
+    // 兩種註解都要真的被剝掉，否則下面每一條「找得到某個名字」都會被註解餵飽。
+    expect(raw, '這個檔已經沒有 template 註解 ⇒ 這個正向對照失去目標').toContain('<!--')
+    expect(raw, '這個檔已經沒有 JSDoc ⇒ 這個正向對照失去目標').toContain('/**')
+    expect(code, 'strip() 沒剝掉 template 註解').not.toContain('<!--')
+    expect(code, 'strip() 沒剝掉區塊註解').not.toContain('/**')
+  })
+
+  it('★ 元件真的呼叫了 spendCountsText()，不是只在註解裡提到它', () => {
+    // 左括號是條件的一部分：要的是**呼叫**不是提及（同 verify-all 的 monthly-baseline ③）。
+    expect(readCode(SPEND_COMPONENT)).toMatch(/spendCountsText\s*\(/)
+  })
+
+  it('★ 順序是金額在左、場次張數在右', () => {
+    // David 2026-09-07 逐字指定 `{金額} / {場數} 場 / {票數} 張`。
+    // 註：`spendText(` 不是 `spendCountsText(` 的子字串（後者是 `…CountsText(`），
+    //     所以兩個 indexOf 不會互相汙染。
+    const src = readCode(SPEND_COMPONENT)
+    const amount = src.indexOf('spendText(')
+    const counts = src.indexOf('spendCountsText(')
+    expect(amount, '找不到 spendText( ⇒ 這條已經失去目標').toBeGreaterThan(-1)
+    expect(counts, '找不到 spendCountsText( ⇒ 這條已經失去目標').toBeGreaterThan(-1)
+    expect(amount, '金額被排到場次張數後面了').toBeLessThan(counts)
+  })
+
+  it('★ 分隔的斜線不可以被關進 whitespace-nowrap 裡', () => {
+    // nowrap 內部的空白**不產生斷行點**。把「 / 」寫進後面那個 nowrap span 裡，
+    // 整個右側會變成一段不可斷的文字 ⇒ 375px 放不下時直接橫向溢出（硬約束）。
+    // 正確的形狀是兩個 span 之間的純文字節點：`</span> / <span`。
+    expect(readCode(SPEND_COMPONENT)).toContain('</span> / <span')
+  })
+
+  it('場數與張數不可以跟著 isPartial 變灰', () => {
+    // 不完整的只有金額；把兩個完整的數字染上「不完整」的視覺訊號，是這張圖
+    // 最不能犯的那類錯的鏡像。條件式只准出現在金額那一段的 :class 上。
+    const src = readCode(SPEND_COMPONENT)
+    const counts = src.indexOf('spendCountsText(')
+    // 從 spendCountsText 那個 span 的開頭到它為止，不可以有 isPartial 的條件式。
+    const spanStart = src.lastIndexOf('<span', counts)
+    expect(src.slice(spanStart, counts)).not.toContain('isPartial')
+  })
+})
+
+describe('儀表板的每年花費 band 吃的是全期那一份', () => {
+  /** 裸的 `stats.value?.by_year`。`allStats` / `yearStats` 都是大寫 S，不會命中。 */
+  const BARE_STATS_BY_YEAR = /(?:^|[^A-Za-z])stats\.value\?\.by_year/
+
+  it('正向對照：這條正則抓得到裸的那一種，放過 allStats 那一種', () => {
+    // 沒有這一條的話，下面那條「找不到」有可能只是正則壞了
+    // （`verify-all.ts` 規矩③：凡是「應該看不到」的斷言都要配一組「應該看得到」）。
+    expect('const rows = stats.value?.by_year ?? []').toMatch(BARE_STATS_BY_YEAR)
+    expect('const rows = allStats.value?.by_year ?? []').not.toMatch(BARE_STATS_BY_YEAR)
+    expect('const rows = yearStats.value?.by_year ?? []').not.toMatch(BARE_STATS_BY_YEAR)
+  })
+
+  it('★ 儀表板不可以出現裸的 stats.value?.by_year', () => {
+    // RPC：`'by_year', case when p_year is not null then '[]'::jsonb else … end`
+    // ⇒ 指定年份時 `by_year` 是**空陣列**。寫成 `stats.value?.by_year` 的話，
+    //   使用者一切到 2019 這條 band 就無聲消失，而畫面看起來完全正常。
+    //   這是這一項最容易犯、也最看不出來的錯。
+    // ⚠️ 這條只擋得住這個字面形狀（`const s = stats.value` 再取 `s?.by_year`
+    //    它抓不到）。真正的把關是瀏覽器上「切到某一年，band 8 仍在且仍是十三列」。
+    expect(readCode(DASHBOARD)).not.toMatch(BARE_STATS_BY_YEAR)
+  })
+
+  /**
+   * ⚠️ **`toContain('<SpendByYear')` 不夠。** 2026-09-08 實測弄壞法：把標籤改名成
+   * `<SpendByYearX`（band 整個失效）——那一條**照樣綠**，因為舊的元件名是新名字的
+   * 前綴。要一個邊界字元才守得住。整條 band 被刪掉那種弄壞法兩種寫法都抓得到，
+   * 但「假檢查」的判準是**最弱的那個弄壞法**，不是最明顯的那個。
+   */
+  const RENDERS_SPEND = /<SpendByYear[\s/>]/
+
+  it('正向對照：這條正則要邊界，前綴同名的假元件騙不過去', () => {
+    expect('<SpendByYear :by-year="x" />').toMatch(RENDERS_SPEND)
+    expect('<SpendByYear/>').toMatch(RENDERS_SPEND)
+    expect('<SpendByYearX :by-year="x" />').not.toMatch(RENDERS_SPEND)
+  })
+
+  it('★ 儀表板真的 render 了 <SpendByYear（不是只在註解裡）', () => {
+    expect(readCode(DASHBOARD)).toMatch(RENDERS_SPEND)
+  })
+
+  it('★ 一筆票價都沒記過就整條不出現——band 掛在 hasSpend 那個閘門上', () => {
+    // David 2026-09-07 裁決：`spend_known_records = 0` 的帳號**整條 band 不出現**，
+    // 不畫成 0、不留佔位。上面那條只證明 `spend_known_records` 這個字出現在檔案裡，
+    // 沒有證明它真的接在 band 的 `v-if` 上——閘門被拿掉的話，那種帳號會看到
+    // 十三列「NT$0 以上」，比沒有這條 band 更糟。
+    const src = readCode(DASHBOARD)
+    const band = src.indexOf('title="每年花費"')
+    expect(band, '找不到「每年花費」那條 band ⇒ 這條已經失去目標').toBeGreaterThan(-1)
+    const tag = src.lastIndexOf('<ChartBand', band)
+    expect(tag, '「每年花費」不在 <ChartBand 裡了 ⇒ 這條已經失去目標').toBeGreaterThan(-1)
+    expect(src.slice(tag, band)).toContain('v-if="hasSpend"')
+  })
+
+  it('★ 顯示閘門是「讀得到幾列票價」，不是「總額大於零」', () => {
+    // SCREENS §2.0b 第 1 條：`spend > 0` 會把「全部都是兌換票（NT$0）」的帳號
+    // 誤判成沒東西可看。判準必須是 `spend_known_records`。
+    expect(readCode(DASHBOARD)).toContain('spend_known_records')
   })
 })

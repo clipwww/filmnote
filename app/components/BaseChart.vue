@@ -23,8 +23,24 @@ const props = withDefaults(defineProps<{
 }>(), { height: '320px', label: '圖表' })
 
 const emit = defineEmits<{
-  /** ECharts 的點擊事件原樣往上丟。`params.data` 是那一格的資料。 */
-  pick: [params: { data?: unknown, value?: unknown, seriesIndex?: number }]
+  /**
+   * ECharts 的點擊事件原樣往上丟。`params.data` 是那一格的資料。
+   *
+   * 後四個欄位**只有在某條軸設了 `triggerEvent: true` 時才會有值**（源頭是
+   * echarts 的 `AxisBuilder.makeAxisEventDataBase`：`componentType` 是
+   * `'xAxis' | 'yAxis'`、`targetType` 是 `'axisLabel'`、category 軸的
+   * `dataIndex` 是類目索引）。沒設 triggerEvent 的軸標籤是 silent，
+   * 根本不會產生事件。目前只有 `HourHeatmap` 的兩條總和軸用得到。
+   */
+  pick: [params: {
+    data?: unknown
+    value?: unknown
+    seriesIndex?: number
+    componentType?: string
+    componentIndex?: number
+    targetType?: string
+    dataIndex?: number
+  }]
 }>()
 
 /**
