@@ -1,8 +1,13 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+// 預設值與 `parseRefreshOptions` 搬到自足模組，理由見那個檔的檔頭（vitest 載得進來）。
+import type { TmdbRefreshOptions } from './tmdb-refresh-options'
 import type { TmdbDetailForSnapshot } from './tmdb-snapshot'
 import type { Database, Json } from '~/types/database.types'
 import { TmdbClient, TmdbError } from '#pipeline/tmdb/client'
+import { DEFAULT_BUDGET_MS, DEFAULT_CONCURRENCY, DEFAULT_LIMIT } from './tmdb-refresh-options'
 import { failurePatch, outcomeForError, snapshotFromDetail } from './tmdb-snapshot'
+
+export type { TmdbRefreshOptions }
 
 /**
  * TMDB 快照的批次刷新。
@@ -15,23 +20,6 @@ import { failurePatch, outcomeForError, snapshotFromDetail } from './tmdb-snapsh
  * 保持新鮮」，不是「維持合規」——後者是讀取端的結構性保證。
  */
 
-/** 每次呼叫的預設處理上限。穩態需求是 2,400 列 / 150 天 ≈ 16 列/天。 */
-const DEFAULT_LIMIT = 100
-const MAX_LIMIT = 1000
-
-/**
- * 預設時間預算。Vercel 的函式有執行時間上限（Hobby 方案曾是 10 秒），
- * 而「跑到一半被砍」會留下一批 attempts 沒加、next_refresh_at 沒推的列。
- * 所以以時間收尾而不是以筆數收尾：超過預算就停止取新工作，剩下的下一輪再做
- * （它們的 `next_refresh_at` 仍 ≤ now()，view 會再給出來）。
- */
-const DEFAULT_BUDGET_MS = 8_000
-const MAX_BUDGET_MS = 30 * 60_000
-
-/** TmdbClient 的預設併發。8 併發的節流行為在 Step 9 之前從未被驗證過。 */
-const DEFAULT_CONCURRENCY = 8
-const MAX_CONCURRENCY = 16
-
 /**
  * 累計被 429 節流這麼多次就收工。
  *
@@ -39,12 +27,6 @@ const MAX_CONCURRENCY = 16
  * （＝一次上游抽風換來 2,400 列的指數退避）。停下來讓下一輪再試比較便宜。
  */
 const THROTTLE_ABORT_AT = 10
-
-export interface TmdbRefreshOptions {
-  limit?: number
-  budgetMs?: number
-  concurrency?: number
-}
 
 export interface TmdbRefreshReport {
   /** view 中到期待刷新的總列數（不受 limit 影響）。 */
@@ -69,22 +51,6 @@ interface DueRow {
   film_id: string
   tmdb_id: number
   attempts: number
-}
-
-function clamp(raw: unknown, fallback: number, min: number, max: number): number {
-  const n = Number(raw)
-  if (!Number.isFinite(n))
-    return fallback
-  return Math.max(min, Math.min(Math.trunc(n), max))
-}
-
-/** 從 query string 解析選項。上限存在的理由是誤打一個 0 不該變成 DoS。 */
-export function parseRefreshOptions(query: Record<string, unknown>): Required<TmdbRefreshOptions> {
-  return {
-    limit: clamp(query.limit, DEFAULT_LIMIT, 1, MAX_LIMIT),
-    budgetMs: clamp(query.budget, DEFAULT_BUDGET_MS, 500, MAX_BUDGET_MS),
-    concurrency: clamp(query.concurrency, DEFAULT_CONCURRENCY, 1, MAX_CONCURRENCY),
-  }
 }
 
 /**
