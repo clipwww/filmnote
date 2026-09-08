@@ -33,8 +33,15 @@ for (const spec of targets) {
     scrollH: document.documentElement.scrollHeight,
     scrollW: document.documentElement.scrollWidth,
     clientW: document.documentElement.clientWidth,
-    // 掃有沒有純白殘留
-    white: [...document.querySelectorAll('*')].filter((el) => {
+    // 掃有沒有純白殘留。
+    //
+    // ⚠️ **範圍限縮在 `#__nuxt`，不要掃整份文件**（踩雷 #243）。
+    //    2026-09-08 實測 `/app` 暗色：掃全文件得到 3 個純白元素，祖鏈全部是
+    //    `body > div#vue-tracer-overlay > …`——那是 Nuxt DevTools 在 dev 注入的，
+    //    而且全部不可見（`opacity:0`、0×0）。`#__nuxt` 之內是 **0 個**。
+    //    掃全文件的話每一次量測都會帶著三個永遠修不掉的紅字，而一份永遠有紅字的
+    //    報告等於沒有報告：真的漏純白時，沒有人會注意到數字從 3 變成 4。
+    white: [...(document.querySelector('#__nuxt')?.querySelectorAll('*') ?? [])].filter((el) => {
       const bg = getComputedStyle(el).backgroundColor
       return bg === 'rgb(255, 255, 255)'
     }).length,
