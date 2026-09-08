@@ -56,6 +56,40 @@ Letterboxd 自己的無海報處理是 `#1F282F` 灰盒中央塞 9–18px 的小
 
 不用漸層。不用發光。不在按鈕文字後面加「→」。
 
+#### ⚠️ 中點分隔：規則已定，`app/` 還沒清乾淨（2026-09-08 盤點）
+
+上表第三列（中點分隔 meta 串）與 §4.3 的「meta 用開眼式括號量詞串，不用中點分隔」
+是同一條規則。**規則沒有例外，欠的是程式碼。** 2026-09-07 那十二項需求的實作只清掉了
+各自授權範圍內碰得到的那幾處，其餘留著——列出來，是為了不讓「修了三處、其餘看起來像刻意的」。
+
+**這一輪已清（不要再當成待辦）**
+
+- `LegalDocumentView.vue` 的版本列 → 改用全形空白 `\u3000`。
+  （不能只換成半形空白：相鄰節點之間的半形空白會被 `white-space: normal` 的摺疊規則吃掉。）
+- `app/pages/app/records/new.vue` 影城選單的 `· {{ city }}` → 名稱 + 半形空白 + `(城市)`。
+- `app/pages/app/import.vue` 的 `venuePicks` 標籤（原本 `[...].join(' · ')`）→ 同一個形狀。
+
+**仍未清**
+
+| 位置 | 形狀 | 備註 |
+|---|---|---|
+| `app/utils/format-datetime.ts` 的 `metaLine()` | `parts.filter(Boolean).join(' · ')` | **最大的一處，也是唯一值得先動的一處**：15 個呼叫點，`app/pages/app/import.vue`、`app/pages/admin/films.vue`、`app/pages/admin/reports.vue` 各 5 個。改這一個函式一次清掉 15 處 |
+| `app/pages/search.vue` | `[country, release_year].filter(Boolean).join(' · ')` | 搜尋結果卡的國別／年份 |
+| `app/pages/admin/takedowns.vue` | `` `${dayText(...)} 受理 · ${STATUS_LABEL[...]}` `` | 詳情面板的副標 |
+
+⚠️ **這張表刻意不寫行號。** 動手前自己重跑一次，以當下的結果為準：
+
+```
+grep -rn " · " --include="*.vue" --include="*.ts" app/
+```
+
+（命中的大多是註解與 JSDoc 的項目符號，那些不算——只有**會被 render 成字串**的才算。
+這也是為什麼上面那三列寫的是「形狀」而不是位置：照著形狀找比照著行號找可靠。）
+
+⚠️ **未清不等於管理後台可以例外。** DS 全文沒有給 `/admin` 任何造型豁免；
+`metaLine()` 之所以還在，是因為它是共用工具、動它會同時改到三個頁面，
+而那三個頁面這一輪分屬不同人的授權範圍。
+
 ---
 
 ## 1. 色彩
@@ -1355,5 +1389,29 @@ console.assert(okH && okA, { okH, okA, mark, tmdb })
 - 載入態用結構性骨架（`USkeleton`），不用轉圈
 - 錯誤顯示在動作發生的地方旁邊
 - 寬內容（表格、圖表、程式碼）在自己的 `overflow-x: auto` 容器內捲動，**頁面 body 永遠不橫向捲動**
-- 固定的 z-index 階，不用任意值
+- 固定的 z-index 階，不用任意值：
+
+  | z | 誰 | 定義在哪 |
+  |---|---|---|
+  | 30 | 頂部導覽列 | `app/layouts/default.vue` 的 `<header>` |
+  | 50 | 所有覆蓋層（Modal / Drawer / Slideover / DropdownMenu / ContextMenu / Select / SelectMenu / Popover / Tooltip） | `app/app.config.ts` 的 `ui.<元件>.slots` |
+  | 100 | Toaster | Nuxt UI 主題自帶（`.nuxt/ui/toaster.ts` 的 `viewport: z-[100]`），不用動 |
+
+  ⚠️ **50 那一階是我們自己補的，而且它是正確性的前提，不只是慣例。**
+  Nuxt UI 4 那九個元件的 `overlay` / `content` slot **原生一個 z-index 都沒有**
+  （`.nuxt/ui/modal.ts` 的 overlay 逐字只有 `fixed inset-0`。那幾個主題檔裡確實找得到
+  `before:z-[-1]` 與 `focus-visible:z-[1]`，但那是選項列與 trigger 的內部層，
+  不在被 portal 出去的那個堆疊脈絡裡，不算數）。
+  它們靠 DOM 順序取勝：`UApp` 的 `portal` prop 預設 `"body"`，覆蓋層是 body 裡排在
+  `#__nuxt` 之後、`z-index: auto` 的定位元素。CSS 繪製順序裡「z:auto／0」那一步在
+  「z > 0」之前 ⇒ **導覽列只要拿到正的 z，就會畫在遮罩與對話框之上**。
+  症狀純粹在視覺層：遮罩蓋住全頁、導覽列浮在遮罩上還亮著，而對話框照樣打得開、
+  功能照樣正常——所以自動化測試不會抓到。完整推導（含 reka-ui 與 vaul-vue 為什麼
+  不會自己救自己）寫在 `app/app.config.ts` 那段註解裡。
+
+  ⚠️ **新增任何走 portal 的 Nuxt UI 元件時，要回 `app/app.config.ts` 把它補進 50 那一階。**
+  那份清單刻意列得比「今天用得到的」多（`popover` / `slideover` / `contextMenu`
+  目前全 repo 尚未使用；`tooltip` 已在 `app/pages/app/records/index.vue` 用到一處
+  ——長備註的桌機 peek 層，2026-09-08 新增）——不 render 就不產生 CSS，成本是零；
+  漏掉的成本是下一個人要靠記性。這一階是地基，不要靠記性維護。
 - 數字一律 `tabular-nums`（由 Inter 供應，見 §2.2）

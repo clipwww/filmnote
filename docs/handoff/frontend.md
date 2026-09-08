@@ -27,6 +27,16 @@
 ⚠️ adminui 會**使用**我的 `TicketCard`（抽屜裡列的是票根卡），但不修改它。
 反過來也一樣——需要改對方的東西一律透過主 session。
 
+⏱ **這張表的時效（2026-09-08 補）**：上面那張表描述的是 **2026-09-06 那一種編組**
+——frontend／adminui／backend 三條線各有一個 session 同時在寫，所以 `src/**`、`server/**`、
+`supabase/**`、`scripts/**` 對「我」而言是「一律不碰」。
+⚠️ **那不是這幾個目錄的永久屬性，是「當時有別人正在寫它們」。**
+2026-09-07 David 那十二項的那一波就**沒有獨立的 backend 線**，協調者逐項重新指派，
+`src/gov/cinema.ts` 與 `supabase/migrations/0015_venue_blank_name.sql` 都是由做那一項的人
+自己改的（見 §5-9）。
+⇒ **每一輪開工前先問協調者這一輪怎麼編組**。這張表回答的是「同一時間還有誰在寫這些檔、
+誰的 commit 會把我的改動整包帶走」，不是「這些檔永遠歸誰所有」。
+
 ---
 
 ## 2. 這一棒做完的東西
@@ -36,10 +46,24 @@
 | `/legal/terms`、`/legal/privacy`、`/legal/copyright` | 完成。內容從 `legal_document` 讀，自己剖析 markdown |
 | `/legal/dmca` | 完成。表單不是文件，寫進 `takedown_notice` |
 | 顯名標示頁尾 `AttributionFooter` | 完成。掛在 layout，每一個公開頁都有 |
-| 右上功能選單 `AppNav` | 完成。含明暗切換三態、staff 才有的 `/admin` |
+| 右上功能選單 `AppNav` | 完成。含明暗切換三態、staff 才有的 `/admin`。2026-09-07 觸發鈕加上 **Google 頭像**（`#leading` 裡一顆 `UAvatar`，`size="2xs"`、`referrerpolicy="no-referrer"`）：值由 `app/composables/useMyAvatar.ts` 從 GoTrue 的 `user_metadata` **現場**取（`avatar_url` → `picture`，只收 `https://` 開頭的字串），**刻意不寫進 `public.profile.avatar_url`**——那一欄 anon 讀得到、`server/api/u/[username].get.ts` 的白名單也**已經** select 了它 ⇒ 落地等於把 Google 頭像變成公開資料，而 `v-if` 從來不是隱私控制。載不出來（Google 換網址、使用者拿掉大頭貼）由 `UAvatar` 自己的 `@error` 退回 `:text` 的**使用者名稱首字（不轉大寫）**——不用 `UAvatar` 內建的 fallback，那個是 `alt.split(' ')` 取英文姓名縮寫。`<ClientOnly>` 那層與 `aria-label` 都沒動。取值的純函式 `pickAvatarUrl()` 有 `tests/my-avatar.test.ts` 釘住（16 條斷言）|
+| 頂部導覽列（`app/layouts/default.vue` 的 `<header>`） | 2026-09-07 改成 sticky：`sticky top-0 z-30 border-b border-default bg-default`，內層 `h-14`＝56px（＋`border-b` 1px ⇒ 總高 57px）、**不透明**、不做毛玻璃、不做 auto-hide。連帶在 `app/app.config.ts` 建立**全站 z 階**（導覽 30 ／ 覆蓋層 50 ／ toast 100）——Nuxt UI 4 的九個覆蓋層主題原生**零 z-index**，不建這一階，sticky 之後導覽列會畫在遮罩與對話框**之上**（遮罩蓋住全頁、導覽列浮在遮罩上還亮著，而功能全部正常，只有「看起來不對」）。`LegalDocumentView.vue` 桌機目錄偏移跟著改成 `md:top-18`（72px；舊值 `md:top-4` 會讓目錄上緣 41px 藏在導覽列後面）。規格見 `SCREENS §0.1`，z 階見 `DS §10` |
 | `/app/settings` | 三個既有功能**首次以瀏覽器驗過**；新增三振區塊與帳號刪除 |
 | `/app/records` | 改成 Table + 四個篩選 |
 | 日期帶 | 月與星期改英文縮寫、場次時間搬到日期下面 |
+
+⚠️ **`app.config.ts` 在 `app/app.config.ts`**——Nuxt 4 的 `srcDir` 是 `app/`
+（`nuxt.config.ts` 的 `future: { compatibilityVersion: 4 }`）。放在 repo 根的 `app.config.ts`
+**不會被載入**，也在 `.nuxt/ui.css` 的 `@source` 之外 ⇒ **兩重靜默失效、零錯誤訊息、
+`pnpm build` 照樣 exit 0**。這一輪的計畫在這個路徑上寫錯了兩次。
+
+⚠️ z 階那一份**刻意列了「今天還沒用到」的覆蓋層**（popover / tooltip / slideover /
+contextMenu），不要因為「repo 裡搜不到」就刪掉一行——漏掉的成本是「下一個加 UTooltip 的人
+要記得回來補」，而不 render 的元件不產生任何 CSS，留著的成本是零。
+（2026-09-08 覆核：全站覆蓋層實例已經是 **23 處**——`grep -roh '<U\(Modal\|Drawer\|Slideover\|DropdownMenu\|ContextMenu\|SelectMenu\|Select\|Popover\|Tooltip\)\b' app/ | wc -l`
+——這個數字每一波都在動，別把它抄進斷言裡。同一次覆核也發現
+`app/pages/app/records/index.vue` 已經有一個 `UTooltip`，而 `app/app.config.ts` 註解裡
+「tooltip 尚未使用」那句已經過期，下次動那個檔的人請順手改掉。）
 
 ---
 
@@ -143,7 +167,40 @@ Inter 供應，而 `tabular-nums` 本來就只能由 Inter 提供 ⇒ 多張卡�
 8. **`/legal/dmca/counter/[noticeId]`（`SCREENS §15.4`）與被取下內容的降級態沒做。**
    端點 `server/api/legal/counter-notice.post.ts` 已經在了，入口依規格**不在 `/legal`**，
    在使用者自己的紀錄上（票根卡保留位置 + 申訴連結）。
-9. **`/venue/[id]` 仍然不存在**，`nuxt.config.ts` 的 routeRule 已經在了。
+9. **`/venue/[id]` 仍然不存在**，`nuxt.config.ts` 的 routeRule 已經在了
+   （`'/venue/**': { ssr: true, isr: … }`，2026-09-08 覆核仍在）。
+
+   ⚠️ **開工時直接用 `venue.name`，不要再寫 `name || company_name`。**
+   `SCREENS §6` 那條 `displayName = name || companyName` **沒有被推翻——它的落點被搬了**：
+   從 2026-09-07 起改成在**資料層**一次收斂，不再由各頁的顯示層各補一次。
+   兩層落點：`src/gov/cinema.ts` 的上游 fallback（`const name = govName || companyName`，
+   兩欄同時空由 `assertNameUsable()` 在 parse 階段就炸掉）＋
+   `supabase/migrations/0015_venue_blank_name.sql`（人工正名進 `curated_fields`、
+   另兩列以公司全銜保底、加 `venue_name_not_blank` CHECK）。
+   為什麼搬：同一個病灶有七個消費面（記錄選單、匯入選單、`app/utils/ticket.ts` 的
+   `venueSegment()`、`useMyRecords`、`/app` 與 `/u/` 兩支圖表、OG 端點），
+   **在任何單一層補都只補得到一個**；而 `venue_option` 這個 view **沒有 `company_name` 欄**
+   （2026-09-08 讀 `information_schema.columns` 覆核：只有 id / kind / name / city /
+   hall_count / sort_weight）⇒ 想在顯示層補 fallback，得先改 view 再重跑 `pnpm db:types`。
+
+   ⚠️ **但「`venue.name` 保證非空白」現在還不成立——0015 尚未套用。**
+   2026-09-08 讀活體：`venue` 共 114 列，`btrim(name) = ''` 仍有 **3 列**，
+   `pg_constraint` 裡查不到 `venue_name_not_blank`。**migration 檔存在 ≠ 已套用**——
+   這跟 `BUILD_PLAN §7 #189`（讀 migration 檔不等於讀 DB 裡活著的定義）是同一個道理。
+   ⇒ 這一頁動工前**自己再查一次**，若那時仍未套用，`/venue/[id]` 會有三筆標題是空的：
+   `pnpm db:sql -- --query "select count(*) from public.venue where btrim(name) = ''"`。
+
+   ⚠️ 同理，`app/pages/app/index.vue` 與 `app/pages/u/[username].vue` 那兩行
+   `v.name ?? '（場所不明）'` **維持原狀即可**——`??` 只接得住 null/undefined，
+   本來就抓不到 `''`，資料層修好之後也不需要抓。
+   （2026-09-08 重新 grep：分別在 `app/pages/app/index.vue:150` 與
+   `app/pages/u/[username].vue:302`；**行號會漂，用 `grep -rn '場所不明' app/` 找**，
+   改動請求寫的 147／272 已經不對了。）
+   這兩個檔在 2026-09-07 那一波被別的項目動過 ⇒ 誰要改那兩行，
+   先讀 `BUILD_PLAN §7` 踩雷表**「選單裡的城市名是算繪出來的」**那一條
+   （症狀在算繪層、病灶在資料層；拿螢幕上的字面去 DB 裡 `name ~ '(市|縣|區)$'` 查
+   會得到「資料沒問題」這個完全相反的結論）。⚠️ **編號以 BUILD_PLAN 現況為準**：
+   實作者提議 #190，同一波另有一項也提議 #190，最終號碼由協調者配——按標題找，不要按號碼找。
 10. **`/legal/**` 的 `AttributionFooter` 份量規則只在這台機器量過。**
     字標已改成 SVG 路徑（分母因此是常數），但 58.3% / 22.8% 是這裡的實量。
 
@@ -236,5 +293,7 @@ David 瀏覽器裡的作用中分頁，Chrome 對背景分頁不跑同一條輸�
    使用者需要知道理由並且可能要改資料再送一次。**畫面語彙不該共用。**
 2. **`/legal/dmca/counter/[noticeId]`** 與被取下內容的降級態（§5-8）。
 3. **`/venue/[id]`**（routeRule 已在、頁面不存在）。
+   ⚠️ **動工前先讀 §5-9**：名字的 fallback 已經從顯示層搬到資料層，這一頁**直接用
+   `venue.name`**；但那個保證要等 `0015` 套用才成立，§5-9 有一行查法。
 4. **`/app/settings` 的刪除帳號**：等有第二個測試帳號時把最後那一按驗掉（§5-1）。
 
