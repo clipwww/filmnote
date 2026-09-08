@@ -39,10 +39,16 @@ function view(id: number | null) {
           {{ parsed.title }}
         </h1>
 
-        <!-- 分隔用的中點組在字串裡：相鄰節點的空白會被 whitespace: condense 吃掉 -->
+        <!--
+          分隔符組在字串裡：相鄰節點之間的半形空白會被
+          `white-space: normal` 的摺疊規則吃掉。
+          用全形空白 U+3000（寫成 `\u3000` 跳脫字元，跟 `HourHeatmap.vue`
+          等處一致），**不用中點**——DS 行 824：中點串是 Letterboxd 的簽名，
+          這個產品刻意不長那樣（DS 行 49 把它列在「避開」那一欄）。
+        -->
         <p class="mt-1.5 text-[13px] text-muted">
           <span class="tabular-nums">{{ shown.version }}</span>
-          <span>{{ ` · ${effectiveDateText(shown.effective_at)} 生效 · ` }}</span>
+          <span>{{ `\u3000${effectiveDateText(shown.effective_at)} 生效\u3000` }}</span>
           <button
             type="button"
             class="text-primary hover:underline"
@@ -114,8 +120,18 @@ function view(id: number | null) {
           </nav>
         </details>
 
-        <!-- 桌機：左側 sticky -->
-        <nav class="hidden self-start md:sticky md:top-4 md:grid md:grid-cols-[1.5rem_minmax(0,1fr)] md:gap-x-1 md:gap-y-2 text-[13px]">
+        <!--
+          桌機：左側 sticky。`md:top-18` = 18 × 0.25rem = 4.5rem = **72px**
+          （導覽列 56px + `border-b` 1px + 15px 呼吸）。
+          導覽列現在也是 sticky（`app/layouts/default.vue`），這個偏移必須跟著它走：
+          舊值 `md:top-4`（16px）會讓目錄上緣 41px 藏在導覽列後面。
+          ⚠️ 改 layout 那邊的 `h-14` 就要回來改這一行。
+          ⚠️ 用間距刻度而不是任意值方括號寫法：`md:top-18` 綁在 `--spacing` 上
+          （實測 Tailwind 4.3.3 生成 `top: calc(var(--spacing) * 18)`，而專案沒有覆寫
+          `--spacing`，production CSS 裡是 `.25rem` ⇒ 4.5rem = 72px），
+          跟 `app/` 其他地方一致（template 的 class 屬性裡零個任意值 calc）。
+        -->
+        <nav class="hidden self-start md:sticky md:top-18 md:grid md:grid-cols-[1.5rem_minmax(0,1fr)] md:gap-x-1 md:gap-y-2 text-[13px]">
           <template v-for="entry in parsed.toc" :key="entry.id">
             <span class="text-dimmed tabular-nums">{{ entry.label }}</span>
             <a :href="`#${entry.id}`" class="text-toned hover:text-highlighted">{{ entry.text }}</a>
