@@ -48,6 +48,58 @@ export default defineNuxtConfig({
       htmlAttrs: { lang: 'zh-Hant-TW' },
       link: [{ rel: 'icon', href: '/favicon.ico' }],
     },
+
+    /**
+     * ★ 換頁淡入（2026-09-14 David 裁決，DS §6 第二個編排過的時刻）。
+     *
+     * 這裡只宣告「用哪個 transition name、用哪個 mode」，**動畫本身一行 CSS 都不在這**
+     * ——Nuxt 不自帶 `page` 這組 class，真正的 `.page-enter-active` 等四條規則寫在
+     * `app/assets/css/main.css` 最下方。要調時間或關掉效果請去改那裡，兩邊要一起看。
+     *
+     * ⚠️ 明確寫成物件而不是 `pageTransition: true`：Nuxt 的預設值是 `false`（不開），
+     *    寫 `true` 才會展開成這個物件。把它攤開來寫，下一個人不必去翻 schema 才知道
+     *    name 是 `page`、mode 是 `out-in`。
+     *
+     * ⚠️ `mode: 'out-in'` 的代價寫在 main.css：離場與進場是**相加**的，
+     *    所以單邊時間必須 ≤ 100ms 才守得住 DS §6 的「互動回饋 ≤ 200ms」。
+     *    不寫 mode（預設同時進出）會讓新舊兩頁在同一瞬間重疊，兩份內容互相穿透。
+     *
+     * ⚠️ **不要設 `appear: true`**。預設 `appear: false` ＝ SSR 首屏直接出現，
+     *    這是刻意的：首次進站沒有「使用者剛按下的那一下」可以回應，淡入只是把 LCP
+     *    往後推。DS §6 對「編排過的時刻」的定義就是「回應使用者剛做的動作」。
+     *
+     * ⚠️ **根節點陷阱**（加新頁面時會踩到）：<Transition> 的 hooks 是掛在頁面元件
+     *    render 出來的**根 vnode** 上，所以每一頁的根都必須是**永遠存在的單一元素**。
+     *    根寫成 `<div v-if="x">` 時，x 為 falsy 會 render 成註解節點——註解沒有樣式，
+     *    淡入淡出對它是 no-op，那一次換頁就變成硬切。
+     *    ★★ **「單一元素」連開頭的註解都算**（2026-09-14 David 實跑抓到）：
+     *      `<template>` 的直接子註解自己就是一個根節點，寫在根元素上方 ⇒ 兩個根 ⇒
+     *      Fragment ⇒ 淡入整個不生效，Nuxt 會噴
+     *      `[NUXT_E4004] … does not have a single root node`。
+     *      諷刺的是，第一版**解釋這條規則的那段註解**正是踩到它的東西。
+     *      ⇒ 頁面的說明註解只能放在根元素**裡面**。
+     *    ★ 誰會告訴你：**Vue 自己不會**（`isElementRoot()` 明文放行 `Comment`）。
+     *      Nuxt 會，但它查的是 render 出來的東西不是模板形狀——`route-provider.js`
+     *      在 `dev && client` 時看 `vnode.el.nodeName` 落不落在 `#comment` / `#text`
+     *      ⇒ 多根與 falsy 的 v-if 根兩種都抓得到，**但只在瀏覽器裡真的換一次頁時**。
+     *      SSR、typecheck、lint、test、build 一個都看不到 ⇒ `tests/page-root.test.ts`
+     *      用靜態解析把這條規則釘在 `pnpm test` 裡。
+     *    ★ 以下是 Vue 端的細節：`isElementRoot()` 放行 `Comment`
+     *      （`vnode.shapeFlag & (6 | 1) || vnode.type === Comment`，在
+     *       `@vue/runtime-core` 的 `renderComponentRoot`），理由是「可能只是 v-if 分支切換」。
+     *      真的會噴 `Component inside <Transition> renders non-element root node that
+     *      cannot be animated.` 的是 **Fragment 根**（多根 template，或根是 `<slot />`）。
+     *      ⇒ 不能指望 console 幫你抓，只能靠「根永遠是單一元素」這條規則擋。
+     *    正解是「外層永遠存在的元素、v-if 移到內層的 <template>」，
+     *    範例見 `app/components/LegalDocumentView.vue` 與 `app/pages/film/[slug].vue`。
+     *    ⚠️⚠️ **這條管的是整條根節點鏈，不是只有頁面檔那一層。** 頁面的根寫成
+     *    `<SomeComponent>` 時，要看的是**那支元件自己 render 出來的根**——
+     *    一支根是 `<slot />` 的元件不能當頁面根。2026-09-14 真的踩到：
+     *    `/admin/*` 四頁的根都是 `-StaffGate.vue`，而它的通過分支是 `<slot v-else />`
+     *    ⇒ Fragment 根。**照字面掃頁面根的普查看不出來**（`<StaffGate>` 本身
+     *    「確實」是永遠存在的單一節點），要往下走進它 render 的東西。
+     */
+    pageTransition: { name: 'page', mode: 'out-in' },
   },
   // ★ 實測：此值被「字面」接到 srcDir（= app/）後面，別名不解析。
   //   §2.3 的 'app/spa-loading-template.html' → app/app/…（不存在）

@@ -1181,14 +1181,33 @@ ECharts heatmap **不支援 decal**，所以色盲友善完全靠單色相明度
 
 ## 6. 動態
 
-**只有一個編排過的時刻**：存檔成功後，新的紀錄列「印」進帳本——由上而下 180ms 的 reveal，只動 `transform` 與 `opacity`。像熱感應印表機吐出票根，而且它回應的是使用者剛完成的動作、顯示了什麼改變。
+**兩個編排過的時刻**——兩個都在回應**使用者剛剛按下的那一下**，而不是在「頁面出現了」的時候自己表演。
 
-其餘一律沒有進場動畫。沒有逐區塊的 fade-and-slide-up，沒有每張卡片的 hover transition。
+**① 存檔成功後，新的紀錄列「印」進帳本**：由上而下 180ms 的 reveal，只動 `transform` 與 `opacity`。像熱感應印表機吐出票根，而且它回應的是使用者剛完成的動作、顯示了什麼改變。
+
+**② 換頁淡入**（2026-09-14 David 裁決）：舊頁面先淡出、新頁面再淡進。它回應的是**使用者剛按下的那一次導覽**，把「換到另一個地方了」這件事講出來，而不是讓兩頁的內容硬切。
+
+- **數值：離場 90ms ＋ 進場 90ms，`ease-out`，只動 `opacity`，`mode: 'out-in'`。**
+- **為什麼是 90ms**：`out-in` 是離場跑完才開始進場，使用者感受到的是兩段**相加**⇒ 單邊的天花板是「互動回饋 ≤ 200ms」的一半，也就是 100ms。取 90 是留 10ms 給瀏覽器排程誤差；總長 180ms 正好等於第 ① 條 reveal 的 180ms，兩處是同一個節奏。**改任一邊都要重新驗 `2 × 單邊 ≤ 200ms`。**
+- **只動 `opacity`，不位移也不縮放**：**不是因為 `transform` 犯規**（它本來就是下面第 2 條允許的 compositor 屬性，第 ① 條用的就是它），而是因為整頁的 fade ＋ translateY 就是「逐區塊 fade-and-slide-up」那個手勢放大到整頁的版本——加了它等於推翻下面那條禁令。
+- **首次進站不播**：`pageTransition` 的 `appear` 維持預設的 `false`。首屏沒有「使用者剛按下的那一下」可以回應，淡入只會把 LCP 往後推。
+- **`prefers-reduced-motion: reduce` 下 `transition: none`**：直接換頁，不是把時間調短——與下面第 3 條一致。
+
+**其餘一律沒有進場動畫。** 沒有逐區塊的 fade-and-slide-up，沒有每張卡片的 hover transition。
+⚠️ 第 ② 條**不鬆綁這條禁令**：它是**整頁一次**、回應**一次導覽**的淡入。它不是「內容進場」的許可證，更不授權把同樣的淡入拆給頁面裡的區塊逐一播放——那正是被禁掉的 fade-and-slide-up。
 
 - 互動回饋 ≤ 200ms，`ease-out`
 - 只動 compositor 屬性（`transform` / `opacity`）
 - 尊重 `prefers-reduced-motion`：改為直接出現
 - 不對大面積 `blur()` / `backdrop-filter` 做動畫
+
+**實作落點**：`nuxt.config.ts` 的 `app.pageTransition`（只宣告 name 與 mode）＋ `app/assets/css/main.css` 最下方的 `.page-*` 四條規則（時間、曲線、reduced-motion 都在那裡，且**必須維持未分層**）。
+⚠️ 附帶的硬性條件：套了 `pageTransition` 之後，**每個頁面的根節點都必須是永遠存在的單一元素**——轉場的 hooks 掛在頁面元件 render 出的根 vnode 上。根寫成 `<div v-if="x">` 時，`x` 為 falsy 會 render 成註解節點，註解沒有樣式、fade 是 no-op，那一次換頁就變硬切。
+**而且這個錯完全靜默**：Vue 的 `isElementRoot()`（`vnode.shapeFlag & (6 | 1) || vnode.type === Comment`）明文放行註解節點；真正會噴 `Component inside <Transition> renders non-element root node that cannot be animated.` 的是 **Fragment 根**（多根 template，或根是 `<slot />`）。⇒ 這條只能靠規則擋，不能靠 console 抓。寫法見 `app/components/LegalDocumentView.vue`。
+
+⚠️⚠️ **這條規矩管的是整條「根節點鏈」，不是只有頁面檔那一層。** 頁面的根寫成 `<SomeComponent>` 時，要看的是**那支元件自己 render 出來的根**；一支根是 `<slot />` 的元件不能拿來當頁面根。
+2026-09-14 實際踩到：`/admin/{index,films,reports,takedowns}` 四頁的根都是 `app/pages/admin/-StaffGate.vue`，而它的通過分支當時是裸的 `<slot v-else />` ⇒ Fragment 根 ⇒ 進 `/admin/*` 會噴上面那句警告、且那四頁沒有淡入。**照字面掃頁面根的普查抓不到**（`<StaffGate>` 本身「確實」是永遠存在的單一節點），普查必須往下走進它 render 出來的東西。
+修法已套用，而且用的就是本節開頭那個正解：**一個沒有 class 的外層 `<div>` ＋ 三個內層 `<template v-if>`**。⚠️ 不要退成「三個平行的 `<div v-if/v-else-if/v-else>`」——那樣雖然也不是 Fragment，但根會在三個元素之間互相替換，分支切換的那一瞬間會各播一次換頁動畫。
 
 ---
 

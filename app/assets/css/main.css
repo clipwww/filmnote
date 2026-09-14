@@ -167,3 +167,57 @@ body {
      都是黏在一起的，而 §2.5 又禁止在 HTML 裡手打空格補間距。 */
   text-autospace: normal;
 }
+
+/* ── 換頁淡入：`app.pageTransition` 的 `page` 這組 class（DS §6 第二個編排過的時刻）──
+   2026-09-14 David 裁決。開關在 `nuxt.config.ts` 的 `app.pageTransition`，
+   時間與曲線在這裡；Nuxt 不自帶這四條規則，沒有這一段就是「設定有開、畫面沒動」。
+
+   ── ⚠️ 90ms 這個數字是算出來的，不要順手改成 200 ────────────────────────
+   `mode: 'out-in'` 是**離場跑完才開始進場**，使用者感受到的是兩段**相加**：
+       舊頁淡出 90ms ＋ 新頁淡入 90ms ＝ 180ms
+   DS §6 訂死「互動回饋 ≤ 200ms」⇒ 單邊的天花板是 200 / 2 ＝ **100ms**。
+   取 90 而不是貼著 100，是留 10ms 給瀏覽器排程誤差；而 180ms 正好等於 §6 另一個
+   編排時刻（存檔後紀錄列 reveal）的 180ms，兩處的節奏是同一個。
+   ⇒ 要改就兩行一起改，而且改完必須重新驗 `2 × 單邊 ≤ 200ms`。
+
+   ── ⚠️ 只動 opacity，不加位移也不加縮放 ────────────────────────────
+   **不是因為 transform 犯規**——transform 本來就是 compositor 屬性，DS §6 第 2 條
+   允許它（第 ① 個編排時刻用的就是 transform）。真正的理由是 DS §6 的另一條：
+   「沒有逐區塊的 fade-and-slide-up」。整頁的 fade ＋ translateY 就是同一個手勢
+   放大到整頁的版本，加了它等於自己推翻自己剛立的規則。
+   David 這一輪的字面要求也只有「淡入」。
+
+   ── ⚠️ 這一段必須留在「未分層」區 ──────────────────────────────────
+   Tailwind 4 把 utility 收進 `@layer utilities`，未分層的規則贏過所有 layer
+   （同一個機制見 `app/components/BaseChart.vue` 檔頭 ②）。搬進 `@layer base`
+   會被頁面上任何 `opacity-*` utility 蓋掉，而且是靜默失效——console 不會講話。
+
+   ── ★ 沒有 `appear` ────────────────────────────────────────────
+   首次 SSR 進站不跑進場（Nuxt 的 `pageTransition` 預設 `appear: false`，
+   nuxt.config.ts 那邊刻意不打開）。首屏淡入沒有「使用者剛按下的那一下」可回應，
+   只會把 LCP 往後推。 */
+.page-enter-active,
+.page-leave-active {
+  transition: opacity 90ms ease-out;
+}
+.page-enter-from,
+.page-leave-to {
+  opacity: 0;
+}
+
+/* DS §6 第 3 條：尊重 `prefers-reduced-motion` ⇒ **直接出現**，不是把時間調短。
+   ⚠️ 這個 repo **沒有**全域的 reduced-motion 規則（整份 main.css 只有這一個
+      `@media (prefers-reduced-motion: reduce)`）⇒ 每一處動畫都得自己關掉，
+      不要以為有人在上游替你擋了。
+
+   ⚠️ 這個 @media 必須排在上面那兩條**之後**：同樣未分層、同樣特異性（0,1,0），
+      由順序決勝。排到上面去就是完全沒作用，而且一樣是靜默的。
+   ⚠️ 用 `transition: none` 而不是 `transition-duration: 0.01ms` 之類的小數字：
+      Vue 的 <Transition> 是去讀 computed 的 transition 時間來決定何時收尾，
+      讀到 0 就當場結束 ⇒ 真正的「直接出現」。 */
+@media (prefers-reduced-motion: reduce) {
+  .page-enter-active,
+  .page-leave-active {
+    transition: none;
+  }
+}
