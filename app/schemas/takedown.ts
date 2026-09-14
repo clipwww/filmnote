@@ -17,7 +17,7 @@ import { z } from 'zod'
 /**
  * 沒有 scheme 的網址補上 `https://`。
  *
- * 不是為了寬鬆而寬鬆：`filmnote.tw/film/abc` 是一個**看得懂的答案**，
+ * 不是為了寬鬆而寬鬆：`example.tw/film/abc` 是一個**看得懂的答案**，
  * 因為少打四個字就把一份侵權通知擋在門外，是拿法遵要件去換一條驗證規則。
  * 補完之後會寫回輸入框，所以使用者看得到我們改了什麼，也改得回來——
  * 這跟「悄悄替他決定」不是同一件事。
@@ -58,7 +58,11 @@ export const takedownSchema = z.object({
   targetUrl: z
     .string()
     .transform(normalizeTargetUrl)
-    .pipe(z.url('請貼上完整的網址，例如 https://filmnote.tw/film/…').max(500, '最多 500 字')),
+    // ⚠️ 訊息裡**刻意不寫任何網域**：這份 schema 是純模組（伺服器那一份也 import 它），
+    //    讀不到 `runtimeConfig.public.siteUrl`，而本站的網域會變（vercel.app → 自訂網域）。
+    //    寫死一個網域的代價不是不精確，是**在受理窗口上叫權利人去貼一個不是本站的位址**。
+    //    真正的來源示範由輸入框的 placeholder 提供，那裡讀得到 siteUrl。
+    .pipe(z.url('請貼上完整的網址，要包含開頭的 https://').max(500, '最多 500 字')),
 
   // §90-6 的要件：沒有勾就不是一份完整的通知。
   // ⚠️ 伺服器那一份是 `z.literal(true)`，這裡是 `boolean` + `refine`——

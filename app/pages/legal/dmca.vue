@@ -117,13 +117,26 @@ watch(() => state.targetUrl, () => {
  * 使用者看得到我們改了什麼，也改得回來——這跟悄悄替他決定不是同一件事。
  * 只有路徑（`/film/abc`）時補上本站來源；那是他從網址列複製一半的常見情形。
  */
+/** 本站來源，去掉尾斜線。`normalizeUrlField` 與網址欄的 placeholder 共用同一份。 */
+const siteOrigin = computed(() => String(config.public.siteUrl || '').replace(/\/+$/, ''))
+
 function normalizeUrlField() {
   const raw = state.targetUrl.trim()
   if (!raw)
     return
-  const origin = String(config.public.siteUrl || '').replace(/\/+$/, '')
+  const origin = siteOrigin.value
   state.targetUrl = normalizeTargetUrl(raw.startsWith('/') && origin ? `${origin}${raw}` : raw)
 }
+
+/**
+ * 網址欄的示範值。
+ *
+ * ⚠️ **刻意不寫死網域。** 這裡本來是 `https://filmnote.tw/film/…`，而本站的網域
+ * 會變（先上 `*.vercel.app`，自訂網域之後才接）——寫死的話這張表會叫權利人去貼
+ * 一個**不是本站**的位址，而這裡是 §90-4 第 3 款的受理窗口，給錯指引的代價
+ * 是一份通知提不進來。`siteUrl` 是同一個來源，跟上面補 origin 的邏輯共用。
+ */
+const targetUrlPlaceholder = computed(() => `${siteOrigin.value}/film/…`)
 
 /* ── 送出 ──────────────────────────────────────────────────────────── */
 const submitting = ref(false)
@@ -349,7 +362,7 @@ function again() {
             v-model="state.targetUrl"
             type="url"
             inputmode="url"
-            placeholder="https://filmnote.tw/film/…"
+            :placeholder="targetUrlPlaceholder"
             class="w-full"
             @blur="normalizeUrlField"
           />
