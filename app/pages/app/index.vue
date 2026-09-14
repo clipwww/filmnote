@@ -1,5 +1,10 @@
 <script setup lang="ts">
 import type { StatSegment } from '~/utils/stat-line'
+// `DistKind` 是**型別**，Nuxt 的 auto-import 只帶值不帶型別 ⇒ 一定要明寫。
+// 用它而不是在這裡再抄一次 `'venue' | 'format' | 'country'`：那三個字串同時是
+// `matchesDistPick()` 的 kind，抄一份就多一個會跟 `utils/stats.ts` 漂移的地方。
+// （`/u/[username].vue` 也是這樣寫的——兩頁的 `Picked` 必須是同一個形狀。）
+import type { DistKind } from '~/utils/stats'
 
 /**
  * `/app` — 登入後看到的第一個畫面（`SCREENS.md §9`）。
@@ -10,9 +15,11 @@ import type { StatSegment } from '~/utils/stat-line'
  * 版面是**垂直長卷，一個 band 一張圖，滿容器寬**，不是 2×2 的卡片牆。
  * band 的順序是規格的一部分（§9），不是隨意排列。
  *
- * ⚠️ **這一頁沒有紀錄列表**（§9）。紀錄透過 §9.2 的「點出席圖或熱點圖的一格
- * → 底部抽屜」出現；可編輯的列表在 `/app/records`（§10）。
- * 例外是資料太少的中間態，見下方 `showCharts`。
+ * ⚠️ **這一頁沒有紀錄列表**（§9）。紀錄透過 §9.2 的「點圖表的一格 → 底部抽屜」
+ * 出現；可編輯的列表在 `/app/records`（§10）。例外是資料太少的中間態，
+ * 見下方 `showCharts`。
+ * （2026-09-14 起「一格」不只出席圖與熱點圖：月度趨勢的每個月、以及三條分布
+ * 長條的每一列也都開同一個抽屜。九種 kind 見下方的 `Picked`。）
  *
  * 這頁在 `nuxt.config.ts` 是 `ssr: false` 且需登入，資料一律 client 端取。
  */
@@ -145,17 +152,42 @@ const yearSegments = computed<StatSegment[]>(() => {
 const grid = computed(() =>
   hourGrid(stats.value?.weekday_hour ?? [], stats.value?.totals?.records_without_time ?? 0))
 
+/**
+ * 三條分布長條的資料。
+ *
+ * ★ **每一件都要填 `key`**（2026-09-14，David 第 4／5 點：每一列都要點得開抽屜）。
+ *   `key` 是**識別**不是顯示文字，三條的識別空間各不相同，規則寫在
+ *   `utils/stats.ts` 的 `matchesDistPick()`——這裡的三行必須跟那支逐條對稱：
+ *   · 影城 `venue_id ?? ''`：`?? ''` 對上 `(r.venueId ?? '') === key`。
+ *     在 `/app` 這個 `?? ''` 其實是 no-op（`viewing_record.venue_id` 在 DB 上
+ *     NOT NULL），仍然寫出來是為了**跟 `matchesDistPick()` 與 `/u/` 對稱**
+ *     ——三處只要有一處寫法不同，下一個人就得三邊都讀完才敢改。
+ *   · 版本 `f.code`：RPC 已經 `coalesce(r.format_code,'other')`，所以畫面上那個
+ *     「其他」的 code 就是 `'other'`——**它是一個真分類**，不是 `topWithRest()`
+ *     聚出來的長尾（實測 David 有 5 筆走這條）。
+ *   · 國別 `c.country`：**空字串**就是畫面上的「未分類」（`coalesce(f.country,'')`）。
+ *     顯示文字用 `||` 換成「未分類」，`key` 一定要留原始的空字串——拿四個中文字
+ *     去比對會對上零筆。
+ *
+ * ⚠️ 這三行與 `/u/[username].vue` 的同名 computed **逐字相同**（那邊的 `venues`
+ *   來自 `/api/u/…/stats`、這邊來自 RPC，但兩支的欄位名一樣）。要改請兩邊一起改：
+ *   同一個名字的圖在兩頁有兩種語意會讓使用者以為資料錯了（`backend.md §6e`）。
+ */
 const venueItems = computed(() =>
   topWithRest(
-    (stats.value?.venues ?? []).map(v => ({ name: v.name ?? '（場所不明）', records: v.records })),
+    (stats.value?.venues ?? []).map(v => ({ key: v.venue_id ?? '', name: v.name ?? '（場所不明）', records: v.records })),
     5,
     n => `其他 ${n} 家`,
   ))
 const formatItems = computed(() =>
-  topWithRest((stats.value?.formats ?? []).map(f => ({ name: f.label, records: f.records })), 5, n => `其他 ${n} 種`))
+  topWithRest(
+    (stats.value?.formats ?? []).map(f => ({ key: f.code, name: f.label, records: f.records })),
+    5,
+    n => `其他 ${n} 種`,
+  ))
 const countryItems = computed(() =>
   topWithRest(
-    (stats.value?.countries ?? []).map(c => ({ name: c.country || '未分類', records: c.records })),
+    (stats.value?.countries ?? []).map(c => ({ key: c.country, name: c.country || '未分類', records: c.records })),
     5,
     n => `其他 ${n} 國`,
   ))
@@ -249,8 +281,61 @@ type Picked
     // band 7 多刷排行的一列。`records` 是**排行上那個數字**，帶進標題是刻意的
     // ——跟抽屜實際列出幾張擺在一起才看得出不一致（踩雷 #169）。
     | { kind: 'film', filmId: string, titleZh: string | null, records: number }
+    // band 4 月度趨勢的一個月（1..12）。`records` 是**圖上那個點的數字**，同上。
+    // ⚠️ 這個 kind 的語意隨檢視視角而變：全期是「跨年度的同一個月」，
+    //    指定年份是「那一年的那個月」。過濾與標題都要照著分（見下方）。
+    | { kind: 'month', month: number, records: number }
+    // band 5／6 三條分布長條的一列。`kind` 直接就是 `matchesDistPick()` 的
+    // `DistKind`，不另外翻譯一層。`key` 是穩定識別、`name` 是畫面上那行字，
+    // 兩者刻意分開（見 `venueItems`）。`records` 同樣是**長條上那個數字**。
+    | { kind: DistKind, key: string, name: string, records: number }
+
+// ⚠️ 這個 union 與 `/u/[username].vue` 的 `Picked` **形狀必須一致**（兩頁擺的是
+//    同一組 band）。兩頁不同的只有「怎麼開」與「空了說什麼話」，見下方。
 
 const picked = ref<Picked | null>(null)
+
+/**
+ * 分布長條的一列 → 抽屜（2026-09-14，David 第 4／5 點）。
+ *
+ * ⚠️ `key` 為 null 的只有 `topWithRest()` 造出來的聚合列（「其他 N 家」），而那一列
+ *   在 `DistributionBars` 裡是展開／收合鈕、**不會 emit pick**。這裡仍然擋一次：
+ *   型別上 `key` 是 `string | null`，真的漏一個進來的話
+ *   `matchesDistPick(r, kind, '')` 會去列「沒有場所」那一桶的紀錄，而標題寫著
+ *   「其他 10 家」那一列的加總——那是一個會說謊的抽屜，寧可什麼都不做。
+ *   ★ 判斷一定是 `=== null` 不是 falsy：**空字串是正當的 key**
+ *     （國別的「未分類」、影城的「（場所不明）」都是 `''`）。
+ *
+ * ★ **`/u/` 那一頁的同名函式是 `async` 的，這裡不是**——這是兩頁唯一的行為差異，
+ *   而且是有理由的：`/u/` 的紀錄列表是分頁的（一次最多 200 筆），所以它必須先
+ *   `await ensureAllRecords()`；`/app` 的 `useMyRecords()` 是**一次取回**（沒有第二頁
+ *   可以補），所以這裡沒有東西可以等。
+ *   ⚠️ 「一次取回」**不等於「全部」**：`useMyRecords.ts:69` 是 `.limit(500)`，
+ *   而同檔 :51 的既有 ⚠️ 已經記著「這個上限會隨時間爆，且爆的時候是**靜默少資料**」。
+ *   ⇒ 超過 500 筆的使用者，這一頁的分布長條與月份抽屜會少列（踩雷 #169 的同一族，
+ *   長條說 120、抽屜列 96）。**這一頁對那條不免疫**，只是解法是分頁不是 await。
+ *   「紀錄還沒到」在這一頁由抽屜裡的 `recordsLoading` 骨架處理（見模板），
+ *   不是靠等待——那一段本來就在，出席圖與熱點圖走的也是同一條。
+ */
+function pickDist(kind: DistKind, e: { key: string | null, name: string, records: number }) {
+  if (e.key === null)
+    return
+  picked.value = { kind, key: e.key, name: e.name, records: e.records }
+}
+
+/**
+ * 月度趨勢的一個月 → 抽屜（2026-09-14，David 第 5 點）。
+ *
+ * ★ `records` 取自 **`stats.monthly`（圖的資料來源）**，不是抽屜過濾完的長度：
+ *   用同一個來源就永遠看不出不一致（踩雷 #169，同 `repeatTitle()`／`distPickTitle()`）。
+ *   找不到就是 0——還沒到來的月份 RPC 不回那一列，而 `MonthlyTrend` 的軸標籤
+ *   照樣點得到（那是刻意的，見該檔註解）。`monthTitle()` 會把「0 場」印在標題上，
+ *   所以開出來是一個**說得出自己為什麼是空的**抽屜，不是沉默的空白。
+ */
+function pickMonth(month: number) {
+  const n = (stats.value?.monthly ?? []).find(m => m.month === month)?.records ?? 0
+  picked.value = { kind: 'month', month, records: n }
+}
 const drawerOpen = computed({
   get: () => picked.value !== null,
   set: (v: boolean) => {
@@ -271,10 +356,43 @@ const drawerTitle = computed(() => {
   // 多刷：標題帶次數與（指定年份時的）年份，理由見 `utils/stats.ts` 的 `repeatTitle`。
   if (p.kind === 'film')
     return repeatTitle(p.titleZh, activeYear.value, p.records)
-  return slotTitle(p.weekday, p.rowLabel)
+  // ⚠️ 標題的組字一律在 `utils/stats.ts`，**不寫成這裡的字串樣板**（`SCREENS §9.2`）：
+  //   vitest 摸不到 SFC，寫在這裡的話全形空白、「N 場」、以及全期刻意不寫
+  //   「全部年度」那條規矩就一條都沒有東西守。`monthTitle()` 自己處理
+  //   全期／指定年份兩種形狀，所以這裡把 `activeYear` 原樣交出去就好。
+  if (p.kind === 'month')
+    return monthTitle(p.month, activeYear.value, p.records)
+  if (p.kind === 'slot')
+    return slotTitle(p.weekday, p.rowLabel)
+  // 三條分布長條共用同一個標題形狀（`distPickTitle()`：名稱後面接場次，
+  // 分隔字元刻意不在註解裡貼，見那支函式）——它們在畫面上是同一種東西。
+  if (p.kind === 'venue' || p.kind === 'format' || p.kind === 'country')
+    return distPickTitle(p.name, p.records)
+  /*
+   * ⚠️ **九種 kind 全部明寫，所以這一行到不了——但兩件事都不可以「順手簡化」：**
+   *   ① 不可以把分布那一支改回 fallthrough（拿掉它的 `if`）。那樣第十種 kind
+   *      忘了接的時候會**靜靜地掉進分布**，帶著一個根本不存在的 `p.key` 去組標題
+   *      與過濾。現在的行為是標題空白、抽屜列不出東西——看得見，而且不說謊。
+   *   ② 也不可以把 `slot` 改回 fallthrough。`Picked` 裡分布那一個成員的 kind 是
+   *      `DistKind`（三個字面的**聯集**）而不是單一字面，TypeScript 的
+   *      discriminant narrowing **減不掉這種成員** ⇒ 落到後面的 `p` 會是
+   *      「slot ∪ 分布」而 `p.weekday` 當場紅掉（實測 `nuxt typecheck`：
+   *      `Property 'weekday' does not exist on type '… | { kind: DistKind; … }'`）。
+   *      這一行本身不碰 `p` 的任何欄位，所以它照樣通得過。
+   *   `drawerRecords` 末尾是逐字相同的處理，兩處要一起看。
+   */
+  return ''
 })
 
-/** 抽屜空了的時候那句話。五種 kind 讀起來各不相同，不能共用「這個時段」。 */
+/**
+ * 抽屜空了的時候那句話。**九種 kind 讀起來各不相同，不能共用「這個時段」**
+ * ——它對一個場所、一個月份、一種版本、一個國別都是錯的。
+ *
+ * ⚠️ 這一頁是**本人視角**（整頁私密、觀看者永遠是自己），所以講的是
+ *   「沒有紀錄」。`/u/` 是匿名視角的公開頁，那邊每一句都是「沒有**公開的**紀錄」
+ *   ——因為在那裡空抽屜的真正原因通常是「那些紀錄是私密的」，那句話回答的是
+ *   一個這一頁不存在的問題。**兩頁的措辭刻意不同，不要互抄。**
+ */
 const drawerEmptyText = computed(() => {
   switch (picked.value?.kind) {
     // day（出席圖點一天）維持原文案，不在這一項的範圍內
@@ -283,6 +401,14 @@ const drawerEmptyText = computed(() => {
     // 「這個時段」對一部片是錯的。而且這一句在多刷上**幾乎不該出現**：
     // 排行上那一列說 N 次就該列得出 N 張，看到它就是有東西壞了。
     case 'film': return '沒有可以列出的紀錄。'
+    // 以下四種是 2026-09-14 新增的。它們**會**正常出現（0 場的月份、還沒到來的
+    // 月份都點得下去，見 `pickMonth()`），所以要寫成一句讀得通的話而不是錯誤訊息。
+    case 'month': return '這個月沒有紀錄。'
+    case 'venue': return '這個場所沒有紀錄。'
+    case 'format': return '這個版本沒有紀錄。'
+    // 「這個國家」對「未分類」那一列是錯的（`country` 是空字串那一桶），
+    // 所以用「國別」——跟長條上方那個標題同一個詞。
+    case 'country': return '這個國別沒有紀錄。'
     default: return '這個時段沒有紀錄。'
   }
 })
@@ -291,18 +417,34 @@ const drawerRecords = computed(() => {
   const p = picked.value
   if (!p)
     return []
+  /**
+   * 目前的檢視視角。**每一種 scope 會變的 kind 都要套它**，否則點一格說 8 場、
+   * 抽屜列出 24 張（圖吃的是 `stats`＝那一年，抽屜吃的是 `records`＝全部年度）。
+   * 熱點圖 2026-09-06 起跟著檢視視角走（見上方 `grid` 的註解），所以它也限年。
+   * 全期時 `activeYear` 是 null ⇒ 不加年份條件。
+   *
+   * ⚠️ 這一段 2026-09-14 從 `weekday` 分支前面**往上搬**，因為新加的
+   *   `month` 與三條分布長條也要用它。搬動沒有改變任何既有分支的行為。
+   */
+  const inScope = (r: { watchedOn?: string | null }) =>
+    activeYear.value === null || String(r.watchedOn ?? '').startsWith(`${activeYear.value}-`)
   if (p.kind === 'day')
     return records.value.filter(r => r.watchedOn === p.date)
+  /*
+   * ★ 「每個月」在**全期視角下是跨年度的同一個月**（十三年的三月全算進來），
+   *   那時 `inScope` 恆為真——這是對的，圖上那個點本身就是加總
+   *   （band 4 的圖說寫的就是「十三年來每個月份的加總」）。
+   *   指定年份時 `inScope` 才把它收斂成「那一年的三月」。
+   * ⚠️ `inMonth()` **只管月份不管年份**（見 `utils/stats.ts`），所以年份一定要
+   *   靠 `inScope` 另外加。少了它，切到 2019 年點三月會列出十三年份的三月。
+   */
+  if (p.kind === 'month')
+    return records.value.filter(r => inMonth(r.watchedOn, p.month) && inScope(r))
   // ★ 多刷：`activeYear` 一定要傳進去。band 7 吃的 `stats` 就是這個 scope
   //   （`activeYear === null ? allStats : yearStats`），少了它會變成
   //   「排行說 3 次、抽屜列 4 張」——而排行那個數字自己是對的，圖看起來沒問題。
   if (p.kind === 'film')
     return records.value.filter(r => inRepeatScope(r, p.filmId, activeYear.value))
-  // ★ 抽屜的過濾**必須跟熱點圖的 scope 一致**，否則點一格說 8 場、抽屜列出 24 張。
-  //   熱點圖 2026-09-06 起跟著檢視視角走（見上方 `grid` 的註解），所以這裡也限年。
-  //   全期時 activeYear 是 null，不套年份條件。
-  const inScope = (r: { watchedOn?: string | null }) =>
-    activeYear.value === null || String(r.watchedOn ?? '').startsWith(`${activeYear.value}-`)
   // ★ 星期總和：**過濾述詞在 utils/stats.ts**，因為它有一條真實資料測不出來的條件
   //   （熱點圖的母體不含沒記時間的紀錄，而 David 的 records_without_time 是 0）。
   //   寫在這裡的 inline computed 裡 vitest 摸不到，就沒有東西守得住它。
@@ -311,10 +453,29 @@ const drawerRecords = computed(() => {
   // 時段總和：`inHourRow(null, …) === false`，對沒記時間的紀錄天然免疫。
   if (p.kind === 'hour')
     return records.value.filter(r => inHourRow(r.watchedTime, p.rowLabel) && inScope(r))
-  return records.value.filter(r =>
-    isoDow(r.watchedOn) === p.weekday
-    && inHourRow(r.watchedTime, p.rowLabel)
-    && inScope(r))
+  // 格盤裡的一格。⚠️ 這一支 2026-09-14 從 fallthrough 改成明寫的 `if`：
+  //   九種 kind 現在**全部**明寫，末尾那一行只負責接「忘了接的第十種」，
+  //   理由見這個 computed 末尾那段。
+  if (p.kind === 'slot') {
+    return records.value.filter(r =>
+      isoDow(r.watchedOn) === p.weekday
+      && inHourRow(r.watchedTime, p.rowLabel)
+      && inScope(r))
+  }
+  /*
+   * ★ 三條分布長條：述詞在 `utils/stats.ts` 的 `matchesDistPick()`，不寫在這裡。
+   *   它含三條「照直覺寫會錯而且不會報錯」的 coalesce（format 的 null→'other'、
+   *   country 的 null→''、venue 的 null→''），必須跟 RPC 的 group by 逐字一致，
+   *   而寫成 inline computed 的話 vitest 摸不到（`SCREENS §9.2`）。
+   * ★ `p.kind` 直接就是 `DistKind`，這也是 `Picked` 那一個成員不把三種 kind
+   *   拆成三個的原因。
+   */
+  if (p.kind === 'venue' || p.kind === 'format' || p.kind === 'country')
+    return records.value.filter(r => matchesDistPick(r, p.kind, p.key) && inScope(r))
+  // ⚠️ 到不了（九種 kind 已經窮盡）。留著、而且分布那一支**不可以**當 fallthrough，
+  //   理由與 `drawerTitle` 末尾那段完全相同：忘了接第十種 kind 的代價要是
+  //   「抽屜是空的」，不是「抽屜理直氣壯地列錯東西」（踩雷 #169 的精神）。
+  return []
 })
 
 /**
@@ -326,10 +487,17 @@ const recordsLoading = computed(() => recordsStatus.value === 'pending' || recor
 /**
  * 換年份就把抽屜關掉。
  *
- * 多刷的標題把「排行上那個數字」烤進了 `picked`，而 `drawerRecords` 是隨
- * `activeYear` 重算的 computed——年份在抽屜開著時變動，會出現「標題 10 次、
- * 內容 1 張」。UDrawer 是 modal、年表在遮罩底下，所以實務上大概點不到；
- * 但這是一行就能根絕的說謊管道，不留。
+ * `picked` 把「圖上那個數字」烤進了標題，而 `drawerRecords` 是隨 `activeYear`
+ * 重算的 computed——年份在抽屜開著時變動，會出現「標題 10 次、內容 1 張」。
+ *
+ * ⚠️ 2026-09-14：會烤數字進標題的 kind 從一種（`film`）變成**五種**
+ *   （`film`／`month`／`venue`／`format`／`country`），所以這一條的價值變高了；
+ *   同一天也多了**第二個切年份的入口**（`YearScopeBar`，teleport 進導覽列）。
+ *   那個入口同樣到不了：導覽列是 `z-30`，`UDrawer` 的遮罩是 50 ⇒ 抽屜開著時
+ *   它也在遮罩底下（跟年表一樣）。這條 watch 仍然是「理論上的洞」，
+ *   但它一行就能根絕，不留。
+ *   ★ 兩個入口寫的都是 `activeYear = $event`，所以**兩個都走這一條 watch**，
+ *     不需要各自再補一次關抽屜的邏輯。`/u/` 那一頁有一條逐字對應的 watch。
  */
 watch(activeYear, () => {
   picked.value = null
@@ -351,12 +519,12 @@ const demoCells = Array.from({ length: 7 * 26 }, (_, i) => {
 </script>
 
 <template>
-  <!--
-    max-w-4xl 不是 3xl：整年出席圖是 53 欄 × 14px = 742px + 星期標籤，
-    在 3xl（768px）扣掉頁面與卡片的 padding 之後只剩約 700px，
-    圖會被切掉左邊那一欄星期標籤——而那一欄正好是預先捲到最右之後被藏掉的部分。
-  -->
   <div class="mx-auto max-w-4xl px-4 py-8">
+    <!--
+      max-w-4xl 不是 3xl：整年出席圖是 53 欄 × 14px = 742px + 星期標籤，
+      在 3xl（768px）扣掉頁面與卡片的 padding 之後只剩約 700px，
+      圖會被切掉左邊那一欄星期標籤——而那一欄正好是預先捲到最右之後被藏掉的部分。
+    -->
     <div class="flex items-center justify-between gap-4">
       <h1 class="text-2xl font-bold tracking-tight">
         我的紀錄
@@ -421,14 +589,51 @@ const demoCells = Array.from({ length: 7 * 26 }, (_, i) => {
         </p>
       </div>
 
-      <!-- ── band 1：年表。兼任檢視視角選擇器——你在選之前就看得到那年有多少東西。 ── -->
-      <ChartBand title="年表">
-        <YearStrip
-          :rows="stripRows"
+      <!--
+        ── band 1：年表。兼任檢視視角選擇器——你在選之前就看得到那年有多少東西。 ──
+
+        ⚠️ 這一層 `<div>` 是 2026-09-14 加的，**它有功能、不是排版裝飾**：
+           `YearScopeBar` 會在原地留下一個 1px 的 sentinel（觀測點）。而外面那個
+           `space-y-4` 在 Tailwind 4.3 編譯出來的是
+           `:where(& > :not(:last-child)) { margin-block-end: 16px }`——**每一個
+           非最後的子節點各吃一份 16px**。sentinel 直接放進去就是多一個子節點、
+           多一份 16px：年表與 band 2 之間會從 16px 變成 33px（16＋1＋16）。
+           包一層之後 `space-y-4` 只看得到這個 wrapper，版面差異只剩那 1px。
+           ⇒ 不要為了「少一層 div」把它拆掉。`/u/[username].vue` 是同一個寫法，
+             但那一頁是 SSR、帳更難看一點（多一個掛載前的節點，見那邊的註解）。
+      -->
+      <div>
+        <ChartBand title="年表">
+          <YearStrip
+            :rows="stripRows"
+            :selected="activeYear"
+            @update:selected="activeYear = $event"
+          />
+        </ChartBand>
+        <!--
+          ── 導覽列上的年份切換器（2026-09-14 David 第 2 點）──
+          它自己 Teleport 到 `#header-year-scope`（`layouts/default.vue`），
+          留在這裡的只有觀測用的 sentinel ⇒ **位置必須就是年表的正後方**：
+          切換器要在「年表捲出畫面」的那一刻才出現，年表還看得到時不需要它。
+
+          ★ 年份來源是 `stripRows`，**不是 `allStats.available_years`**（刻意偏離）。
+            `stripRows = yearStripRows(daily, available_years)`，也就是
+            available_years **聯集**「daily 裡出現過但清單還沒更新的年份」
+            （見 `utils/stats.ts` 那一行註解）。年表自己畫的就是 `stripRows`
+            ——兩個切換器是同一件事的兩個入口，**提供的年份集合必須逐個相同**，
+            否則會出現「年表上有 2026、導覽列的選單裡沒有」。
+            順序也因此對齊（`yearStripRows()` 已經新到舊排好；
+            `YearScopeBar` 內部仍會自己排一次，不互相假設）。
+
+          ★ `@update:selected` 寫成跟年表**一模一樣的一行**：兩個入口共用
+            `activeYear`，也就共用了上面那條「換年份關抽屜」的 watch。
+        -->
+        <YearScopeBar
+          :years="stripRows.map(r => r.year)"
           :selected="activeYear"
           @update:selected="activeYear = $event"
         />
-      </ChartBand>
+      </div>
 
       <!--
         §9.3 的中間態：資料還不夠時只顯示年表與票根列表，圖表 band 不出現。
@@ -563,10 +768,16 @@ const demoCells = Array.from({ length: 7 * 26 }, (_, i) => {
             : null"
           table-summary="看每個月的數字"
         >
+          <!--
+            ★ `MonthlyTrend` 只 emit 月份（1..12），範圍（全期／某一年）由這一頁
+              決定——它才知道 `activeYear`。`pickMonth()` 順便把「圖上那個月幾場」
+              查出來烤進標題（踩雷 #169）。
+          -->
           <MonthlyTrend
             :monthly="stats?.monthly ?? []"
             :average="showAverage ? monthlyBaseline : null"
             :year="activeYear"
+            @pick="pickMonth($event)"
           />
           <!-- 圖例自己用 HTML 畫（見 frontend 交接 §3：canvas 的圖例拿不到鍵盤與螢幕閱讀器） -->
           <p class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
@@ -614,9 +825,14 @@ const demoCells = Array.from({ length: 7 * 26 }, (_, i) => {
           </template>
         </ChartBand>
 
-        <!-- ── band 5：影城分布 ── -->
+        <!--
+          ── band 5：影城分布 ──
+          ★ 每一列都點得開抽屜（2026-09-14 David 第 4／5 點）。`kind` 由呼叫端
+            指定：同一個 `DistributionBars` 服務三條長條，它自己不知道
+            自己畫的是場所、版本還是國別。
+        -->
         <ChartBand title="去了哪裡" :insight="venueInsight">
-          <DistributionBars :items="venueItems" unit=" 場" />
+          <DistributionBars :items="venueItems" unit=" 場" @pick="pickDist('venue', $event)" />
         </ChartBand>
 
         <!-- ── band 6：版本與國別 ── -->
@@ -626,13 +842,13 @@ const demoCells = Array.from({ length: 7 * 26 }, (_, i) => {
               <h3 class="mb-3 text-sm font-medium text-muted">
                 版本
               </h3>
-              <DistributionBars :items="formatItems" unit=" 場" />
+              <DistributionBars :items="formatItems" unit=" 場" @pick="pickDist('format', $event)" />
             </div>
             <div>
               <h3 class="mb-3 text-sm font-medium text-muted">
                 國別
               </h3>
-              <DistributionBars :items="countryItems" unit=" 場" />
+              <DistributionBars :items="countryItems" unit=" 場" @pick="pickDist('country', $event)" />
             </div>
           </div>
         </ChartBand>
@@ -684,9 +900,14 @@ const demoCells = Array.from({ length: 7 * 26 }, (_, i) => {
     </div>
 
     <!--
-      §9.2：點出席圖或熱點圖的一格 → 底部抽屜列出該時段的票根卡。
+      §9.2：點圖表的一格 → 底部抽屜列出對應的票根卡。
       舊專案最有價值的互動語彙，原樣保留；紀錄列表退場後，這是使用者
       從 /app 看到票根卡的唯一路徑。
+
+      ⚠️ 2026-09-14 起「一格」不只是出席圖與熱點圖了：band 4 的每個月、
+         band 5／6 三條分布長條的每一列（含展開出來的長尾）都走同一個抽屜。
+         標題由 `drawerTitle` 分派到 `utils/stats.ts` 的各支組字函式，
+         空狀態由 `drawerEmptyText` 分派——**九種 kind 各有各的說法**。
     -->
     <UDrawer v-model:open="drawerOpen" direction="bottom" :title="drawerTitle">
       <template #body>
