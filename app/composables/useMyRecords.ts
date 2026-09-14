@@ -14,6 +14,26 @@ export interface MyRecord extends TicketCardRecord {
    * 會 typecheck 全綠而抽屜永遠是空的。
    */
   filmId: string
+  /**
+   * 場所的識別。**影城分布長條**點一列時，抽屜靠它把紀錄過濾出來
+   * （`matchesDistPick(r, 'venue', key)`，key 就是 `venue_id`）。
+   *
+   * ⚠️ 不可以改用 `venueName` 比對：`venue.name` 不保證唯一（同名分館），
+   *   而且 RPC 的影城分布本來就是 `group by r.venue_id`——兩邊用不同的東西
+   *   分組，長條上的筆數與抽屜列出的張數就會對不起來。
+   * `viewing_record.venue_id` 在 DB 上可為 null（沒填場所），所以這裡是可為 null；
+   *   `matchesDistPick()` 會把 null 對到空字串那一桶。
+   */
+  venueId: string | null
+  /**
+   * 作品的國別。**國別分布長條**點一列時的過濾依據
+   * （`matchesDistPick(r, 'country', key)`）。
+   *
+   * ⚠️ 值直接取自 `film.country`，**沒有正規化**——必須與 RPC
+   *   `coalesce(f.country, '')` 分組的那個字串一模一樣，否則對不上。
+   *   null（作品沒填國別）由 `matchesDistPick()` 折進「未分類」那一桶。
+   */
+  country: string | null
 }
 
 /**
@@ -53,7 +73,13 @@ export function useMyRecords() {
     const filmIds = [...new Set(rows.map(r => r.film_id))]
     const venueIds = [...new Set(rows.map(r => r.venue_id))]
     const [films, posters, venues, costs] = await Promise.all([
-      supabase.from('film').select('id,slug,title_zh,title_original,ugc_poster_path,visibility,review_state').in('id', filmIds),
+      // ★ `country` 必須從 `film` 表拿，**不是 `film_public`**（下面那支）。
+      //   `film_public` 的 where 是 `visibility='public' and moderation_state='visible'`
+      //   ⇒ **自己新增的私密 UGC 作品（visibility='private'）不在裡面**。
+      //   從那支拿的話那些紀錄的 country 會是 null，於是它們在國別分布上
+      //   全部掉進「未分類」——而長條的筆數來自 RPC（`left join public.film`），
+      //   兩邊母體不同，抽屜就會少列。這裡本來就已經在讀 `film` 表了。
+      supabase.from('film').select('id,slug,title_zh,title_original,country,ugc_poster_path,visibility,review_state').in('id', filmIds),
       // 海報只在 view 上。自己的私密 UGC 作品不會出現在這裡，那時就沒有海報欄——
       // 正是 §4.3 要的行為，不必補 fallback。
       supabase.from('film_public').select('id,tmdb_poster_path').in('id', filmIds),
@@ -92,6 +118,13 @@ export function useMyRecords() {
       year: String(r.watched_on).slice(0, 4),
       watchedTime: r.watched_time,
       venueName: vm.get(r.venue_id) ?? null,
+      // ★ 名稱給人看、id 給分布長條的抽屜過濾用（見 `MyRecord.venueId`）。
+      //   兩個都要，不可以只留一個。
+      venueId: r.venue_id,
+      // ★ 國別分布長條的抽屜過濾用（見 `MyRecord.country`）。
+      //   放在這一層而不是 `film` 物件裡：`matchesDistPick()` 收的是扁平的
+      //   `{ venueId, formatCode, country }`，三個述詞用同一個形狀最不會出錯。
+      country: fm.get(r.film_id)?.country ?? null,
       hallLabel: r.hall_label,
       formatCode: r.format_code,
       ticketCount: r.ticket_count,

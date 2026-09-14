@@ -7,19 +7,23 @@ import { hourHeatmapHeight, hourHeatmapOption } from '../app/utils/hour-heatmap-
 import {
   calendarSeries,
   dayTitle,
+  distPickTitle,
   doubleFeatureDays,
   homeVenue,
   hourGrid,
   hourInsightText,
   hourRowTitle,
   inHourRow,
+  inMonth,
   inRepeatScope,
   isoDow,
+  matchesDistPick,
   matchesWeekdayPick,
   MIDNIGHT_LABEL,
   monthlyBaselineSeries,
   monthlySeries,
   monthlySeriesToDate,
+  monthTitle,
   peakStandsOut,
   repeatTitle,
   slotTitle,
@@ -513,6 +517,10 @@ describe('分布', () => {
     expect(out[3]).toEqual({
       name: '其他 2 家',
       records: 8,
+      // ★ 聚合列的 key 是 **null**（它不是一個分類，是好幾個分類的和）。
+      //   `toEqual` 會忽略 undefined 但不會忽略 null ⇒ 這一行是必要的，
+      //   而且它同時釘住「不可以給聚合列湊一個假的 key」。
+      key: null,
       // ★ 順序必須與上游一致（`user_year_stats` 已經 `order by n desc, name`），
       //   前端不得重排。
       rest: [{ name: 'X', records: 5 }, { name: 'Y', records: 3 }],
@@ -536,6 +544,41 @@ describe('分布', () => {
     expect([...out.slice(0, 5), ...restRow.rest!]).toEqual(many)
     // head 那五列一列都不該帶 rest（否則每一列都會長出一顆點開沒東西的鈕）
     expect(out.slice(0, 5).some(r => 'rest' in r)).toBe(false)
+  })
+
+  /**
+   * ★ `key` 必須原樣穿過去——**head 與 rest 兩邊都要**。
+   *
+   * 這一條守的是「點一列 → 抽屜列出那一列的紀錄」整條路的入口。弄壞它的方法是
+   * 在 `topWithRest()` 裡重建物件（`items.map(i => ({ name: i.name, records: i.records }))`）：
+   * 長條照樣畫得出來、筆數照樣對，**只有點下去的抽屜永遠是空的**——
+   * `key` 是可選欄位，typecheck 不會紅，上面每一條既有測試也不會紅。
+   *
+   * ⚠️ 刻意造 9 筆（limit + 4）。≤ limit + 1 會走早退路徑（`return [...items]`），
+   *   那條路徑連 slice 都沒有，等於什麼都沒測（同上面那條的理由）。
+   */
+  it('★ topWithRest 原樣帶過 key：head 保留、rest 保留、聚合列是 null', () => {
+    const many = Array.from({ length: 9 }, (_, i) => ({
+      name: `V${i}`,
+      records: 9 - i,
+      key: `venue-${i}`,
+    }))
+    const out = topWithRest(many, 5, n => `其他 ${n} 家`)
+
+    // head：五列各自帶回自己的 key
+    expect(out.slice(0, 5).map(r => r.key)).toEqual(['venue-0', 'venue-1', 'venue-2', 'venue-3', 'venue-4'])
+    // 聚合列：null，不是 undefined、也不是隨手湊的字串
+    const restRow = out[5]!
+    expect(restRow.key).toBeNull()
+    // rest：被收進長尾的那四件也要帶著自己的 key（展開後那幾列一樣要能點）
+    expect(restRow.rest!.map(r => r.key)).toEqual(['venue-5', 'venue-6', 'venue-7', 'venue-8'])
+  })
+
+  it('★ 早退路徑（≤ limit + 1）也要保留 key', () => {
+    // 實測 David 的國別與版本正好都是 5 ⇒ **真實資料上走的就是這條路徑**，
+    // 上面那條 9 筆的測試在真資料上一次都不會被走到。
+    const five = Array.from({ length: 5 }, (_, i) => ({ name: `C${i}`, records: 5 - i, key: `c${i}` }))
+    expect(topWithRest(five, 5, n => `其他 ${n} 國`).map(r => r.key)).toEqual(['c0', 'c1', 'c2', 'c3', 'c4'])
   })
 
   it('★ 只多一筆時直接併進 head，不生「其他 1 家」那顆點開只有一列的鈕', () => {
@@ -565,6 +608,167 @@ describe('分布', () => {
 
   it('沒有場所資料時回 null，不要印出「你的主場是 null」', () => {
     expect(homeVenue([])).toBeNull()
+  })
+})
+
+/**
+ * 分布長條（去了哪裡／看的是什麼／哪一國）點一列 → 抽屜（David 這一輪的第 4、5 點）。
+ *
+ * ⚠️ 同「多刷排行 → 抽屜」：這裡守得到的只有純函式。`@pick` 有沒有接上、
+ * 呼叫端有沒有把 `venue_id ?? ''` 寫進 key、`cards` 有沒有帶 `venueId`／`country`
+ * ——這個 repo 沒有元件測試基礎設施，那幾件事只能靠瀏覽器手動驗。
+ */
+describe('分布長條 → 抽屜', () => {
+  it('影城：以 venue_id 比對，沒有場所的紀錄對上空字串那一列', () => {
+    const rows = [
+      { venueId: 'v-linkou' },
+      { venueId: 'v-linkou' },
+      { venueId: 'v-xinyi' },
+      { venueId: null }, // 沒填場所 ⇒ RPC 那邊 group by 出來就是 null 那一桶
+    ]
+    expect(rows.filter(r => matchesDistPick(r, 'venue', 'v-linkou'))).toHaveLength(2)
+    expect(rows.filter(r => matchesDistPick(r, 'venue', 'v-xinyi'))).toHaveLength(1)
+    // 呼叫端把 `venue_id ?? ''` 當 key，這裡就對得上；不可以拿場所**名稱**比對
+    expect(rows.filter(r => matchesDistPick(r, 'venue', ''))).toHaveLength(1)
+  })
+
+  /**
+   * ★★ 這一條是這一項真正會壞的地方。
+   *
+   * RPC（`0003` 第 207 行）是 `coalesce(r.format_code, 'other')`：
+   * **`format_code` 為 null 的紀錄與 `format_code = 'other'` 的紀錄是同一桶**，
+   * 畫面上那一列就叫「其他」。少了 `?? 'other'`，那些 null 會在長條上被算進
+   * 「其他 5 場」、在抽屜裡一筆都列不出來——而且沒有任何錯誤訊息。
+   *
+   * 實測 David：digital 129 / 4dx 30 / imax 9 / **other 5** / dolby 1。
+   * 那 5 筆是真的，所以這條路徑**上線後第一天就會被走到**。
+   */
+  it('★ 版本：formatCode 為 null 的紀錄要對上 key「other」（RPC 的 coalesce）', () => {
+    const rows = [
+      { formatCode: 'digital' },
+      { formatCode: '4dx' },
+      { formatCode: null }, // ← 沒有這一條就測不到 coalesce
+      { formatCode: 'other' }, // ← 真的存在的分類，與上面那筆同桶
+      { formatCode: null },
+    ]
+    expect(rows.filter(r => matchesDistPick(r, 'format', 'other'))).toHaveLength(3)
+    expect(rows.filter(r => matchesDistPick(r, 'format', 'digital'))).toHaveLength(1)
+    // 「其他」是畫面上的**標籤**，不是識別。拿標籤來比對會列出零筆。
+    expect(rows.filter(r => matchesDistPick(r, 'format', '其他'))).toHaveLength(0)
+    // null 那一筆單獨拿出來看
+    expect(matchesDistPick({ formatCode: null }, 'format', 'other')).toBe(true)
+  })
+
+  /**
+   * ★ 國別的「未分類」是 **空字串**，不是 null 也不是那四個字。
+   * RPC 是 `coalesce(f.country, '')`（film 讀不到——別人的私密 UGC 作品——也落在這一桶）。
+   * 實測 David：日本 102 / 美國 67 / 台灣 3 / 韓國 1 / 俄羅斯 1，沒有聚合列。
+   */
+  it('★ 國別：country 為 null 的紀錄要對上 key 空字串（畫面上的「未分類」）', () => {
+    const rows = [
+      { country: '日本' },
+      { country: '日本' },
+      { country: '美國' },
+      { country: null }, // ← 這一條就是會壞的那一筆
+      { country: '' }, // film 讀得到但欄位是空的，與上面同桶
+    ]
+    expect(rows.filter(r => matchesDistPick(r, 'country', '日本'))).toHaveLength(2)
+    expect(rows.filter(r => matchesDistPick(r, 'country', ''))).toHaveLength(2)
+    expect(matchesDistPick({ country: null }, 'country', '')).toBe(true)
+    // 拿畫面上的字去比對什麼都對不上
+    expect(rows.filter(r => matchesDistPick(r, 'country', '未分類'))).toHaveLength(0)
+  })
+
+  it('三種 kind 各看各的欄位，不會互相汙染', () => {
+    // 同一筆紀錄三個欄位都有值：拿 venue 的 key 去問 format 必須是 false。
+    const r = { venueId: 'v1', formatCode: 'imax', country: '日本' }
+    expect(matchesDistPick(r, 'venue', 'v1')).toBe(true)
+    expect(matchesDistPick(r, 'format', 'v1')).toBe(false)
+    expect(matchesDistPick(r, 'country', 'v1')).toBe(false)
+    expect(matchesDistPick(r, 'format', 'imax')).toBe(true)
+    expect(matchesDistPick(r, 'venue', 'imax')).toBe(false)
+    expect(matchesDistPick(r, 'country', '日本')).toBe(true)
+    // 欄位整個缺席（`/u/` 的 cards 忘了帶）⇒ 走各自的預設桶，不是「全部都算」
+    expect(matchesDistPick({}, 'venue', 'v1')).toBe(false)
+    expect(matchesDistPick({}, 'format', 'other')).toBe(true)
+    expect(matchesDistPick({}, 'country', '')).toBe(true)
+  })
+
+  it('抽屜標題帶場次，分隔是 U+3000（踩雷 #169：空抽屜會理直氣壯地說謊）', () => {
+    expect(distPickTitle('林口威秀影城', 120)).toBe('林口威秀影城　120 場')
+    expect(distPickTitle('其他', 5)).toBe('其他　5 場')
+    expect(distPickTitle('未分類', 1)).toBe('未分類　1 場')
+    expect(distPickTitle('日本', 102)).toContain('　')
+    expect(distPickTitle('日本', 102)).not.toContain('・')
+  })
+})
+
+/**
+ * 月度趨勢點一個月 → 抽屜（David 這一輪的第 5 點）。
+ */
+describe('月度趨勢 → 抽屜', () => {
+  it('inMonth：解析 YYYY-MM-DD 的月份兩碼', () => {
+    expect(inMonth('2026-03-14', 3)).toBe(true)
+    expect(inMonth('2026-03-01', 3)).toBe(true)
+    expect(inMonth('2026-03-31', 3)).toBe(true)
+    expect(inMonth('2026-04-01', 3)).toBe(false)
+    expect(inMonth('2026-12-31', 12)).toBe(true)
+    expect(inMonth('2026-01-01', 1)).toBe(true)
+  })
+
+  it('★ 跨年的同一個月都算進來——全期的「每個月」是季節性不是某一年', () => {
+    // `YearStats.monthly` 是十三年的同月份加總（RPC 的 `group by extract(month …)`），
+    // 所以抽屜也必須把十三年的三月全列出來，否則圖上說 18 場、抽屜只列 2 張。
+    const rows = ['2014-03-08', '2019-03-02', '2026-03-14', '2026-04-01']
+    expect(rows.filter(d => inMonth(d, 3))).toHaveLength(3)
+  })
+
+  it('★ 不經過 Date：UTC 以西的時區不可以讓月初那一筆掉到上個月', () => {
+    // `new Date('2026-03-01')` 在紐約會變成 2026-02-28 ⇒ 三月少一筆，而且不報錯。
+    const tz = process.env.TZ
+    process.env.TZ = 'America/New_York'
+    try {
+      expect(inMonth('2026-03-01', 3)).toBe(true)
+      expect(inMonth('2026-03-01', 2)).toBe(false)
+      expect(inMonth('2026-01-01', 1)).toBe(true)
+      expect(inMonth('2026-12-31', 12)).toBe(true)
+    }
+    finally {
+      process.env.TZ = tz
+    }
+  })
+
+  it('null／空字串／格式不合一律 false，不靠 Number(\'\') 的 0 碰運氣', () => {
+    expect(inMonth(null, 3)).toBe(false)
+    expect(inMonth(undefined, 3)).toBe(false)
+    expect(inMonth('', 3)).toBe(false)
+    expect(inMonth('', 0)).toBe(false) // Number('') === 0，裸 slice 會在這裡出事
+    expect(inMonth('2026/03/14', 3)).toBe(false)
+    expect(inMonth('2026-03', 3)).toBe(false)
+    expect(inMonth('2026-3-14', 3)).toBe(false)
+    expect(inMonth('not-a-date', 3)).toBe(false)
+  })
+
+  it('★ 全期的標題不寫「全部年度」——範圍由票根卡自己的 show-year 講（§9.2）', () => {
+    expect(monthTitle(3, null, 12)).toBe('3 月　12 場')
+    expect(monthTitle(12, null, 1)).toBe('12 月　1 場')
+    expect(monthTitle(3, null, 12)).not.toContain('全部年度')
+  })
+
+  it('指定年份時標題一定要帶年（同一個「3 月」在兩種視角下差十倍）', () => {
+    expect(monthTitle(3, 2019, 4)).toBe('2019 年 3 月　4 場')
+    expect(monthTitle(1, 2014, 1)).toBe('2014 年 1 月　1 場')
+  })
+
+  it('分隔：量詞前面是 U+3000，「年」與「月」之間是半形空白', () => {
+    // 完整字串比對已經釘死格式；這條是補刀，說清楚被釘死的是哪一個字元。
+    // ⚠️ 不要「順手統一」成「年」後面也放全形空白——年月是同一個日期的兩截。
+    //    （這一行不貼字面的 U+3000：oxlint 的 no-irregular-whitespace 擋註解、
+    //     不擋樣板字串，見 stats.ts 的 repeatTitle() 上方。）
+    expect(monthTitle(3, null, 12)).toBe('3 月　12 場')
+    expect(monthTitle(3, 2019, 4)).toBe('2019 年 3 月　4 場')
+    expect(monthTitle(3, 2019, 4)).not.toContain('年　')
+    expect(monthTitle(3, null, 12)).not.toContain('・')
   })
 })
 

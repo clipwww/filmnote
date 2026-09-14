@@ -25,6 +25,19 @@
  * ⚠️ 用挑白名單而不是刪黑名單：日後 RPC 多一個帶金額的欄位時，
  *    白名單不會自動放它過去，黑名單會。
  *
+ * ⚠️ **`venues[].venue_id` 與 `formats[].code` 為什麼可以加進白名單**
+ *    （2026-09-14，分布長條的「點一列 → 抽屜」）：白名單擋的是**金額**，
+ *    因為金額是推論通道——聚合會把 RLS 擋住的單筆票價以總額形式漏出去。
+ *    這兩個欄位不是那一類：它們是**維度的識別**，值分別來自 `venue` 與
+ *    `screening_format` 兩張**對 anon 全開**的參照表（`venue` 的名稱／城市／類型
+ *    本來就已經在這支端點的回傳裡了，`screening_format` 的 label 也是），
+ *    而且它們描述的是「這是哪一家影城／哪一種版本」，不是「這個人花了多少」。
+ *    ★ 加它們的理由是**必要性**：抽屜要把長條的一列對回紀錄，只能靠穩定識別。
+ *    用名稱對比不行——`name` 不保證唯一，而版本的「其他」是
+ *    `coalesce(format_code, 'other')` 聚出來的 code，拿標籤去比會列出零筆
+ *    （見 `app/utils/stats.ts` 的 `matchesDistPick()`）。
+ *    **白名單的原則沒有放寬**：新欄位仍然要逐一說明自己為什麼不是推論通道。
+ *
  * ── 快取 ──────────────────────────────────────────────────────────────────
  * ⚠️ **這支不快取，也不要加 `defineCachedEventHandler`**（踩雷 #1 的同一族）。
  *    它的輸出雖然對所有人相同（匿名視角），但 `/u/**` 整條路由的規矩是
@@ -108,9 +121,14 @@ export default defineEventHandler(async (event) => {
       avg_records: b.avg_records,
     })),
     byYear: (s.by_year ?? []).map(y => ({ year: y.year, records: y.records, films: y.films, tickets: y.tickets })),
-    venues: (s.venues ?? []).map(v => ({ name: v.name, records: v.records })),
+    // ★ `venue_id` / `code` 是**分布長條抽屜的識別**（檔頭第三段說明了為什麼
+    //   它們可以在白名單裡）。`RpcStats` 本來就宣告了這兩欄，只是 map 的時候
+    //   被丟掉——那正是「長條畫得出來、點下去是空的」的來源。
+    venues: (s.venues ?? []).map(v => ({ venue_id: v.venue_id, name: v.name, records: v.records })),
+    // `countries[].country` 本身就是識別（RPC 的 `coalesce(f.country, '')`，
+    // 空字串＝畫面上的「未分類」），不必另外加欄位。
     countries: (s.countries ?? []).map(c => ({ country: c.country, records: c.records })),
-    formats: (s.formats ?? []).map(f => ({ label: f.label, records: f.records })),
+    formats: (s.formats ?? []).map(f => ({ code: f.code, label: f.label, records: f.records })),
     repeats: (s.repeats ?? []).map(r => ({
       film_id: r.film_id,
       title_zh: r.title_zh,

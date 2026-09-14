@@ -304,11 +304,75 @@ export function monthlyBaselineSeries(
   return out
 }
 
+/**
+ * 某一筆紀錄的 `watched_on` 是不是落在某個月份（1..12）。點月度趨勢的某一點時，
+ * 用它把那個月的紀錄過濾出來餵抽屜。
+ *
+ * ⚠️ **一律字串切片，不可以 `new Date()`。** 理由與同檔 `weekIndexInYear()`／
+ * `isoDow()`／`inRepeatScope()` 寫過的完全一樣：`watched_on` 是台北牆上時間的
+ * 日期，本來就沒有時區可言；`new Date('2026-03-01')` 會被當成 UTC 午夜解析再
+ * 轉成本地時間，**UTC 以西的時區整個退一天** ⇒ 月初那一筆會掉到上一個月，
+ * 而且不會報錯（圖上 12 筆、抽屜列 11 張，兩邊都「看起來正常」）。
+ *
+ * 用正則而不是裸的 `slice(5, 7)`：格式不合（空字串、`2026/03/01`、只有年月）時
+ * 要回 false，不要讓 `Number('')` 的 0 或 `Number('/0')` 的 NaN 去碰運氣。
+ *
+ * ⚠️ 這支**只管月份，不管年份**。全期視角的「每個月」是季節性（十三年的同月份
+ * 加總，見 `YearStats.monthly` 的註解），所以月份條件就是全部；指定年份時呼叫端
+ * 必須**另外**加上年份條件（用 `watchedOn` 的年份前綴比對，形狀照 `inRepeatScope()`
+ * 裡那個 `startsWith`）——否則切到 2019 年時，抽屜會把十三年的三月全列出來。
+ *
+ * 放在這裡而不是頁面的 inline computed：vitest 摸不到 SFC（`SCREENS §9.2`）。
+ */
+export function inMonth(watchedOn: string | null | undefined, month: number): boolean {
+  const m = /^\d{4}-(\d{2})-\d{2}$/.exec(String(watchedOn ?? ''))
+  return !!m && Number(m[1]) === month
+}
+
+/**
+ * 點月度趨勢的某一點時的抽屜標題。
+ *
+ * - 全期（`year === null`）：`3 月` + 全形空白 + `12 場`
+ * - 指定年份：`2019 年 3 月` + 全形空白 + `4 場`
+ *
+ * ★ **全期刻意不寫「全部年度」**——那一句話會擠掉標題，而範圍其實是每張票根卡
+ *   自己的 `show-year` 在講（`SCREENS §9.2` 既有規矩，`repeatTitle()` 同一條）。
+ *
+ * ★ **一定要帶場次**（踩雷 #169，同 `repeatTitle()`／`distPickTitle()`）：
+ *   那是唯一能讓「圖上那一點說 12、抽屜列 9」現形的地方。
+ *
+ * ⚠️ 分隔規則有兩層，不要「順手統一」：
+ *   `2019 年` 與 `3 月` 之間是**半形空白**（它們是同一個日期的兩截），
+ *   只有量詞（`12 場`）前面那一個是 U+3000 全形空白——那才是
+ *   `slotTitle()`／`repeatTitle()` 那條規矩要的位置（`SCREENS §9.2`）。
+ *   實際的字元看下面的樣板字串（註解裡不貼字面 U+3000，理由見 `repeatTitle()`）。
+ */
+export function monthTitle(month: number, year: number | null, records: number): string {
+  return year === null
+    ? `${month} 月　${records} 場`
+    : `${year} 年 ${month} 月　${records} 場`
+}
+
 /* ─────────────────────────── 分布長條 ─────────────────────────── */
 
 export interface DistItem {
   name: string
   records: number
+  /**
+   * 穩定識別：`venue_id` ／ format `code` ／ country 字串。
+   * 聚合列（「其他 N 家」）是 `null`——它不對應任何一個真實分類。
+   *
+   * ⚠️ **不可以用 `name` 當識別**，三個分布各有各的理由：
+   * - 影城：`name` 不保證唯一（同名分館），而且 `venue` 讀不到時是 null。
+   * - 版本：畫面上的「其他」是 `code = 'other'`，那是 RPC
+   *   `coalesce(r.format_code, 'other')` 聚出來的**真分類**（實測 David 有 5 筆），
+   *   跟 `topWithRest()` 造出來的聚合列長得一樣但意思完全不同。
+   * - 國別：畫面上的「未分類」是**空字串**（RPC 的 `coalesce(f.country, '')`），
+   *   拿「未分類」這四個字去比對什麼都對不上。
+   *
+   * 有了它，點一列才能回頭把紀錄過濾出來（見 `matchesDistPick()`）。
+   */
+  key?: string | null
   /**
    * 只有「其他 N 家」那一列會有：被它收進來的長尾原件，**順序與上游一致**
    * （`user_year_stats` 的 venues 子查詢已經 `order by n desc, name`）。
@@ -336,6 +400,10 @@ export function topWithRest(items: DistItem[], limit: number, restLabel: (n: num
   //   就會踩到，距離只有一筆紀錄。
   if (items.length <= limit + 1)
     return [...items]
+  // ★ `slice()` 是淺拷貝，每一件（head 與 tail 裡的都是）**原樣帶著自己的 `key`**
+  //   走進回傳值。不要在這裡重建物件——重建一次就會漏掉 `key`，而漏掉的症狀是
+  //   「長條畫得出來、點下去抽屜永遠是空的」，typecheck 與既有測試都不會紅
+  //   （`key` 是可選欄位）。
   const head = items.slice(0, limit)
   const tail = items.slice(limit)
   head.push({
@@ -343,9 +411,64 @@ export function topWithRest(items: DistItem[], limit: number, restLabel: (n: num
     // ★ `records` 是加總、`rest` 是原件，**兩者必須永遠對得起來**。
     //   那也是最容易抓到「slice 切錯」的斷言（見 tests/stats.test.ts）。
     records: tail.reduce((n, i) => n + i.records, 0),
+    // ★ 聚合列沒有自己的識別：它不是一個分類，是好幾個分類的和。
+    //   給 null 而不是隨便湊一個字串——湊出來的值會被 `matchesDistPick()`
+    //   拿去比對，然後對上零筆紀錄。這一列的展開靠 `rest`，不靠 `key`。
+    key: null,
     rest: tail,
   })
   return head
+}
+
+/** 三個分布長條各自的識別空間。**三個的 coalesce 規則都不一樣**，見下面那支。 */
+export type DistKind = 'venue' | 'format' | 'country'
+
+/**
+ * 某一筆紀錄要不要算進「點某一條分布長條」開出來的抽屜。
+ *
+ * ⚠️ **三種 kind 的預設值必須跟 `user_year_stats`（`0003`）的 group by 一模一樣**，
+ * 否則圖上的數字與抽屜列出的張數會對不起來，而兩邊都「看起來正常」：
+ *
+ * - `format`：RPC 是 `coalesce(r.format_code, 'other')`，也就是
+ *   **`format_code` 為 null 的紀錄與 `format_code = 'other'` 的紀錄被歸進同一桶**
+ *   （畫面標籤就叫「其他」）。這裡少了 `?? 'other'` 的話，那些 null 會在圖上
+ *   算進「其他」、在抽屜裡一筆都列不出來。
+ *   ★ 這**不是**假想的邊界：實測 David 的版本分布是
+ *   digital 129 / 4dx 30 / imax 9 / **other 5** / dolby 1，那 5 筆真的走這條。
+ * - `country`：RPC 是 `coalesce(f.country, '')`，空字串就是畫面上的「未分類」
+ *   （film 讀不到——別人的私密 UGC 作品——也落在這一桶）。
+ * - `venue`：RPC 直接 group by `r.venue_id`，沒有場所的紀錄是 null；
+ *   這裡用 `?? ''` 對應，呼叫端把那一列的 key 也寫成 `venue_id ?? ''` 就對得上。
+ *
+ * 之所以是一支匯出的純函式而不是寫在 `.vue` 的 inline computed 裡（`SCREENS §9.2`）：
+ * **vitest 摸不到 SFC**。寫在 computed 裡的話上面那三條 coalesce 一條都沒有東西守，
+ * 而它們壞掉的樣子全都是「抽屜開得起來但少列了幾張」——沒有錯誤訊息。
+ */
+export function matchesDistPick(
+  r: { venueId?: string | null, formatCode?: string | null, country?: string | null },
+  kind: DistKind,
+  key: string,
+): boolean {
+  if (kind === 'venue')
+    return (r.venueId ?? '') === key
+  if (kind === 'format')
+    return (r.formatCode ?? 'other') === key
+  return (r.country ?? '') === key
+}
+
+/**
+ * 點一條分布長條時的抽屜標題：`林口威秀影城` + 全形空白 + `120 場`。
+ *
+ * ★ **一定要帶場次**，理由與 `repeatTitle()` 完全相同（踩雷 #169）：那是唯一能讓
+ *   「長條說 120、抽屜列 96」被肉眼看見的地方。數字刻意取自**長條上那個數字**
+ *   （圖的宣稱），不是抽屜實際列出幾張——用同一個來源就永遠看不出不一致。
+ *
+ * ⚠️ 分隔符是 U+3000（全形空白），跟 `slotTitle()` / `repeatTitle()` 同一條規矩
+ *   （`SCREENS §9.2`）。這一段註解刻意不貼字面的 U+3000——oxlint 的
+ *   `no-irregular-whitespace` 擋註解、不擋樣板字串（見 `repeatTitle()` 上方的說明）。
+ */
+export function distPickTitle(name: string, records: number): string {
+  return `${name}　${records} 場`
 }
 
 /** 「你的主場是 林口威秀，68% 的場次在這裡。」 */

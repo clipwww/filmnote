@@ -95,9 +95,28 @@ export default defineEventHandler(async (event) => {
   const filmIds = [...new Set(rows.map(r => r.film_id).filter((v): v is string => !!v))]
   const venueIds = [...new Set(rows.map(r => r.venue_id).filter((v): v is string => !!v))]
 
+  /**
+   * ★ `country` 是**作品的公開屬性**，不是金額類欄位——可以回。
+   *
+   * 檔頭那條「金額一欄都不回」守的是推論通道：票價被 RLS 擋住時，任何聚合
+   * （哪怕只是 sum）都會把它以總額形式漏出去。`country` 不是那一類：它長在
+   * `film_public` 這支 view 上，而它的 where（`visibility='public' and
+   * moderation_state='visible' and merged_into_film_id is null`）**與 `film_read`
+   * 這條 RLS 給 anon 的條件逐字相同** ⇒ 匿名本來就讀得到這一列的其他欄位。
+   * 它描述的是作品而不是這個使用者做過什麼；`slug` / `title_zh` / 海報路徑
+   * 已經在這個 select 裡了，多一個 `country` 沒有讓匿名視角看到任何新東西。
+   *
+   * 加它的理由：`/u/` 的國別分布長條要能「點一列 → 抽屜列出那一列的紀錄」，
+   * 而比對的識別就是 `country`（RPC 端是 `coalesce(f.country, '')`，
+   * 見 `app/utils/stats.ts` 的 `matchesDistPick()`）。少了這一欄，那條長條
+   * 點得下去、抽屜永遠是空的。
+   *
+   * ⚠️ `filmById` 是 `{ ...f, ugc_poster_url }`，所以這裡加進 select 就會原樣
+   *    出現在 `items[].film.country`——不要再另外 map 一次。
+   */
   const [{ data: films }, { data: venues }] = await Promise.all([
     filmIds.length
-      ? db.from('film_public').select('id,slug,title_zh,title_original,tmdb_poster_path,ugc_poster_path').in('id', filmIds)
+      ? db.from('film_public').select('id,slug,title_zh,title_original,country,tmdb_poster_path,ugc_poster_path').in('id', filmIds)
       : Promise.resolve({ data: [] as never[] }),
     venueIds.length
       ? db.from('venue').select('id,name,kind,city').in('id', venueIds)

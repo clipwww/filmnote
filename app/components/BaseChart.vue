@@ -30,7 +30,10 @@ const emit = defineEmits<{
    * echarts 的 `AxisBuilder.makeAxisEventDataBase`：`componentType` 是
    * `'xAxis' | 'yAxis'`、`targetType` 是 `'axisLabel'`、category 軸的
    * `dataIndex` 是類目索引）。沒設 triggerEvent 的軸標籤是 silent，
-   * 根本不會產生事件。目前只有 `HourHeatmap` 的兩條總和軸用得到。
+   * 根本不會產生事件。目前用得到的是 `HourHeatmap` 的兩條總和軸，
+   * 與 `MonthlyTrend` 的 x 軸月份標籤（2026-09-14 加）。
+   * ⚠️ **不要退回成「只有熱點圖」**：月份標籤是這個功能在手機上唯一點得到的入口
+   * （線上的資料點太小），改這裡的時候那條路徑一樣要顧。
    */
   pick: [params: {
     data?: unknown
