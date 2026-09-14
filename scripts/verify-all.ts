@@ -26,7 +26,7 @@
 
 import type { YearStats } from '../app/utils/stats'
 import { execFileSync } from 'node:child_process'
-import { readFile } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import process from 'node:process'
 import { Client, types as pgTypes } from 'pg'
 import { monthlyBaselineSeries, spendCountsText } from '../app/utils/stats'
@@ -296,6 +296,44 @@ async function runSpendByYearChecks(): Promise<void> {
   const scopedDetail = `p_year=${someYear} 時 by_year 有 ${scopedLen} 列（期望 0）——`
     + '不是 0 的話，「/app 一定要用 allStats」那條理由與它的原始碼斷言都要重新檢討'
   record('frontend/spend-by-year-scoped-empty', guards, scopedLen === 0, scopedDetail)
+}
+
+/**
+ * ── 建置產物：OG 圖的 wasm ────────────────────────────────────────────────
+ *
+ * 2026-09-14 正式站第一次被打就 500：
+ *   `ENOENT … open '/var/task/node_modules/harfbuzzjs/hb.wasm'`
+ *
+ * `satori` 的文字排版走 harfbuzz，而 `hb.js` 是用 `__dirname + 'hb.wasm'` 在
+ * **執行期**組路徑去讀檔 ⇒ node-file-trace（只看得懂靜態 import）會複製 `hb.js`、
+ * 漏掉 `hb.wasm`。`nuxt.config.ts` 的 `nitro.externals.traceInclude` 補上了它。
+ *
+ * ★ 這一條為什麼非存在不可：**在它之前，四道檢查沒有一道會說話**——
+ *   typecheck、lint、test、verify:all 全綠，`pnpm build` 也 exit 0，
+ *   連 `scripts/og-preview.ts` 都是綠的（它直接呼叫 render 函式、繞過打包產物）。
+ *   第一個說話的是部署。
+ *
+ * ★ 反向斷言（`build/og-runtime`）不可省：只驗「wasm 在不在」會被
+ *   「satori 整段根本沒進產物」矇混成綠燈——那時 wasm 不在是**對的**，
+ *   而 OG 端點一樣是壞的。所以要先證明 harfbuzz 這條路真的在產物裡。
+ */
+async function runBuildArtifactChecks(): Promise<void> {
+  const dir = '.output/server/node_modules/harfbuzzjs'
+  const exists = async (f: string) => await stat(f).then(() => true).catch(() => false)
+
+  if (!await exists('.output/server/index.mjs')) {
+    skip('build/og-wasm', 'OG 圖的 harfbuzz wasm 必須進得了 .output', '沒有 .output —— 先跑 `pnpm build` 再跑一次')
+    return
+  }
+
+  const hasJs = await exists(`${dir}/hb.js`)
+  record('build/og-runtime', '對照組：證明 harfbuzz 這條路真的在產物裡（否則下一條會空轉成綠）', hasJs, hasJs ? undefined : `${dir}/hb.js 不存在 ⇒ satori 整段沒進產物，下一條驗不出東西`)
+
+  if (!hasJs)
+    return
+
+  const hasWasm = await exists(`${dir}/hb.wasm`)
+  record('build/og-wasm', '★ OG 端點在真實部署上不得 500（hb.wasm 是執行期才讀的檔，靜態追蹤看不到）', hasWasm, hasWasm ? undefined : `${dir}/hb.wasm 不在產物裡 ⇒ 部署後 OG 端點必定 500`)
 }
 
 async function runHttpChecks(env: HttpEnv): Promise<void> {
@@ -715,6 +753,9 @@ await runSqlFile('scripts/verify-admin.sql', 'Step 7 審核與合併的資料庫
 console.log('\n── 前端對帳（真實資料 × 真正的前端函式）──')
 await runMonthlyBaselineChecks()
 await runSpendByYearChecks()
+
+console.log('\n── 建置產物（需要 pnpm build）──')
+await runBuildArtifactChecks()
 
 if (!sqlOnly) {
   console.log('\n── HTTP 斷言（真實 PostgREST + 真實使用者 JWT）──')

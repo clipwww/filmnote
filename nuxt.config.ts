@@ -1,5 +1,29 @@
+import { createRequire } from 'node:module'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+
+/**
+ * `satori` → `harfbuzzjs` 的 `hb.wasm` 絕對路徑。
+ *
+ * ★ 一定要從 `satori` 的位置去解，不能從專案根目錄解：pnpm 的嚴格 `node_modules`
+ *   不把傳遞相依提升到頂層，`require.resolve('harfbuzzjs/hb.js')` 在 root 是
+ *   `MODULE_NOT_FOUND`（實測）。
+ *
+ * 解不到就回 `null` 而不是讓建置炸掉——這條只影響 OG 圖，不該讓整個部署停擺；
+ * 而 `verify:all` 有一條產物斷言會在 wasm 沒進 `.output` 時變紅，所以「安靜地
+ * 少一個檔」不會發生。
+ */
+function resolveHarfbuzzWasm(): string | null {
+  try {
+    const fromRoot = createRequire(fileURLToPath(new URL('./noop.js', import.meta.url)))
+    return createRequire(fromRoot.resolve('satori')).resolve('harfbuzzjs/hb.wasm')
+  }
+  catch {
+    return null
+  }
+}
+
+const harfbuzzWasm = resolveHarfbuzzWasm()
 
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
@@ -89,6 +113,26 @@ export default defineNuxtConfig({
     },
   },
 
-  nitro: { preset: undefined }, // Vercel 自動偵測，不要手動釘（踩雷 #11）
+  nitro: {
+    preset: undefined, // Vercel 自動偵測，不要手動釘（踩雷 #11）
+
+    externals: {
+      /**
+       * ★ `satori` → `harfbuzzjs` 的 `hb.wasm` 必須強制納入相依追蹤。
+       *
+       * `hb.js` 是用 `__dirname + 'hb.wasm'` 在**執行期**組路徑去讀檔，
+       * 而 node-file-trace 只看得懂靜態的 import／require ⇒ 它會複製 `hb.js`、
+       * 漏掉 `hb.wasm`，於是 OG 端點在部署後 500：
+       *   `ENOENT … open '/var/task/node_modules/harfbuzzjs/hb.wasm'`
+       *
+       * ⚠️ **這不是 Vercel 的問題**：本機 `pnpm build` 出來的 `.output` 同樣
+       *   一個 `.wasm` 都沒有。它沒被發現，是因為驗收從來沒有拿 `.output` 去打
+       *   那支端點——`scripts/og-preview.ts` 直接呼叫 render 函式，繞過整個打包產物。
+       *
+       * ⇒ 驗收方式是**看產物**（`find .output -name '*.wasm'`），不是看這段設定。
+       */
+      traceInclude: harfbuzzWasm ? [harfbuzzWasm] : [],
+    },
+  },
   typescript: { typeCheck: false, strict: true },
 })
