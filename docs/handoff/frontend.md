@@ -183,11 +183,13 @@ Inter 供應，而 `tabular-nums` 本來就只能由 Inter 提供 ⇒ 多張卡�
    （2026-09-08 讀 `information_schema.columns` 覆核：只有 id / kind / name / city /
    hall_count / sort_weight）⇒ 想在顯示層補 fallback，得先改 view 再重跑 `pnpm db:types`。
 
-   ⚠️ **但「`venue.name` 保證非空白」現在還不成立——0015 尚未套用。**
-   2026-09-08 讀活體：`venue` 共 114 列，`btrim(name) = ''` 仍有 **3 列**，
-   `pg_constraint` 裡查不到 `venue_name_not_blank`。**migration 檔存在 ≠ 已套用**——
-   這跟 `BUILD_PLAN §7 #189`（讀 migration 檔不等於讀 DB 裡活著的定義）是同一個道理。
-   ⇒ 這一頁動工前**自己再查一次**，若那時仍未套用，`/venue/[id]` 會有三筆標題是空的：
+   ⚠️ 原文寫的是「**但『`venue.name` 保證非空白』現在還不成立——0015 尚未套用**」
+   （2026-09-08 讀活體：114 列裡 `btrim(name) = ''` 有 3 列、查不到
+   `venue_name_not_blank` 這條 constraint）。**那句話 2026-09-14 起不再成立**：
+   主 session 同日讀活體覆核為 **0 列空名、constraint 存在**，0015 已經套用了。
+   **但底下那句方法論沒有被推翻，它才是這一條的重點**——**migration 檔存在 ≠ 已套用**，
+   同 `BUILD_PLAN §7 #189`（讀 migration 檔不等於讀 DB 裡活著的定義）。
+   ⇒ 這一頁動工前**照樣自己查一次**，不要拿這一行（或任何一行交接筆記）當現況：
    `pnpm db:sql -- --query "select count(*) from public.venue where btrim(name) = ''"`。
 
    ⚠️ 同理，`app/pages/app/index.vue` 與 `app/pages/u/[username].vue` 那兩行
@@ -294,6 +296,7 @@ David 瀏覽器裡的作用中分頁，Chrome 對背景分頁不跑同一條輸�
 2. **`/legal/dmca/counter/[noticeId]`** 與被取下內容的降級態（§5-8）。
 3. **`/venue/[id]`**（routeRule 已在、頁面不存在）。
    ⚠️ **動工前先讀 §5-9**：名字的 fallback 已經從顯示層搬到資料層，這一頁**直接用
-   `venue.name`**；但那個保證要等 `0015` 套用才成立，§5-9 有一行查法。
+   `venue.name`**。**0015 已於 2026-09-14 覆核為已套用**（0 列空名、constraint 在），
+   所以那個保證現在成立了——但 §5-9 那一行查法照樣先跑一次，理由寫在那裡。
 4. **`/app/settings` 的刪除帳號**：等有第二個測試帳號時把最後那一按驗掉（§5-1）。
 
