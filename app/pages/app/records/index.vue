@@ -284,8 +284,8 @@ async function confirmRemove() {
 </script>
 
 <template>
-  <!-- 九欄的表格在 max-w-5xl 裡每一欄都被壓扁；這一頁是對帳用的，寬度給它。 -->
   <div class="mx-auto max-w-6xl px-4 py-8">
+    <!-- 九欄的表格在 max-w-5xl 裡每一欄都被壓扁；這一頁是對帳用的，寬度給它。 -->
     <div class="flex items-center justify-between gap-4">
       <h1 class="text-2xl font-bold tracking-tight">
         個人紀錄管理
