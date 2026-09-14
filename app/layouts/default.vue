@@ -21,6 +21,20 @@
       內層 `h-14` 不要動：那是 56px（＋`border-b` 1px ⇒ 總高 57px）。換成 Nuxt UI 的
         `h-(--ui-header-height)` 會變 4rem＝64px，平白長高 8px。
       不需要給 `<main>` 補 padding-top：sticky 仍佔正常流的位置，不會蓋住內容也不會跳版。
+
+      `#header-year-scope`（2026-09-14 David：「往下滑時希望 header 也有選項可以直接切換
+        年份」）：**永遠存在、預設是空的** teleport 落點，夾在字標與 `AppNav` 之間。
+        `app/components/YearScopeBar.vue` 會在年表被捲出畫面之後，把年份切換器
+        Teleport 進來；它的呼叫點是 `/app` 與 `/u/[username]` 年表那條 `ChartBand`
+        的**後面**（那裡是它留下觀測用 sentinel 的位置）。
+        為什麼是 teleport 而不是第二條 sticky bar：那條 bar 得釘 `top-[57px]`，
+        而 57 是**抄**這裡的 `h-14`＋`border-b` 抄來的——列高一改，它不會編譯失敗、
+        不會有測試變紅，只會靜靜錯開一條縫；而且多一層 sticky 就多一個 z 階要跟
+        `UDrawer` 的遮罩（50，見 `app/app.config.ts` 的 z 階）對帳。
+        ⚠️ **它是空的時候不可以佔位。** 這一行是 `flex items-center justify-between`，
+        加進來之後是三個子元素——空的 div 寬 0、高 0，字標仍然靠左、`AppNav` 仍然靠右，
+        視覺差異是零。所以它身上**不可以**有 padding／margin／`flex-1`，
+        這一行也不要改成 `gap-*`（那會在它空著的時候憑空多出兩道間隙）。
     -->
     <header class="sticky top-0 z-30 border-b border-default bg-default">
       <div class="mx-auto max-w-5xl px-4 h-14 flex items-center justify-between">
@@ -30,6 +44,10 @@
           <BrandWordmark :height="22" />
           <span class="text-[13px] text-muted">filmnote</span>
         </NuxtLink>
+
+        <!-- 年份切換器的落點。空的時候寬 0、視覺零影響——理由與限制見上面那段註解。 -->
+        <div id="header-year-scope" class="flex min-w-0 items-center" />
+
         <!--
           右上功能選單。`AppNav` 自己包 `<ClientOnly>`：選單內容取決於身分，
           而 `strip-auth-on-cacheable.ts` 讓 `/`、`/film/**`、`/venue/**`、

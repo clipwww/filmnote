@@ -88,75 +88,143 @@ function move(delta: number) {
   if (next !== undefined)
     emit('update:selected', next)
 }
+
+/**
+ * 下面那句提示的 id，掛在 listbox 的 `aria-describedby` 上。
+ *
+ * ⚠️ **一定要 `useId()`，不可以 `Math.random()` / `Date.now()` / 模組層計數器**
+ * （踩雷 #98）：`/u/` 是 SSR，伺服器與瀏覽器各生一次就是兩個不同的字串 ⇒
+ * hydration mismatch，而畫面看起來完全正常。
+ * 同一條理由寫在 `DistributionBars.vue` 的 `restId`（「展開清單的 id」，約 :126-132）——
+ * ⚠️ **引符號名不要只引行號**：同一輪在那個 `useId()` 上方插了三十行，行號就作廢了。
+ */
+const hintId = useId()
 </script>
 
 <template>
-  <div :role="interactive ? 'listbox' : 'list'" aria-label="檢視的年份" class="space-y-1">
-    <!--
-      ★「全部年度」——全期檢視視角（2026-09-06 起是**預設**）。
-        它刻意沒有 53 格：那 53 格的座標軸是「一個日曆年裡的第幾週」，
-        跨年度沒有這個座標。把十三年疊起來畫成一列會是一條幾乎全滿的黑帶，
-        既不傳達東西，又會被讀成「這是某一年」。所以這一列只有標籤與總數，
-        並用一條髮絲線跟下面的年份列分開，讀起來是「檢視範圍」而不是「某一年」。
-    -->
+  <!--
+    ⚠️ 提示那一句**不能放進 `role="listbox"` 裡面**：listbox 的子節點只能是
+       `option`／`group`，塞一段散文進去，螢幕閱讀器要嘛把它唸成一個選項、
+       要嘛整個跳過。所以外面多包一層純 div，提示是 listbox 的**兄弟**，
+       再用 `aria-describedby` 接回去。
+  -->
+  <div>
     <div
-      v-if="showAll"
-      :role="interactive ? 'option' : undefined"
-      :tabindex="interactive ? 0 : undefined"
-      :aria-selected="interactive ? selected === null : undefined"
-      :aria-label="`全部年度 ${allRecords} 場`"
-      class="flex items-center gap-2 border-b border-l-2 border-b-default py-1 pr-1 pl-2 focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
-      :class="[
-        selected === null ? 'border-l-primary' : 'border-l-transparent',
-        interactive && selected !== null ? 'cursor-pointer' : '',
-      ]"
-      @click="interactive && emit('update:selected', null)"
-      @keydown.enter.prevent="interactive && emit('update:selected', null)"
-      @keydown.space.prevent="interactive && emit('update:selected', null)"
-      @keydown.down.prevent="interactive && move(1)"
-      @keydown.up.prevent="interactive && move(-1)"
+      :role="interactive ? 'listbox' : 'list'"
+      aria-label="檢視的年份"
+      :aria-describedby="interactive ? hintId : undefined"
+      class="space-y-1"
     >
-      <span
-        class="min-w-0 flex-1 text-xs"
-        :class="selected === null ? 'font-semibold text-highlighted' : 'text-muted'"
-      >全部年度</span>
-      <span class="w-8 shrink-0 text-right text-xs tabular-nums text-muted">{{ allRecords }}</span>
-    </div>
+      <!--
+        ★ hover／focus-visible／選中的底色一律是 `bg-accented`，**不是 `bg-elevated`**。
+          這是量出來的，不是品味：
+          · 亮色的 `bg-elevated` = neutral-100 = `--color-paper-100` = `#eaddca`，
+            而空白週那一格的顏色 `CHART.light.att[0]` 逐字也是 `#EADDCA`——**同一個值**。
+            hover 上去，那一列的 53 格會整條消失（對比 1.00:1），看起來像畫面壞掉。
+          · 暗色更省事：`bg-muted` 與 `bg-elevated` 都是 neutral-800（`#3d332c`），
+            而 `att[0]` 是 `#392f24`，對比只有 1.06:1，一樣糊掉。
+          · `bg-accented`（亮 paper-200／暗 paper-700）對 `att[0]` 是 1.18:1／1.29:1，
+            兩個模式下空白格都還讀得出來（暗色甚至比原本坐在 `bg-default` 上的 1.21:1
+            更清楚）。`ChartBand.vue` 那條「1.16:1 會跟底糊在一起」記的是同一筆帳。
+          ⇒ 要改這裡的底色，先去 `app/utils/chart-theme.ts` 對一次 `att[0]` 的值。
 
-    <div
-      v-for="row in rows"
-      :key="row.year"
-      :role="interactive ? 'option' : undefined"
-      :tabindex="interactive ? 0 : undefined"
-      :aria-selected="interactive ? row.year === selected : undefined"
-      :aria-label="`${row.year} 年 ${row.records} 場`"
-      class="flex items-center gap-2 border-l-2 py-1 pl-2 pr-1 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-      :class="[
-        row.year === selected ? 'border-primary' : 'border-transparent',
-        interactive && row.year !== selected ? 'cursor-pointer' : '',
-      ]"
-      @click="interactive && emit('update:selected', row.year)"
-      @keydown.enter.prevent="interactive && emit('update:selected', row.year)"
-      @keydown.space.prevent="interactive && emit('update:selected', row.year)"
-      @keydown.down.prevent="interactive && move(1)"
-      @keydown.up.prevent="interactive && move(-1)"
-    >
-      <span
-        class="w-10 shrink-0 text-xs tabular-nums"
-        :class="row.year === selected ? 'font-semibold text-highlighted' : 'text-muted'"
-      >{{ row.year }}</span>
+        ★ hover 與「選中」用**同一個**底色：hover 的意思就是「按下去會變成這樣」。
+          兩者靠左邊那條 `border-l-primary` 與粗體年份區分，不再發明第三種色階。
+          只在 `interactive` 為真時才給 hover——`interactive: false` 是「只當門面」。
 
-      <!-- 53 格。格子沒有語意，資料在整列的 aria-label 上。 -->
-      <span class="flex min-w-0 flex-1 gap-px" aria-hidden="true">
+        ⚠️ **不加 transition。** DS §6 逐字寫著「沒有每張卡片的 hover transition」，
+           而且 13 列同時在畫面上，逐列淡入淡出會讓整張年表看起來在呼吸。
+           沒有動畫也就不需要 `motion-reduce:`（這個 repo 沒有全域規則）。
+        ⚠️ 底色與粗體都不改變**列高**，也不改 `border-l-2` 的寬度——那兩者一動，
+           整條年表會在 hover 時逐列跳版。
+      -->
+
+      <!--
+        ★「全部年度」——全期檢視視角（2026-09-06 起是**預設**）。
+          它刻意沒有 53 格：那 53 格的座標軸是「一個日曆年裡的第幾週」，
+          跨年度沒有這個座標。把十三年疊起來畫成一列會是一條幾乎全滿的黑帶，
+          既不傳達東西，又會被讀成「這是某一年」。所以這一列只有標籤與總數，
+          並用一條髮絲線跟下面的年份列分開，讀起來是「檢視範圍」而不是「某一年」。
+
+          ⚠️ 2026-09-14 補：這一列被選中（＝預設狀態）時，**亮色下那條髮絲線看不見**
+             ——`border-b-default` 是 `--ui-border` = neutral-200 = paper-200，而
+             `bg-accented` 亮色也正好是 paper-200，底色就蓋在自己的邊框上。
+             這是接受的：選中時分隔的工作改由「整塊 tan 色區的下緣」對下面 paper-25 的
+             年份列去做，分隔沒有消失，只是換了一個東西在做。
+             **不要改用 `border-accented` 去救**——暗色的 `--ui-border-accented` 是
+             neutral-700，跟暗色的 `bg-accented` 又是同一個值，只是把同一個碰撞搬到
+             另一個模式去而已。
+      -->
+      <div
+        v-if="showAll"
+        :role="interactive ? 'option' : undefined"
+        :tabindex="interactive ? 0 : undefined"
+        :aria-selected="interactive ? selected === null : undefined"
+        :aria-label="`全部年度 ${allRecords} 場`"
+        class="flex items-center gap-2 border-b border-l-2 border-b-default py-1 pr-1 pl-2 focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
+        :class="[
+          selected === null ? 'border-l-primary bg-accented' : 'border-l-transparent',
+          interactive && selected !== null ? 'cursor-pointer hover:bg-accented focus-visible:bg-accented' : '',
+        ]"
+        @click="interactive && emit('update:selected', null)"
+        @keydown.enter.prevent="interactive && emit('update:selected', null)"
+        @keydown.space.prevent="interactive && emit('update:selected', null)"
+        @keydown.down.prevent="interactive && move(1)"
+        @keydown.up.prevent="interactive && move(-1)"
+      >
         <span
-          v-for="(n, i) in row.weeks"
-          :key="i"
-          class="h-2.5 flex-1 rounded-[1px] [background-color:var(--att-l)] sm:h-3 dark:[background-color:var(--att-d)]"
-          :style="cellVars(n)"
-        />
-      </span>
+          class="min-w-0 flex-1 text-xs"
+          :class="selected === null ? 'font-semibold text-highlighted' : 'text-muted'"
+        >全部年度</span>
+        <span class="w-8 shrink-0 text-right text-xs tabular-nums text-muted">{{ allRecords }}</span>
+      </div>
 
-      <span class="w-8 shrink-0 text-right text-xs tabular-nums text-muted">{{ row.records }}</span>
+      <div
+        v-for="row in rows"
+        :key="row.year"
+        :role="interactive ? 'option' : undefined"
+        :tabindex="interactive ? 0 : undefined"
+        :aria-selected="interactive ? row.year === selected : undefined"
+        :aria-label="`${row.year} 年 ${row.records} 場`"
+        class="flex items-center gap-2 border-l-2 py-1 pl-2 pr-1 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+        :class="[
+          row.year === selected ? 'border-primary bg-accented' : 'border-transparent',
+          interactive && row.year !== selected ? 'cursor-pointer hover:bg-accented focus-visible:bg-accented' : '',
+        ]"
+        @click="interactive && emit('update:selected', row.year)"
+        @keydown.enter.prevent="interactive && emit('update:selected', row.year)"
+        @keydown.space.prevent="interactive && emit('update:selected', row.year)"
+        @keydown.down.prevent="interactive && move(1)"
+        @keydown.up.prevent="interactive && move(-1)"
+      >
+        <span
+          class="w-10 shrink-0 text-xs tabular-nums"
+          :class="row.year === selected ? 'font-semibold text-highlighted' : 'text-muted'"
+        >{{ row.year }}</span>
+
+        <!-- 53 格。格子沒有語意，資料在整列的 aria-label 上。 -->
+        <span class="flex min-w-0 flex-1 gap-px" aria-hidden="true">
+          <span
+            v-for="(n, i) in row.weeks"
+            :key="i"
+            class="h-2.5 flex-1 rounded-[1px] [background-color:var(--att-l)] sm:h-3 dark:[background-color:var(--att-d)]"
+            :style="cellVars(n)"
+          />
+        </span>
+
+        <span class="w-8 shrink-0 text-right text-xs tabular-nums text-muted">{{ row.records }}</span>
+      </div>
     </div>
+
+    <!--
+      提示。照 `HourHeatmap.vue` 末尾的先例（`mt-2 text-xs text-muted`）。
+      2026-09-14 David：「年表的年份能點擊這件事不太明顯」——底色回饋只有滑鼠移上去
+      才看得到，觸控裝置根本沒有 hover，所以還要有一句話直接說它會發生什麼事。
+      `interactive: false`（只當門面）時不出現：那時點了不會有任何事。
+    -->
+    <p v-if="interactive" :id="hintId" class="mt-2 text-xs text-muted">
+      <!-- 後半句只有在真的有那一列時才成立——`showAll: false` 的呼叫端沒有「全部年度」。 -->
+      {{ showAll ? '點一列就只看那一年；最上面那列回到全部年度' : '點一列就只看那一年' }}
+    </p>
   </div>
 </template>
