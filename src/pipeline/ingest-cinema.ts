@@ -1,11 +1,6 @@
 /**
- * 影城資料匯入：政府 CSV → 正規化 → 輸出 JSON。
- *
- * 用法：tsx src/pipeline/ingest-cinema.ts
- *
- * 這支比分級簡單得多——不需要 TMDB、不需要 checkpoint，因為全台只有
- * 一百多家影城，一次跑完不到一秒。這正是 SPEC 主張「影城問題已解」的原因：
- * 資料量小、變動慢、且有官方來源。
+ * 影城資料匯入：政府 CSV → 正規化 → 輸出 JSON。用法：`tsx src/pipeline/ingest-cinema.ts`。
+ * 不需要 TMDB 也不需要 checkpoint——全台只有一百多家，一次跑完不到一秒。
  */
 
 import { mkdir, writeFile } from 'node:fs/promises'
@@ -16,10 +11,8 @@ import { fetchDatasetFile, listDatasetFiles } from '#pipeline/gov/datasets'
 const OUT_DIR = '.data'
 
 /**
- * 非影城的觀影場合。
- *
- * 影城為必填欄位，若沒有這些選項，串流、影展、飛機上看的片就完全
- * 無法記錄。以負數 taxId 與真實影城區隔，避免與統一編號衝突。
+ * 非影城的觀影場合。影城是必填欄位，沒有這些選項的話串流、影展、飛機上看的片完全無法
+ * 記錄。以負數 taxId 與真實影城區隔，避免與統一編號衝突。
  */
 const NON_CINEMA_VENUES = [
   { taxId: 'virtual:streaming', name: '串流平台', kind: 'streaming' },
@@ -79,13 +72,9 @@ async function main(): Promise<void> {
   }
 
   /**
-   * ★ 空的事業名稱要**每年**看一次。
-   *
-   * 這不是錯誤（parser 已退回公司名稱，資料是可用的），但退回來的是法人全銜，
-   * 選單裡會出現「國元影業股份有限公司」這種東西。真正的店名寫在
-   * `supabase/migrations/0015_venue_blank_name.sql` 的 `curated_fields` 裡，
-   * 而那份清單只涵蓋 2025 年的 3 筆——多出來的第 4 筆只有這裡看得到。
-   * 不印出來的話，明年沒有任何人會知道要去補。
+   * ★ 空的事業名稱要**每年**看一次。這不是錯誤（parser 已退回公司名稱），但退回來的是
+   * 法人全銜，選單裡會出現「國元影業股份有限公司」。真正的店名寫在 `0015` 的
+   * `curated_fields`，而那份清單只涵蓋 2025 年的 3 筆——多出來的第 4 筆只有這裡看得到。
    */
   if (blankName.length) {
     console.log(`\n⚠ ${blankName.length} 筆沒有事業名稱，已退回公司名稱（正名見 0015 的 curated_fields）：`)

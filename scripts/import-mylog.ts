@@ -1,20 +1,11 @@
 /**
- * 舊 log 專案的觀影紀錄匯入（US-56/57/58、BUILD_PLAN §5 Step 10）。
- *
+ * 舊 log 專案的觀影紀錄匯入（US-56/57/58、`BUILD_PLAN §5 Step 10`）。
  *   pnpm import:mylog                 # 預演，不寫入
- *   pnpm import:mylog -- --apply      # 實際寫入
- *   pnpm import:mylog -- --file .data/mylog.json --apply
- *   pnpm import:mylog -- --apply --unmapped-venue=ugc
- *
- * **預設是預演**。這支腳本寫的是線上資料庫，而且與 nuxt session 共用同一個
- * 專案，所以要寫入必須明講 `--apply`。
- *
- * 冪等靠 `viewing_record` 的 `unique (user_id, import_key) where import_key is not null`。
- * import_key 直接用上游的 `id`——它是原始 CSV 列的 base64，天生確定性，
- * 不需要另外算 hash。重跑會走 `on conflict do update`，筆數不變。
- *
- * 憑證一律從 .env 讀（DATABASE_URL、TMDB_API_KEY），任何輸出都不得帶出它們。
+ *   pnpm import:mylog -- --apply      # 實際寫入（**預設是預演**：這支寫的是線上資料庫）
  */
+// 冪等靠 `unique (user_id, import_key)`。import_key 直接用上游的 `id`（原始 CSV 列的
+// base64，天生確定性，不必另外算 hash）⇒ 重跑走 `on conflict do update`，筆數不變。
+// 憑證一律從 .env 讀，任何輸出都不得帶出它們。
 
 import type { MyLogItem, NormalizedRecord } from '#pipeline/import/mylog'
 import type { VenueAlias } from '#pipeline/import/venue-aliases'
@@ -105,10 +96,8 @@ async function loadItems(file: string | null): Promise<MyLogItem[]> {
 // -----------------------------------------------------------------------------
 
 /**
- * 既有片庫的中文片名索引。
- *
- * 同一個正規化片名對到多部作品時記為 ambiguous 而不硬挑一部——
- * 挑錯會把觀影紀錄掛到別部片上，比暫時走 TMDB 重查昂貴得多。
+ * 既有片庫的中文片名索引。同一個正規化片名對到多部作品時記為 ambiguous 而不硬挑一部
+ * ——挑錯會把觀影紀錄掛到別部片上，比暫時走 TMDB 重查昂貴得多。
  */
 interface TitleIndex {
   unique: Map<string, string>
@@ -140,12 +129,9 @@ async function loadTitleIndex(db: Client): Promise<TitleIndex> {
 }
 
 /**
- * 把舊 log 的一筆紀錄包成比對器吃的 Certificate。
- *
- * 舊 log 沒有原文片名也沒有片長，所以只有中文片名的訊號會觸發，
- * 片長交叉驗證（比對器防花絮誤配的那一關）在這裡形同關閉——
- * 這是來源資料的限制，不是比對器的問題。因此報告會逐片列出
- * 命中的訊號與分數，讓人能挑出只靠 zh-prefix 低空飛過的可疑配對。
+ * 把舊 log 的一筆紀錄包成比對器吃的 Certificate。舊 log 沒有原文片名也沒有片長 ⇒ 片長
+ * 交叉驗證（比對器防花絮誤配的那一關）在這裡形同關閉，那是來源資料的限制不是比對器的
+ * 問題。所以報告會逐片列出訊號與分數，讓人挑得出只靠 zh-prefix 低空飛過的可疑配對。
  */
 function asCertificate(title: string, country: string, year: number): Certificate {
   return {
@@ -176,13 +162,9 @@ interface FilmResolution {
   signals: string[]
   note: string
   /**
-   * 未命中時 TMDB 回的前幾筆候選。
-   *
-   * US-58 要的是「看到哪些片沒比對到，好決定要不要手動處理」——
-   * 只寫「未命中」等於把問題丟回去。實測 17 部未命中裡有 14 部
-   * TMDB 其實有，只是片名寫法差一點（「電影版」vs「劇場版」、
-   * 「星際大戰九部曲」vs「STAR WARS」）。把候選列出來，
-   * 人就能一眼確認，而不必自己再查一次。
+   * 未命中時 TMDB 回的前幾筆候選。只寫「未命中」等於把問題丟回去——實測 17 部未命中裡
+   * 有 14 部 TMDB 其實有，只是片名寫法差一點（「電影版」vs「劇場版」）。列出來人就能
+   * 一眼確認，不必自己再查一次。
    */
   candidates: { id: number, title: string, originalTitle: string, year: string }[]
 }
@@ -201,15 +183,10 @@ function briefCandidates(list: TmdbSearchResult[]): FilmResolution['candidates']
 // -----------------------------------------------------------------------------
 
 /**
- * 決定要把紀錄掛到哪個使用者。**必須明確指定 email**。
- *
- * 不做任何推測：不用 `limit 1`、不用 `order by created_at`、不假設
- * 「DB 裡只有一個 profile」。這個 repo 同時有三個 session 在建測試資料，
- * 那類假設已經壞過一次——第一次匯入時 profile 只有一筆，第二次跑
- * 就多了 nuxt session 的 zzstep4@example.com。匯到錯的人身上比匯不進去糟得多。
- *
- * email 由 `IMPORT_TARGET_EMAIL` 或 `--email` 傳入，**不寫死在程式碼裡**
- * （本專案可能開源）。.env.example 有說明但不填值。
+ * 決定要把紀錄掛到哪個使用者。**必須明確指定 email**（`IMPORT_TARGET_EMAIL` 或 `--email`，
+ * 不寫死在程式碼裡——本專案可能開源）。不用 `limit 1`、不假設「DB 裡只有一個 profile」：
+ * 那類假設已經壞過一次（第二次跑時多了另一個 session 建的測試帳號）。匯到錯的人身上
+ * 比匯不進去糟得多。
  */
 async function resolveUserId(db: Client, email: string | null): Promise<string> {
   if (!email) {
@@ -263,15 +240,10 @@ async function upsertTmdbFilm(db: Client, detail: TmdbMovieDetail, country: stri
 }
 
 /**
- * 把先前匯入建出來的 UGC 作品併進人工指定的 TMDB 作品。
- *
- * 第一次匯入時這 16 部還沒有人工對照表，各自建了一部 UGC 作品、
- * 觀影紀錄也掛在上面。現在有了明確答案，正確的收尾不是留下孤兒，
- * 而是走 schema 既有的合併機制：`merge_films` 會搬 viewing_record、
- * 改 film_identity 指向、寫 film_merge_log，並把敗方標記為已合併。
- *
- * 合併後 `resolve_film('ugc:mylog:<片名>')` 會沿著 merged_into_film_id
- * 走到 TMDB 作品，所以這個動作本身也是冪等的——第二次跑就沒有敗方可併了。
+ * 把先前匯入建出來的 UGC 作品併進人工指定的 TMDB 作品。第一次匯入時這 16 部還沒有對照
+ * 表、各自建了一部 UGC 作品 ⇒ 正確的收尾不是留下孤兒，而是走既有的 `merge_films`
+ * （搬 viewing_record、改 film_identity 指向、寫 film_merge_log）。
+ * 合併後 `resolve_film()` 會沿著 merged_into_film_id 走到 TMDB 作品 ⇒ 這動作也是冪等的。
  */
 async function mergeLegacyUgcFilm(db: Client, title: string, winnerId: string): Promise<boolean> {
   const key = `ugc:mylog:${normalizeTitle(title)}`
@@ -291,11 +263,8 @@ async function mergeLegacyUgcFilm(db: Client, title: string, winnerId: string): 
 }
 
 /**
- * 建立或取回 UGC 作品。
- *
- * 以 `ugc:mylog:<正規化片名>` 當 film_identity 的鍵，重跑才不會每次都新建一部。
- * 依 SPEC「UGC 新增者預設 private、審核通過後才進公共片庫」，
- * 這裡一律 visibility=private + review_state=pending，進 Step 7 的審核佇列。
+ * 建立或取回 UGC 作品。以 `ugc:mylog:<正規化片名>` 當 film_identity 的鍵，重跑才不會每次
+ * 新建一部。依 SPEC 一律 private + pending，進 Step 7 的審核佇列。
  */
 async function upsertUgcFilm(
   db: Client,
@@ -351,8 +320,7 @@ async function upsertUgcVenue(db: Client, entry: VenueAlias): Promise<string> {
 /** ugc venue 的確定性 id。以 hex 保底，避免片假名等被正規化成空字串。 */
 function ugcVenueId(alias: string): string {
   const slug = normalizeTitle(alias)
-  // normalizeTitle 只剝標點不轉寫，片假名會原樣留下；venue.id 沒有字元限制
-  // （只有 `ugc:%` 的前綴約束），但為了 id 好讀好比對，非 ASCII 一律走 hex。
+  // normalizeTitle 只剝標點不轉寫，片假名會原樣留下；為了 id 好讀好比對，非 ASCII 走 hex。
   return /^[\w-]+$/.test(slug) && slug
     ? `ugc:mylog:${slug}`
     : `ugc:mylog:${Buffer.from(alias, 'utf8').toString('hex').slice(0, 32)}`
@@ -371,8 +339,8 @@ async function main() {
   const items = await loadItems(options.file)
   const { records: normalized, issues } = normalizeRecords(items)
 
-  // 雙片連映一筆拆成多筆。放在正規化之後、比對之前——拆完的每一筆
-  // 才是真正要寫進 viewing_record 的單位，後面的作品比對與冪等都以它為準。
+  // 雙片連映一筆拆成多筆。放在正規化之後、比對之前——拆完的每一筆才是真正要寫進
+  // viewing_record 的單位，後面的比對與冪等都以它為準。
   const records: NormalizedRecord[] = []
   let expandedFrom = 0
   for (const record of normalized) {

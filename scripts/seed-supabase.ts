@@ -1,17 +1,10 @@
 /**
- * 把匯入管線的三份輸出灌進 Supabase。
- *
- * 走 service_role（SUPABASE_SECRET_KEY）繞過 RLS。順序固定
- * venues → films → certificates，因為 certificate.film_id 指向 film。
- *
- * 冪等性由三個機制保證，重跑不會長出重複列：
- *   venue        upsert on conflict (id)，id = 統一編號
- *   film         seed_films() RPC 以 resolve_film(確定性鍵) 查存活作品；
- *                已被合併的敗方會被 resolve 到存活者，不會復活
- *   certificate  upsert on conflict (id)，id = 「年度:字號:正規化片名」
- *
- * 用法：npm run seed        （--dry-run 只讀不寫）
+ * 把匯入管線的三份輸出灌進 Supabase（`npm run seed`，`--dry-run` 只讀不寫）。走
+ * service_role 繞過 RLS，順序固定 venues → films → certificates（certificate.film_id 指向 film）。
  */
+// 冪等由三個機制保證：venue 是 `upsert on conflict (id)`（id = 統一編號）；film 走
+// `seed_films()`，以 `resolve_film(確定性鍵)` 查存活作品，已被合併的敗方會被 resolve 到
+// 存活者、不會復活；certificate 是 `upsert on conflict (id)`（id = 年度:字號:正規化片名）。
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { readFile } from 'node:fs/promises'

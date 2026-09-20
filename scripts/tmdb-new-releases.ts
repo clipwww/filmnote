@@ -1,32 +1,19 @@
 /**
  * 從 TMDB 的「台灣上映中／即將上映」找出片庫還沒有的作品——**只看不寫**。
- *
- *   pnpm tsx --env-file=.env scripts/tmdb-new-releases.ts
- *   pnpm tsx --env-file=.env scripts/tmdb-new-releases.ts --pages 2
- *
- * ── ★ 為什麼這一支只做 dry-run ────────────────────────────────────────────
- * 真正的寫入要走 `seed_films()`，而那支函式是**全片庫 2,764 部作品的寫入路徑**。
- * 它還需要一條這裡沒有的改動（政府片名日後進來時要能覆蓋 TMDB 片名，
- * 見 `BUILD_PLAN §8.3` 2026-09-20 的裁決框）。**在那條改動做好之前寫入是危險的**，
- * 所以這一支刻意沒有任何 INSERT／UPDATE，連 service key 都不用。
- *
- * ── ★ 三分類，不是「新／舊」兩分類 ─────────────────────────────────────
- * 實測 2026-09-20：片庫有 **267 部 `origin='gov'` 的作品沒有 `tmdb_id`**
- * （比對器沒配到，例如《間諜家家酒》——片商用英文片名登記）。
- * **從 TMDB 盲目新增，那 267 部裡只要有一部也出現在台灣上映清單裡，就會變成重複作品。**
- * 所以要分三類，而第二類的正確動作是 `link_film_to_tmdb()` 補 id，**不是新增**：
- *
- *   ① 已收錄     —— `film.tmdb_id` 已經有這個 id
- *   ② 疑似已存在 —— 片名對得上一部**沒有 tmdb_id** 的既有作品 ⇒ 應該補 id
- *   ③ 候選新增   —— 兩者皆非
- *
- * ⚠️ ② 只是**線索不是判定**。片名比對用的是 `normalizeTitle()`（跟比對器同一支），
- *   但這裡刻意不跑 `scoreCandidate()`：那需要 `Certificate` 的年份與片長，
- *   而清單端點不給片長。**這一支的職責是把可疑的攤出來給人看，不是替人決定。**
- *
- * ⚠️ 清單端點回的 `release_date` 是 TMDB 的**主要**上映日，不一定是台灣的。
- *   台灣上映日要一部一次 `detail()`，這一支不做——**不要把它印成「台灣上映日」**。
+ *   pnpm tsx --env-file=.env scripts/tmdb-new-releases.ts [--pages 2]
+ * ★ 只做 dry-run：真正的寫入要走 `seed_films()`，那是全片庫 2,764 部的寫入路徑，而且還
+ *   需要一條這裡沒有的改動（政府片名日後進來時要能覆蓋 TMDB 片名，`BUILD_PLAN §8.3`）
+ *   ⇒ 在那之前寫入是危險的，所以這支連 service key 都不用。
  */
+// ★ 三分類不是「新／舊」兩分類：實測 2026-09-20 片庫有 **267 部 `origin='gov'` 的作品
+//   沒有 tmdb_id**（比對器沒配到，例如《間諜家家酒》片商用英文片名登記）⇒ 盲目新增時，
+//   那 267 部裡只要有一部也出現在上映清單裡就會變成重複作品。
+//   ① 已收錄 ② 疑似已存在（片名對得上一部沒有 tmdb_id 的既有作品 ⇒ 該補 id **不是新增**）
+//   ③ 候選新增。
+// ⚠️ ② 只是**線索不是判定**：片名比對用 `normalizeTitle()`，但刻意不跑 `scoreCandidate()`
+//    （那需要片長而清單端點不給）。這支的職責是把可疑的攤出來給人看，不是替人決定。
+// ⚠️ 清單端點的 `release_date` 是 TMDB 的主要上映日不一定是台灣的 ⇒ **不要把它印成
+//    「台灣上映日」**；台灣上映日要一部一次 `detail()`，這支不做。
 
 import type { TmdbSearchResult } from '#pipeline/types'
 import process from 'node:process'
@@ -34,10 +21,9 @@ import { Client, types as pgTypes } from 'pg'
 import { normalizeTitle } from '#pipeline/normalize/title'
 import { TmdbClient } from '#pipeline/tmdb/client'
 
-// ⚠️ 踩雷 #253：node-postgres 預設把 date/timestamp 解析成 JS Date，印出來會位移一天
-//    （2016-09-28 變成 2016-09-27T16:00Z）。`scripts/db.ts` 為此關掉了解析器，
-//    這一支不經過它，所以要自己套同一道防護——即使目前只取文字欄位，
-//    日後有人加一個日期欄位時這道防護要已經在。
+// ⚠️ 踩雷 #253：node-postgres 預設把 date/timestamp 解析成 JS Date，印出來會位移一天。
+//    `scripts/db.ts` 為此關掉了解析器而這支不經過它 ⇒ 自己套同一道防護（即使目前只取
+//    文字欄位，日後有人加日期欄位時這道防護要已經在）。
 for (const oid of [1082, 1114, 1184, 1083])
   pgTypes.setTypeParser(oid, v => v)
 

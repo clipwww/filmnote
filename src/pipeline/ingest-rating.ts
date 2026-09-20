@@ -55,10 +55,8 @@ async function loadCertificates(years: number[]): Promise<Certificate[]> {
 }
 
 /**
- * 對單筆核准紀錄執行比對。
- *
- * 雙查詢是實測驗證的關鍵設計：只用原文片名會漏掉大量日本片，因為
- * TMDB 的 original_title 常是母語（政府給 `Porco Rosso`，TMDB 存 `紅の豚`）。
+ * 對單筆核准紀錄執行比對。雙查詢是實測驗證的關鍵設計：只用原文片名會漏掉大量日本片，
+ * 因為 TMDB 的 original_title 常是母語（政府給 `Porco Rosso`，TMDB 存 `紅の豚`）。
  */
 async function matchOne(certificate: Certificate, tmdb: TmdbClient): Promise<MatchArtifact> {
   const queries = [certificate.titleOriginal, certificate.titleZh].filter(Boolean)
@@ -72,8 +70,8 @@ async function matchOne(certificate: Certificate, tmdb: TmdbClient): Promise<Mat
       candidates.set(result.id, result)
   }
 
-  // 片長驗證需要明細，但明細很貴。先用不含片長的評分挑出最佳候選，
-  // 只對它取一次明細——這讓每筆的請求數維持在 2–3 次而非 N+1 次。
+  // 片長驗證需要明細而明細很貴：先用不含片長的評分挑出最佳候選，只對它取一次明細
+  // ⇒ 每筆維持 2–3 次請求而非 N+1 次。
   const pool = [...candidates.values()]
   const provisional = matchCertificate(certificate, pool, () => null)
   if (!provisional.matched)
@@ -84,8 +82,7 @@ async function matchOne(certificate: Certificate, tmdb: TmdbClient): Promise<Mat
     detail = await tmdb.detail(provisional.tmdbId)
   }
   catch {
-    // 取不到明細就退回未命中，讓它進 UGC 佇列。硬留一個未經
-    // 片長驗證的配對，比缺一筆更糟。
+    // 取不到明細就退回未命中，讓它進 UGC 佇列：硬留一個未經片長驗證的配對比缺一筆更糟。
     return { outcome: { matched: false, reason: 'score-too-low', score: provisional.score } }
   }
 

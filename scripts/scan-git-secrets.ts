@@ -1,22 +1,14 @@
 /**
  * 掃 git 歷史裡有沒有殘留憑證。**Step 11 的第一次 push 之前必跑。**
- *
  *   pnpm tsx --env-file=.env scripts/scan-git-secrets.ts
- *
- * ── 為什麼不用 `git log -p | grep` ────────────────────────────────────────
- * 那只看得到**可達**的物件。被 `git commit --amend`、`git rebase`、
- * `git reset --hard` 拿掉的那些 commit 仍然躺在 .git/objects 裡，直到 gc 為止，
- * 而 `git push` 不會送它們——但**任何人 clone 之後 `git fsck --lost-found` 就撈得到**，
- * 而且 GitHub 的 API 可以直接以 SHA 取得懸空物件（force-push 之後那些物件
- * 在 GitHub 上仍然可讀，這是有名的資料外洩途徑）。
- *
- * 實測本 repo（2026-09-06）：可達物件 900 個，`--batch-all-objects` 是 **943** 個
+ * 不用 `git log -p | grep`：那只看得到**可達**物件，而被 amend／rebase／reset 拿掉的
+ * commit 仍躺在 .git/objects 裡，clone 之後 `git fsck --lost-found` 就撈得到，GitHub 的
+ * API 也可以直接以 SHA 取得懸空物件（force-push 後仍可讀，有名的外洩途徑）。
+ * 實測本 repo 2026-09-06：可達 900 個物件，`--batch-all-objects` 是 **943** 個
  * ——**43 個物件只有這支掃得到**。
- *
- * ── 輸出紀律 ──────────────────────────────────────────────────────────────
- * ★ 命中時**絕不印出憑證本身**，只印物件 SHA、規則名稱與所在路徑。
- *   印出來就等於把它從 git 歷史搬進終端機記錄、CI log 與這份對話。
  */
+// ★ 命中時**絕不印出憑證本身**，只印物件 SHA、規則名稱與路徑：印出來就等於把它從 git
+//   歷史搬進終端機記錄、CI log 與這份對話。
 
 import type { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'

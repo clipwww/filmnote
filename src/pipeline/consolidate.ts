@@ -1,10 +1,7 @@
 /**
- * 核准紀錄 → 作品的收斂。
- *
- * 這是 SPEC 中「兩層模型」的實作。同一部片會因跨年度重映、國語版與
- * 日語版分開送審而擁有多張證明書；若不收斂，「今年看了幾部片」這類
- * 統計會失真。實測 110–113 年的 3,116 筆收斂為 2,669 部，
- * 亦即有 14.3%（447 筆）是重複的。
+ * 核准紀錄 → 作品的收斂（SPEC「兩層模型」的實作）。同一部片會因跨年度重映、國語版與
+ * 日語版分開送審而有多張證明書，不收斂會讓「今年看了幾部片」失真。實測 110–113 年的
+ * 3,116 筆收斂為 2,669 部，亦即 14.3%（447 筆）是重複的。
  */
 
 import type { Certificate, Film, MatchOutcome } from '#pipeline/types'
@@ -29,11 +26,8 @@ export interface ConsolidateInput {
 }
 
 /**
- * 未命中作品的收斂鍵。
- *
- * 同時使用中文與原文片名，而非只用中文——只用中文會把不同年份的
- * 同名片誤併為一部。兩者皆空的極端情況退回使用核准紀錄自身的 id，
- * 寧可產生一部孤兒作品，也不要把無關的資料混在一起。
+ * 未命中作品的收斂鍵。同時用中文與原文片名（只用中文會把不同年份的同名片誤併為一部）；
+ * 兩者皆空時退回核准紀錄自身的 id——寧可產生一部孤兒作品也不要把無關的資料混在一起。
  */
 export function unmatchedFilmKey(certificate: Certificate): string {
   const zh = normalizeTitle(certificate.titleZh)
@@ -66,11 +60,9 @@ export function consolidate(inputs: ConsolidateInput[]): Film[] {
       continue
     }
 
-    // 中文片名一般以政府核准名為準（實測 TMDB 的中文標題只有 83.2% 與
-    // 官方一致，政府資料正是為了校正這一點而匯入）。但來源若有編碼損毀，
-    // 政府那份反而是壞的——實測 15 筆含 ASCII 問號的片名中，4 筆有 TMDB
-    // 配對者全是真損毀（「?本龍一：終章」的坂、「-EPISODE ?-」的凪），
-    // 而 TMDB 的標題正確。此時採用 TMDB，否則錯字會永久顯示給使用者。
+    // 中文片名一般以政府核准名為準（實測 TMDB 的中文標題只有 83.2% 與官方一致）。但來源
+    // 若有編碼損毀，政府那份反而是壞的——實測 15 筆含 ASCII 問號的片名中，4 筆有 TMDB
+    // 配對者全是真損毀（「?本龍一：終章」的坂、「-EPISODE ?-」的凪）⇒ 此時採用 TMDB。
     const zhSuspect = certificate.defects.includes('title-zh-suspect-encoding')
     const tmdbZh = tmdb?.titleZh?.trim()
     const preferTmdbZh = zhSuspect && !!tmdbZh && CJK.test(tmdbZh)
@@ -79,8 +71,8 @@ export function consolidate(inputs: ConsolidateInput[]): Film[] {
       id,
       tmdbId: outcome.matched ? outcome.tmdbId : null,
       titleZh: (preferTmdbZh ? tmdbZh : certificate.titleZh) || tmdbZh || '',
-      // 原文片名反過來以 TMDB 為準：政府欄位有 Excel 日期誤判、
-      // 編碼損毀與拼寫錯誤，而 TMDB 的 original_title 是母語正名。
+      // 原文片名反過來以 TMDB 為準：政府欄位有 Excel 日期誤判、編碼損毀與拼寫錯誤，
+      // 而 TMDB 的 original_title 是母語正名。
       titleOriginal: tmdb?.titleOriginal || certificate.titleOriginal || '',
       country: certificate.country,
       // TMDB 對「無片長資料」回傳 0 而非 null，原樣帶下來會變成「片長 0 分鐘」。

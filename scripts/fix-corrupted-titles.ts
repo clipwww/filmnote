@@ -1,23 +1,14 @@
 /**
  * 套用 `src/import/title-corrections.ts` 的人工對照，修復編碼損毀的中文片名。
- *
- *   pnpm tsx --env-file=.env scripts/fix-corrupted-titles.ts            # 試跑（預設）
- *   pnpm tsx --env-file=.env scripts/fix-corrupted-titles.ts --apply    # 真的寫入
- *
- * ── 為什麼是修復腳本，不是在匯入管線裡修 ──────────────────────────────────
- * 損毀已經在線上資料裡了。要靠匯入修，得重跑整個政府資料匯入——那是個大得多
- * 的動作，而且會連帶重算一堆與這件事無關的東西。這支只碰該碰的那幾列。
- *
- * 匯入端的守門員是另一件事，由 `inspectTitleZh()` 負責，讓**新的**損毀不會再
- * 無聲地走到公開頁（見那支函式的註解）。兩者都要有：這支管既有的，那支管未來的。
- *
- * ── 冪等 ──────────────────────────────────────────────────────────────────
- * 以 `(rocYear, permitNo)` 定位，只更新「目前確實含私用區字元」的列。
- * 跑第二次會回報 0 筆需要修復，而不是把已經正確的片名再寫一次。
- *
- * ★ 同時更新 `film` 與 `certificate`。只改 film 會讓 certificate 留著損毀字串，
- *   而 certificate 是「政府核准了什麼」的舉證材料，日後對帳會對不起來。
+ *   pnpm tsx --env-file=.env scripts/fix-corrupted-titles.ts [--apply]   # 預設試跑
+ * 是修復腳本而不是在匯入管線裡修：損毀已經在線上資料裡了，靠匯入修得重跑整個政府資料
+ * 匯入，會連帶重算一堆無關的東西。匯入端的守門員是 `inspectTitleZh()`——這支管既有的，
+ * 那支管未來的，兩者都要有。
  */
+// 冪等：以 `(rocYear, permitNo)` 定位，只更新「目前確實含私用區字元」的列 ⇒ 跑第二次回報
+// 0 筆，不會把已經正確的片名再寫一次。
+// ★ 同時更新 `film` 與 `certificate`：只改 film 會讓 certificate 留著損毀字串，而它是
+//   「政府核准了什麼」的舉證材料，日後對帳會對不起來。
 
 import process from 'node:process'
 import { Client, types as pgTypes } from 'pg'
@@ -105,8 +96,8 @@ try {
         fixedCerts++
       }
       if (filmNeedsFix && row.film_id) {
-        // title_zh_source 維持 'gov'：這是政府核准的片名，只是我們把它修回來了。
-        // 改成別的值會讓 TMDB 日後有權覆蓋它——那正是絕不能發生的事。
+        // title_zh_source 維持 'gov'：這是政府核准的片名，只是我們把它修回來了。改成
+        // 別的值會讓 TMDB 日後有權覆蓋它——那正是絕不能發生的事。
         await client.query(
           `update public.film set title_zh = $1, updated_at = now() where id = $2`,
           [c.titleZh, row.film_id],
@@ -125,9 +116,8 @@ try {
     console.log(`\n（試跑，未寫入。加 --apply 才會真的更新。）略過 ${skipped} 筆。`)
   }
 
-  // 收尾檢查：跑完之後整個片庫都不該再有私用區字元。
-  // 這一條與 verify-core.sql 的 D1 是同一個不變量，在這裡也查一次，
-  // 是為了讓「修完了嗎」不必等到下一次跑 verify:all 才知道。
+  // 收尾檢查：跑完之後整個片庫都不該再有私用區字元（與 verify-core.sql 的 D1 同一個
+  // 不變量），在這裡也查一次是為了不必等下一次 verify:all 才知道修完了沒。
   const { rows: left } = await client.query<{ n: string }>(
     `select count(*) as n from public.film
       where exists (select 1 from regexp_split_to_table(

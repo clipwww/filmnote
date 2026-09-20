@@ -1,31 +1,15 @@
 /**
- * US-47 端點層驗收 —— 把 `POST /api/account/delete` 走一次**真的 HTTP**。
- *
- *   pnpm dev                                              # 另一個終端機
- *   pnpm tsx --env-file=.env scripts/verify-account-delete.ts
- *
- * ── 為什麼不併進 verify-all.ts ────────────────────────────────────────────
- * 它需要一個跑著的 Nuxt dev server。verify:all 必須在沒有 dev server 的環境
- * （CI、剛 clone 下來的機器）也能全綠，把這一段塞進去只會讓它變成「常常被略過
- * 的那一條」——而常常被略過的斷言等於不存在。所以獨立成一支，並在交接筆記裡
- * 寫明什麼時候要跑它。
- *
- * ── 它補的是 verify-all 補不到的那一段 ────────────────────────────────────
- * `verify-all.ts` 的 http/account-* 已經證明了 **RPC 層**：真 PostgREST、真 JWT、
- * grant 對不對、別人的紀錄有沒有少。它證不到的是**端點自己的膠水**：
- *   ① 二次確認字串比對
- *   ② 「先清 bucket、再刪資料庫」的順序
- *   ③ 刪完有沒有清掉登入 cookie
- * 其中②最關鍵：順序反過來的話，海報會永遠留在 bucket 裡（film 一刪，
- * `ugc_poster_delete` policy 就再也不會對任何人放行），而使用者被告知
- * 「所有資料都刪掉了」。那個失敗**不會有任何錯誤訊息**。
- *
- * ── 前一棒卡在哪 ──────────────────────────────────────────────────────────
- * 交接筆記第 5 節：「/api/legal/counter-notice 的登入後 happy path 沒走過 HTTP，
- * 拿不到真的 OAuth session」。解法在下面的 `sessionCookie()`：password grant
- * 拿到的 session 用 @supabase/ssr 的格式手動組成 cookie 就行，不需要 OAuth。
- * 同樣的手法可以用來補上 counter-notice 那一條。
+ * US-47 端點層驗收——把 `POST /api/account/delete` 走一次**真的 HTTP**（需要跑著的 dev
+ * server，所以不併進 verify:all：常常被略過的斷言等於不存在）。
+ *   pnpm dev ／ pnpm tsx --env-file=.env scripts/verify-account-delete.ts
  */
+// 它補的是 verify-all 補不到的那一段：那邊證明的是 RPC 層，這裡證明**端點自己的膠水**
+// ——① 二次確認字串比對 ② 「先清 bucket 再刪資料庫」的順序 ③ 刪完有沒有清掉登入 cookie。
+// 其中②最關鍵：順序反過來的話海報會永遠留在 bucket 裡（film 一刪，`ugc_poster_delete`
+// 就再也不會對任何人放行），而使用者被告知「所有資料都刪掉了」，**不會有任何錯誤訊息**。
+//
+// 前一棒卡在「拿不到真的 OAuth session」：解法在下面的 `sessionCookie()`——password grant
+// 拿到的 session 用 @supabase/ssr 的格式手動組成 cookie 就行，不需要 OAuth。
 
 import { Buffer } from 'node:buffer'
 import process from 'node:process'
@@ -59,9 +43,8 @@ async function sql(query: string, params: unknown[] = []): Promise<Record<string
 }
 
 /**
- * 把 password grant 拿到的 session 組成 @nuxtjs/supabase（＝@supabase/ssr）
- * 認得的 cookie：`sb-<projectRef>-auth-token = base64-<base64(JSON)>`，
- * 超過 3180 字元要切成 `.0` / `.1` 分塊。
+ * 把 password grant 拿到的 session 組成 @supabase/ssr 認得的 cookie：
+ * `sb-<projectRef>-auth-token = base64-<base64(JSON)>`，超過 3180 字元要切成 `.0` / `.1`。
  */
 function sessionCookie(supabaseUrl: string, session: unknown): string {
   const ref = new URL(supabaseUrl).hostname.split('.')[0]!
@@ -141,9 +124,9 @@ async function main(): Promise<void> {
     )
     filmId = films[0]!.id as string
 
-    // PNG magic number + 64 個 0。用 new Uint8Array(72) 而不是展開一個
-    // Array.from(...).fill(0)：後者的型別是 unknown[]，而 tsx 不做型別檢查
-    // ⇒ verify:all 全綠但 pnpm typecheck 紅。
+    // PNG magic number + 64 個 0。用 `new Uint8Array(72)` 而不是展開
+    // `Array.from(...).fill(0)`：後者的型別是 unknown[]，而 tsx 不做型別檢查
+    // ⇒ verify:all 全綠但 `pnpm typecheck` 紅。
     const png = new Uint8Array(72)
     png.set([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
     const up = await fetch(`${url}/storage/v1/object/ugc-poster/${filmId}/poster.png`, {

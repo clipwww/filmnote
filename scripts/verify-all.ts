@@ -1,28 +1,20 @@
 /**
  * 一次跑完全部驗收。
- *
  *   pnpm tsx --env-file=.env scripts/verify-all.ts
  *   pnpm tsx --env-file=.env scripts/verify-all.ts --sql-only   # 跳過需要臨時帳號的 HTTP 段
- *
- * ── 這支存在的理由 ────────────────────────────────────────────────────────
- * 這個專案最有價值的資產是那些斷言——**每一條都對應一個真的踩過的坑**。但它們
- * 原本散在三支 SQL、一支 parser 檢查、以及 BUILD_PLAN §5 各 Step 的 curl 裡，
- * 只有讀過那些文件的人知道怎麼跑。session 一換就等於沒有。
- *
- * ── 三條規矩 ──────────────────────────────────────────────────────────────
- * ① 每條斷言都標出它守的是哪個坑（§7 編號或 Step 編號）。沒有那句話的斷言，
- *    日後有人看到它紅了會傾向刪掉它，而不是修程式。
- * ② 不留痕跡。SQL 段全部 begin/rollback；HTTP 段建立的臨時帳號與資料在
- *    finally 裡刪除，**不靠執行者記得**。
- * ③ 假綠燈比紅燈危險。凡是「應該看不到」的斷言，都必須有一組「應該看得到」的
- *    對照——否則分不出「擋住了」與「本來就沒東西」（§7 #102 就是這樣被騙過去的）。
- *
- * ── 為什麼 HTTP 段不能改用 SQL 模擬 ───────────────────────────────────────
- * §7 #100：`set local role` 只改 current_user，**session_user 直連時永遠是
- * postgres** ⇒ `is_service_context()` 為真，`merge_films` 這類判準在 db:sql
- * 腳本裡一律放行。拿它當授權測試會得到假的「破口重現」，反過來寫則是永遠通過
- * 的假綠燈。**這類授權只能用真的 PostgREST + 真的使用者 JWT 測。**
+ * 這些斷言**每一條都對應一個真的踩過的坑**，原本散在三支 SQL、一支 parser 檢查與
+ * BUILD_PLAN 各 Step 的 curl 裡，session 一換就等於沒有。
  */
+// 三條規矩：
+// ① 每條斷言都標出它守的是哪個坑（§7 或 Step 編號）——沒有那句話的斷言，日後有人看到
+//    它紅了會傾向刪掉它而不是修程式。
+// ② 不留痕跡：SQL 段全部 begin/rollback，HTTP 段的臨時帳號在 finally 裡刪，不靠人記得。
+// ③ **假綠燈比紅燈危險**：凡是「應該看不到」的斷言都必須配一組「應該看得到」的對照，
+//    否則分不出「擋住了」與「本來就沒東西」（§7 #102 就是這樣被騙過去的）。
+//
+// ⚠️ HTTP 段不能改用 SQL 模擬（§7 #100）：`set local role` 只改 current_user，session_user
+//    直連時永遠是 postgres ⇒ `is_service_context()` 為真，這類授權只能用真的 PostgREST
+//    + 真的使用者 JWT 測。
 
 import type { YearStats } from '../app/utils/stats'
 import { execFileSync } from 'node:child_process'
@@ -115,10 +107,8 @@ async function sql(query: string, params: unknown[] = []): Promise<Record<string
 
 /**
  * 把 `.vue` 原始碼裡的註解拿掉，只留下真的會執行的部分。
- *
- * ⚠️ 存在的理由見下方③的註解：**註解會餵飽字串比對的斷言**。
- * 這支不追求剖析正確（不處理字串字面裡的 `//`），它只需要讓
- * 「檔案裡提到某個名字」與「檔案裡真的呼叫某個名字」分得開。
+ * ⚠️ 存在的理由見下方③：**註解會餵飽字串比對的斷言**。這支不追求剖析正確（不處理字串
+ * 字面裡的 `//`），只需要讓「檔案裡提到某個名字」與「真的呼叫它」分得開。
  */
 function stripComments(src: string): string {
   return src
@@ -128,29 +118,18 @@ function stripComments(src: string): string {
 }
 
 /**
- * ── 前端有沒有真的接上 `monthly_baseline` ───────────────────────────────────
- *
- * ★★ 這一段守的是一個 **DB 那側守不到** 的破法。
- *
- * `verify-core` 的 H4／H6 把 `monthly_baseline` 這個欄位釘得很牢（不受 p_year
- * 影響、分母是曝光數而不是年份數）。但它們只證明**資料庫給的是對的**——
- * 完全沒有東西證明**前端有在用它**。實測 2026-09-06：那個欄位在整個前端
- * `grep` 是空的，`app/utils/stats.ts` 自己用「該月份總場次 ÷ 年份數」另算了一套，
- * 12 個月裡有 5 個偏掉（十月畫 1.85，DB 說 2.00），而 H1–H6 全綠。
- *
- * 這正是 `backend.md §6e` 預言過的形狀：一致性斷言只驗到內部一致。
- *
- * 所以這裡拿**真實資料**跑**真正的前端函式**（直接 import `app/utils/stats.ts`，
- * 不是抄一份公式——抄一份就變成實作的複本，實作改錯它會跟著改錯），
- * 再跟 DB 的答案逐格對帳。三條：
- *
- *   ① 前端算出來的 12 個值 === DB 的 `monthly_baseline[].avg_records`
- *   ② ★ **對照組**：同一組資料用「年份數」當分母會得到**不同**的答案。
- *      沒有這一條的話，哪天資料剛好變成兩種分母同解（例如每個月曝光數都相同），
- *      ①就會靜默失去分辨力而照樣全綠——那是「看不到必須配一組看得到」的同一個道理。
- *   ③ 呼叫端真的有接線：畫這條線的頁面必須引用得到這個值。
- *      ①②只證明函式對，不證明有人呼叫它——而 2026-09-06 的病灶正是「沒人呼叫」。
+ * ── 前端有沒有真的接上 `monthly_baseline` ──
+ * ★★ 守的是一個 **DB 那側守不到**的破法：H4／H6 只證明資料庫給的是對的，完全沒有東西
+ * 證明前端有在用它。實測 2026-09-06：那個欄位在整個前端 grep 是空的，`stats.ts` 自己用
+ * 「該月份總場次 ÷ 年份數」另算一套，12 個月有 5 個偏掉（十月畫 1.85，DB 說 2.00），
+ * 而 H1–H6 全綠——`backend.md §6e` 預言過的形狀：一致性斷言只驗到內部一致。
  */
+// 所以這裡拿真實資料跑**真正的前端函式**（直接 import，不抄公式——抄一份就變成實作的
+// 複本，實作改錯它會跟著改錯），再跟 DB 逐格對帳。三條：
+// ① 前端算出來的 12 個值 === DB 的 `monthly_baseline[].avg_records`
+// ② ★ 對照組：同一組資料用「年份數」當分母會得到**不同**答案。沒有它，哪天資料剛好
+//    兩種分母同解，①就會靜默失去分辨力而照樣全綠。
+// ③ 呼叫端真的有接線：①②只證明函式對，不證明有人呼叫它——2026-09-06 的病灶正是沒人呼叫。
 async function runMonthlyBaselineChecks(): Promise<void> {
   const guards = '★ §6e／§7 #123：平均線的分母是曝光數，而且前端要真的用 DB 給的那個欄位'
 
@@ -188,20 +167,17 @@ async function runMonthlyBaselineChecks(): Promise<void> {
 
   // ③ 呼叫端真的有接線。
   //
-  // ⚠️ 這裡**不寫死頁面清單**。寫死的話，這條會在「某一頁還沒做圖表」時紅
-  //    （那不是缺陷，是還沒做），而真正該紅的「新增了一頁畫月度趨勢卻自己算平均」
-  //    反而漏掉——清單不會自己長出新頁面。
-  //    改成從實作推導：**凡是 render `<MonthlyTrend` 的檔案，都必須引用得到
-  //    `monthlyBaselineSeries`。** 條件與結論都跟著程式碼走。
+  // ⚠️ 這裡**不寫死頁面清單**：寫死會在「某一頁還沒做圖表」時紅（那不是缺陷），而真正
+  //    該紅的「新增了一頁畫月度趨勢卻自己算平均」反而漏掉。改成從實作推導：凡是 render
+  //    `<MonthlyTrend` 的檔案，都必須引用得到 `monthlyBaselineSeries`。
   const files = execFileSync('git', ['ls-files', 'app'], { encoding: 'utf8' })
     .split('\n')
     .filter(f => f.endsWith('.vue'))
   const drawers: string[] = []
   const missing: string[] = []
   for (const f of files) {
-    // ⚠️ **一定要先把註解拿掉。** 第一版用 `src.includes('monthlyBaselineSeries')`
-    //    直接掃原始碼，實測把呼叫拿掉之後**照樣綠**——因為那一頁的註解裡就寫著
-    //    「見 stats.ts 的 monthlyBaselineSeries()」，註解餵飽了斷言。
+    // ⚠️ **一定要先把註解拿掉**：第一版直接掃原始碼，實測把呼叫拿掉之後**照樣綠**——
+    //    因為那一頁的註解裡就寫著「見 stats.ts 的 monthlyBaselineSeries()」。
     //    這個專案最貴的錯就是這種「檢查機制本身失效」，而且這一條是我自己剛寫的。
     const src = stripComments(await readFile(f, 'utf8').catch(() => ''))
     // 元件自己不算（它收 prop，不負責取數）
@@ -220,34 +196,19 @@ async function runMonthlyBaselineChecks(): Promise<void> {
 }
 
 /**
- * ── 「每年花費」每一列印的張數，跨層對帳 ────────────────────────────────────
- *
- * 這條 band 的每一列是 `{金額} / {場數} 場 / {票數} 張`（David 2026-09-07）。
- * 場數與張數是**兩個不同的數字**（一場可能買多張票），而把兩個參數對調
- * 是這種函式最典型也最看不出來的錯——畫面上仍然是兩個合理的數字。
- *
- * ★ 所以這裡拿**真實資料**跑**真正的前端函式**（直接 import `spendCountsText`，
- *   不是抄一份公式），再把「N 張」那個數字從渲染出來的字串裡讀回來，
- *   跟 DB 的 `totals.tickets` 對帳——那是一個**由另一個聚合算出來的數字**，
- *   不是同一個欄位的複本。參數一對調，加總就會變成場數（實測 174 ≠ 250）⇒ 紅。
- *
- * ⚠️ **這裡刻意沒有做的事**：不對 `by_year` 的加總 vs `totals` 做內部一致性
- *   斷言。兩邊都出自同一支 `user_year_stats` 的同一次呼叫，那是 DB 對 DB，
- *   前端怎麼改它都不會紅——正是本檔第 141 行那句「一致性斷言只驗到內部一致」
- *   在講的病。
- *
- * ⚠️ **接線那一半不在這裡**：`tests/stats.test.ts` 有一組不需要資料庫的原始碼
- *   斷言（元件真的呼叫了 `spendCountsText()`、三段的順序、分隔沒被關進
- *   `whitespace-nowrap`、儀表板沒寫成 `stats.value?.by_year`）。放在那邊是因為
- *   它們每次 `pnpm test` 都會跑。**改動這條 band 時兩邊都要看。**
- *
- * ⚠️ 「兩個呼叫端有沒有把 `tickets` 傳進去」**不要用字串比對守**：
- *   `/u/[username].vue` 全檔沒有 `tickets` 這個字（它的數字是 `useUserSpend()`
- *   的 map 帶進去的），而 `app/pages/app/index.vue` 本來就有三處無關的
- *   `tickets`（頁首那句、出席圖資料表、月度資料表）——正反兩個方向都會壞。
- *   那件事交給 `typecheck`：`SpendByYear` 的 props 把 `tickets: number` 設成必填，
- *   哪一端漏了 `vue-tsc` 就會紅。
+ * ── 「每年花費」每一列印的張數，跨層對帳 ──
+ * 每一列是 `{金額} / {場數} 場 / {票數} 張`，而場數與張數是**兩個不同的數字**；把兩個
+ * 參數對調是這種函式最典型也最看不出來的錯——畫面上仍然是兩個合理的數字。
+ * ★ 所以拿真實資料跑**真正的前端函式**，再把「N 張」從渲染出來的字串裡讀回來，跟 DB 的
+ *   `totals.tickets`（由另一個聚合算出來的數字）對帳。參數一對調就會變成場數（174 ≠ 250）。
  */
+// ⚠️ 刻意沒做的事：不對 `by_year` 加總 vs `totals` 做內部一致性斷言——兩邊出自同一次
+//    RPC 呼叫，那是 DB 對 DB，前端怎麼改都不會紅。
+// ⚠️ 接線那一半在 `tests/stats.test.ts`（不需要資料庫的原始碼斷言），**改動這條 band 時
+//    兩邊都要看**。
+// ⚠️ 「兩個呼叫端有沒有把 tickets 傳進去」**不要用字串比對守**：`/u/[username].vue` 全檔
+//    沒有 `tickets` 這個字，而 `app/pages/app/index.vue` 本來就有三處無關的 `tickets`
+//    ——正反兩個方向都會壞。那件事交給 typecheck（props 把 `tickets: number` 設成必填）。
 async function runSpendByYearChecks(): Promise<void> {
   const guards = '★ §6e／§7 #175：「每年花費」每一列印的是張數不是場數，而且與頁首那句「250 張票」同一個定義'
 
@@ -285,10 +246,9 @@ async function runSpendByYearChecks(): Promise<void> {
     ? `用場數冒充張數會得到 ${sumRecords}，與 ${sumDb} 不同 ⇒ ①分辨得出參數對調`
     : `⚠️ 這組資料下場數與張數同解（都是 ${sumDb}）⇒ 上面那條**分辨不出**參數對調，等於沒在守`)
 
-  // ③ 指定年份時 `by_year` 真的是空的——這是「`/app` 必須吃 `allStats` 而不是
-  //    `stats`」的**理由**。`tests/stats.test.ts` 那條原始碼斷言擋的是寫法，
-  //    這一條負責證明那個坑還在。哪天 RPC 改成指定年份也回 by_year，這條會紅，
-  //    到時候那條原始碼斷言就可以退休了。
+  // ③ 指定年份時 `by_year` 真的是空的——這是「`/app` 必須吃 `allStats`」的**理由**。
+  //    `tests/stats.test.ts` 那條原始碼斷言擋的是寫法，這一條證明那個坑還在；哪天 RPC 改成
+  //    指定年份也回 by_year，這條會紅，到時那條原始碼斷言就可以退休。
   const username = rows[0]?.username as string
   const someYear = byYear[0]?.year
   const scoped = (await sql('select public.user_year_stats($1, $2) as stats', [username, someYear]))[0]?.stats as YearStats | undefined
@@ -299,23 +259,15 @@ async function runSpendByYearChecks(): Promise<void> {
 }
 
 /**
- * ── 建置產物：OG 圖的 wasm ────────────────────────────────────────────────
- *
- * 2026-09-14 正式站第一次被打就 500：
- *   `ENOENT … open '/var/task/node_modules/harfbuzzjs/hb.wasm'`
- *
- * `satori` 的文字排版走 harfbuzz，而 `hb.js` 是用 `__dirname + 'hb.wasm'` 在
- * **執行期**組路徑去讀檔 ⇒ node-file-trace（只看得懂靜態 import）會複製 `hb.js`、
- * 漏掉 `hb.wasm`。`nuxt.config.ts` 的 `nitro.externals.traceInclude` 補上了它。
- *
- * ★ 這一條為什麼非存在不可：**在它之前，四道檢查沒有一道會說話**——
- *   typecheck、lint、test、verify:all 全綠，`pnpm build` 也 exit 0，
- *   連 `scripts/og-preview.ts` 都是綠的（它直接呼叫 render 函式、繞過打包產物）。
+ * ── 建置產物：OG 圖的 wasm ──
+ * 2026-09-14 正式站第一次被打就 500：`ENOENT … harfbuzzjs/hb.wasm`。`hb.js` 用
+ * `__dirname + 'hb.wasm'` 在**執行期**組路徑 ⇒ node-file-trace 會漏掉 wasm，
+ * 由 `nitro.externals.traceInclude` 補上。
+ * ★ 非存在不可的理由：在它之前**四道檢查沒有一道會說話**——typecheck／lint／test／
+ *   verify:all 全綠，`pnpm build` 也 exit 0，連 `og-preview.ts` 都綠（它繞過打包產物）。
  *   第一個說話的是部署。
- *
- * ★ 反向斷言（`build/og-runtime`）不可省：只驗「wasm 在不在」會被
- *   「satori 整段根本沒進產物」矇混成綠燈——那時 wasm 不在是**對的**，
- *   而 OG 端點一樣是壞的。所以要先證明 harfbuzz 這條路真的在產物裡。
+ * ★ 反向斷言不可省：只驗「wasm 在不在」會被「satori 整段沒進產物」矇混成綠——那時 wasm
+ *   不在是對的，而 OG 端點一樣是壞的。
  */
 async function runBuildArtifactChecks(): Promise<void> {
   const dir = '.output/server/node_modules/harfbuzzjs'

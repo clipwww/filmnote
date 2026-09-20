@@ -1,38 +1,17 @@
 /**
- * 只有**真的跑起來**才驗得到的東西。需要一個跑著的 Nuxt server。
- *
- *   pnpm dev                                    # 另一個終端機
- *   pnpm tsx --env-file=.env scripts/verify-http.ts
- *
- * 目前涵蓋兩組：
- *   ① SSR payload 不得夾帶來訪者身分（見下）
- *   ② `/api/og/**` 真的畫得出 PNG —— 那兩支端點曾經**對每一個請求都回 400**，
- *      而 `scripts/og-preview.ts` 是直接呼叫 render 函式的，完全繞過 HTTP 路由，
- *      所以那個 400 從來沒有被任何檢查碰到過（見 server/utils/og-route.ts）。
- *
- * ── 這支存在的理由 ────────────────────────────────────────────────────────
- * `server/middleware/strip-auth-on-cacheable.ts` 守的是這個專案最貴的一個外洩：
- * @nuxtjs/supabase 的 server plugin 無條件把 session 寫進 useState，而 Nuxt 把
- * useState 序列化進 `__NUXT_DATA__` ⇒ **任何** SSR 頁面的 HTML 都夾帶該次來訪者的
- * email、sub 與一枚約 59 分鐘效期的合法 access_token。走 ISR 的路由以「路徑」為
- * 單位快取 ⇒ 第一位登入者的 token 被寫進 CDN，發給之後所有訪客。
- *
- * 那支 middleware 原本自己維護一份「哪些路由會被快取」的正則，而 `/legal/**`
- * 改成不快取之後沒有跟著改——這一次漂移的方向是安全的（多拔一次 cookie），
- * **下一次未必**。少寫一條的症狀是 token 進 CDN，而畫面完全正常。
- *
- * 所以：
- *   ① middleware 改成向 Nitro 問 `getRouteRules(event)`，不再有第二份清單；
- *   ② 這支腳本測的**不是那個機制，是我們真正在乎的性質**——
- *      「會被快取的路由，HTML 裡不得出現 access_token」。
- *      機制哪天換掉（例如改用別的方式關掉 SSR session），這條斷言仍然有效。
- *
- * ★ 路由清單直接讀 `nuxt.config.ts` 的 routeRules，不在這裡重打一份。
- *   重打就又是兩份，而兩份一定會漂移——那正是這支要修的東西。
- *
- * ── 為什麼不併進 verify:all ───────────────────────────────────────────────
- * 需要跑著的 Nuxt server。verify:all 必須在沒有 server 的環境也全綠。
+ * 只有**真的跑起來**才驗得到的東西（需要跑著的 Nuxt server，所以不併進 verify:all）。
+ *   pnpm dev  ／  pnpm tsx --env-file=.env scripts/verify-http.ts
+ * 兩組：① SSR payload 不得夾帶來訪者身分；② `/api/og/**` 真的畫得出 PNG——那兩支端點曾經
+ * 對每個請求都回 400，而 `og-preview.ts` 直接呼叫 render 函式、繞過 HTTP 路由，所以那個
+ * 400 從來沒有被任何檢查碰到過。
  */
+// ①守的是這個專案最貴的一個外洩：任何 SSR 頁面的 HTML 都夾帶來訪者的 email、sub 與一枚
+//   約 59 分鐘效期的合法 access_token，而走 ISR 的路由以路徑為單位快取 ⇒ 第一位登入者的
+//   token 被寫進 CDN 發給所有訪客。
+// ★ 這支測的**不是 middleware 的機制，是我們真正在乎的性質**（「會被快取的路由，HTML 裡
+//   不得出現 access_token」）⇒ 機制哪天換掉這條斷言仍然有效。
+// ★ 路由清單直接讀 `nuxt.config.ts` 的 routeRules，不在這裡重打一份——重打就又是兩份，
+//   而兩份一定會漂移，那正是這支要修的東西。
 
 import { Buffer } from 'node:buffer'
 import process from 'node:process'
@@ -46,12 +25,9 @@ interface Result { ok: boolean }
 const results: Result[] = []
 
 /**
- * 斷言的輸出介面。
- *
- * ★ 抽成介面是為了讓 `verify-all.ts` **共用同一份斷言**而不是抄一份。
- *   這支原本只能單獨跑，於是 `strip-auth-on-cacheable.ts` 的註解宣稱有一張
- *   安全網、而 `verify:all` 從來沒跑過它——**一個宣稱有安全網的註解比沒有註解
- *   更糟，它會讓人不去補真的那個**（§7 #124）。
+ * 斷言的輸出介面。★ 抽成介面是為了讓 `verify-all.ts` **共用同一份斷言**而不是抄一份：
+ * 這支原本只能單獨跑，於是 middleware 的註解宣稱有一張安全網、而 `verify:all` 從來沒跑
+ * 過它——**一個宣稱有安全網的註解比沒有註解更糟，它會讓人不去補真的那個**（§7 #124）。
  */
 export interface Reporter {
   record: (label: string, ok: boolean, detail?: string, guards?: string) => void
@@ -74,16 +50,14 @@ const standalone: Reporter = {
 }
 
 /**
- * 從 nuxt.config.ts 取出 routeRules。
- *
- * `defineNuxtConfig` 在 Nuxt 之外是不存在的全域函式，所以先塞一個原樣回傳的
- * 替身再 import。這比自己剖析檔案可靠——它拿到的就是那份物件本身。
+ * 從 nuxt.config.ts 取出 routeRules。`defineNuxtConfig` 在 Nuxt 之外不存在，所以先塞一個
+ * 原樣回傳的替身再 import——這比自己剖析檔案可靠，拿到的就是那份物件本身。
  */
 async function loadRouteRules(): Promise<Record<string, Record<string, unknown>>> {
   ;(globalThis as Record<string, unknown>).defineNuxtConfig = (c: unknown) => c
-  // ★ 路徑放在變數裡是刻意的。寫成字面值的話 TypeScript 會把 nuxt.config.ts
-  //   拉進 tsconfig.pipeline 的程式集，而那裡沒有 `defineNuxtConfig` 的宣告
-  //   ⇒ `pnpm typecheck` 紅在一個與這支無關的檔案上。
+  // ★ 路徑放在變數裡是刻意的：寫成字面值的話 TypeScript 會把 nuxt.config.ts 拉進
+  //   tsconfig.pipeline 的程式集（那裡沒有 `defineNuxtConfig` 的宣告）⇒ typecheck 會紅在
+  //   一個與這支無關的檔案上。
   const configPath = '../nuxt.config'
   const mod = await import(configPath) as { default: { routeRules?: Record<string, Record<string, unknown>> } }
   return mod.default.routeRules ?? {}
@@ -114,14 +88,13 @@ export async function runSsrAndOgChecks(r: Reporter): Promise<void> {
 
   const alive = await fetch(SITE).then(() => true).catch(() => false)
   if (!alive) {
-    // ★ 略過而不是失敗：verify:all 必須在沒有 dev server 的環境（CI、剛 clone
-    //   的機器）也全綠。但**要吵**——被略過的斷言等於不存在，所以這一行要
-    //   出現在輸出裡，而且 verify:all 的合計會把略過數單獨列出來。
+    // ★ 略過而不是失敗：verify:all 必須在沒有 dev server 的環境也全綠。但**要吵**——
+    //   被略過的斷言等於不存在，所以這一行要出現在輸出裡。
     return r.skip('ssr/og', `${SITE} 沒有回應 —— 這一組守的是「訪客的 access_token 不得被寫進 CDN」（踩雷 #79）。先跑 \`pnpm dev\` 再跑一次。`)
   }
 
-  // 取真的 slug / venue id / username，否則抓到的是 404 頁——那上面本來就
-  // 沒有 payload，斷言會「通過」而什麼都沒驗到（§7 #102）。
+  // 取真的 slug / venue id / username，否則抓到的是 404 頁——那上面本來就沒有 payload，
+  // 斷言會「通過」而什麼都沒驗到（§7 #102）。
   const db = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } })
   await db.connect()
   const { rows } = await db.query<{ film_slug: string, venue_id: string, username: string }>(

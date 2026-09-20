@@ -1,9 +1,6 @@
 /**
- * 匯入進度的保存與續跑。
- *
- * 存在的理由很具體：110–113 年全量匯入是 3,116 筆核准紀錄、9,076 次
- * TMDB 請求，實測耗時 3,872 秒。這種長度的工作隨時可能因網路、上游
- * 或人為中斷而斷掉，不能每次都從頭來過——這也是 SPEC 明列的實作約束。
+ * 匯入進度的保存與續跑。理由很具體：110–113 年全量匯入是 3,116 筆核准紀錄、9,076 次
+ * TMDB 請求、實測耗時 3,872 秒——這種長度的工作隨時可能斷掉，不能每次從頭來過。
  */
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
@@ -43,13 +40,9 @@ export interface ResumableOptions<Item, Result> {
   /** 每處理幾筆寫一次 checkpoint。 */
   flushEvery?: number
   /**
-   * 同時處理的項目數。
-   *
-   * 這一層必須真的併發，下游客戶端的併發閘門才有作用——閘門只在
-   * 多個請求同時在飛時才起效。預設 8 與 TmdbClient 的預設相同。
-   *
-   * 提高此值前請留意：全量匯入在近乎循序的情況下未觸發任何節流，
-   * 但高併發下 TMDB 的行為尚未驗證，請觀察 TmdbClient.stats.throttled。
+   * 同時處理的項目數。這一層必須真的併發，下游的併發閘門才有作用（閘門只在多個請求
+   * 同時在飛時才起效）。⚠️ 提高前留意：全量匯入在近乎循序下未觸發任何節流，高併發下
+   * TMDB 的行為尚未驗證，請觀察 `TmdbClient.stats.throttled`。
    */
   concurrency?: number
   /** 進度回報。 */
@@ -58,16 +51,11 @@ export interface ResumableOptions<Item, Result> {
 
 /**
  * 以固定數量的 worker 併發處理，並定期保存進度；已完成的項目在重跑時跳過。
- *
- * 這裡必須自己併發，不能只依賴下游客戶端的併發閘門——閘門只有在
- * 同時有多個請求在飛時才起作用，而呼叫端若逐筆 await，閘門永遠只看到
- * 一個請求。先前的版本正是如此，實測吞吐掉到 0.78 筆/秒（應有的
- * 五分之一）。
- *
- * 併發下仍然安全的理由：JS 是單執行緒，`checkpoint.done[key] = ...`
- * 與 flush 的判斷都發生在 await 之間的同步區塊，不會交錯；寫檔則以
- * `flushing` 串接，避免兩次寫入互相覆蓋。
+ * ⚠️ 必須自己併發，不能只依賴下游的閘門：呼叫端若逐筆 await，閘門永遠只看到一個請求
+ * ——先前的版本正是如此，實測吞吐掉到 0.78 筆/秒（應有的五分之一）。
  */
+// 併發下仍安全：JS 單執行緒，`done[key] = …` 與 flush 判斷都在 await 之間的同步區塊，
+// 不會交錯；寫檔以 `flushing` 串接，避免兩次寫入互相覆蓋。
 export async function runResumable<Item, Result>(
   options: ResumableOptions<Item, Result>,
 ): Promise<Record<string, Result>> {

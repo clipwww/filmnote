@@ -1,16 +1,8 @@
 /**
  * 把 `supabase/migrations/**` 同步進 `docs/BUILD_PLAN.md` 的 schema 章節。
- *
- *   pnpm exec tsx scripts/sync-schema-docs.ts           # 檢查漂移（漂移則 exit 1）
- *   pnpm exec tsx scripts/sync-schema-docs.ts --write   # 實際寫回文件
- *
- * （`db:sync-docs` 的 package.json 別名待主 session 核可後補上。）
- *
- * §1.2 開頭寫著「本節與 0001_init.sql 逐字相同」。那句話在人工維護下必然
- * 會變成謊——0002 加進來時它就已經漂移了一次。與其倚賴記得，不如讓「檢查
- * 是否漂移」變成一道可以跑的指令：`--check`（預設）在不一致時直接失敗，
- * 可以掛進 CI 或 commit 前的例行檢查。
- *
+ *   pnpm exec tsx scripts/sync-schema-docs.ts [--write]   # 預設只檢查漂移，漂移則 exit 1
+ * §1.2 開頭寫著「本節與 0001_init.sql 逐字相同」——那句話在人工維護下必然會變成謊（0002
+ * 加進來時就已經漂移過一次）⇒ 與其倚賴記得，不如讓「檢查是否漂移」變成一道可以跑的指令。
  * 章節與檔案的對應寫在 SECTIONS，新增 migration 時只要加一列。
  */
 

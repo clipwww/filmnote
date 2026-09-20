@@ -1,9 +1,7 @@
 /**
  * 舊 log 專案（mechakucha-api `/my-log/movie`）的觀影紀錄正規化。
- *
- * 這個模組刻意只放純函式：時區換算與版本對照是整個匯入裡最容易錯、
- * 也最值得回歸測試的兩件事，把它們和 I/O 分開才測得動
- * （見 tests/import.test.ts）。
+ * 刻意只放純函式：時區換算與版本對照是整個匯入裡最容易錯的兩件事，
+ * 和 I/O 分開才測得動（tests/import.test.ts）。
  */
 
 import { normalizeCountry } from '#pipeline/normalize/country'
@@ -37,24 +35,13 @@ export interface TaipeiWallClock {
 }
 
 /**
- * 台北牆上時間。
- *
- * 上游的 `date` 是 UTC 瞬間，但它代表的是**台北的牆上時間**：
- * `2026-07-26T08:00:00.000Z` 這筆，原始 CSV 列寫的是 `2026/07/26 (週日) 16:00`。
- * 169 筆實測全部吻合（見 parseRawWallClock 的交叉驗證）。
- *
- * schema 存 `watched_on date` + `watched_time time` 而非 timestamptz，
- * 就是為了讓貢獻圖與時段熱力圖零換算。所以**必須先換到台北時區再取日期**。
- *
- * 直接取 UTC 的日期部分會錯，但方向和直覺相反：台北 = UTC+8，所以台北時間
- * 08:00 以後的場次（含全部晚場）UTC 日期仍相同，真正會跑掉的是**午夜場**——
- * 台北 00:00 的 UTC 是**前一天** 16:00。169 筆裡有 5 筆 00:00 的午夜場
- * （《正義聯盟》《雷神索爾3》《氣象戰》《少女與戰車 最終章 第1話》
- * 《美國隊長3》），不換算會全部退到前一天。
- *
- * 用 Intl 而非硬寫 +8：台灣在 1979 年以前實施過日光節約時間，
- * 硬寫偏移量在資料回溯到更早年份時會靜默地錯。
+ * 台北牆上時間。上游的 `date` 是 UTC 瞬間但代表**台北牆上時間**（169 筆實測全部吻合，
+ * 見 `parseRawWallClock` 的交叉驗證）。schema 存 date + time 就是為了讓貢獻圖與時段
+ * 熱力圖零換算 ⇒ **必須先換到台北時區再取日期**。
  */
+// 方向與直覺相反：台北 08:00 之後的場次 UTC 日期相同，真正會跑掉的是**午夜場**
+// （台北 00:00 的 UTC 是前一天 16:00）——169 筆裡有 5 筆，不換算會全部退到前一天。
+// 用 Intl 而非硬寫 +8：台灣 1979 年以前實施過日光節約時間，硬寫會靜默地錯。
 const TAIPEI_PARTS = new Intl.DateTimeFormat('en-US', {
   timeZone: 'Asia/Taipei',
   year: 'numeric',
@@ -82,15 +69,12 @@ export function toTaipeiWallClock(iso: string): TaipeiWallClock {
 
 /**
  * base64 的 id 解回原始 CSV 列，供交叉驗證與人工核對。
- *
- * ⚠️ 刻意不用 `Buffer`。這個模組同時被 CLI（`scripts/import-mylog.ts`）與
- * 瀏覽器（`/app/import`）載入，而 `node:buffer` 會讓**整個模組**在瀏覽器裡
- * 載不起來——dev 是整條路由 500，**build 卻是 exit 0 並把它編成空物件**。
- * 也就是說靜態檢查全綠、建置成功，功能靜默消失。
- *
- * `atob` 回的是 latin1 字串（每個 char code 是一個位元組），中文必須再經
- * `TextDecoder` 才會對。等價性已對 169 個真實 import key 逐一比對（169/169 相同）。
+ * ⚠️ 刻意不用 `Buffer`：本模組同時被 CLI 與瀏覽器載入，而 `node:buffer` 會讓整個模組
+ * 在瀏覽器裡載不起來——dev 是整條路由 500，**build 卻是 exit 0 並把它編成空物件**
+ * （靜態檢查全綠、建置成功、功能靜默消失）。
  */
+// `atob` 回 latin1 字串，中文必須再經 TextDecoder；等價性已對 169 個真實 import key
+// 逐一比對（169/169 相同）。
 export function decodeImportKey(id: string): string {
   const binary = atob(id)
   const bytes = new Uint8Array(binary.length)
@@ -99,15 +83,10 @@ export function decodeImportKey(id: string): string {
 }
 
 /**
- * 自解碼後的原始 CSV 列取出牆上時間，用來交叉驗證 `date` 欄。
- *
- * 實測有兩種寫法（166 / 3 筆）：
- *   `2026/07/26 (週日) 16:00`
- *   `2025/7/4 下午 22:10:00`
- * 「下午」在第二種寫法裡是**裝飾**——三筆的時針分別是 21、22、20，
- * 已經是 24 小時制，再加 12 會溢位。因此一律忽略上午／下午標記。
- *
- * 解析不出來時回傳 null，由呼叫端決定要不要當成錯誤。
+ * 自解碼後的原始 CSV 列取出牆上時間，用來交叉驗證 `date` 欄。解析不出來回 null。
+ * 實測兩種寫法（166 / 3 筆）：`2026/07/26 (週日) 16:00`、`2025/7/4 下午 22:10:00`。
+ * ⚠️ 「下午」在第二種裡是**裝飾**——三筆的時針是 21、22、20，已是 24 小時制，
+ * 再加 12 會溢位 ⇒ 一律忽略上午／下午標記。
  */
 const RAW_WALL_CLOCK_RE
   = /^(\d{4})\/(\d{1,2})\/(\d{1,2})\s+(?:\([^)]*\)\s*)?(?:(?:上午|下午)\s*)?(\d{1,2}):(\d{2})/
@@ -131,48 +110,28 @@ export interface FormatMapping {
   /** viewing_record.format_note，沒有額外資訊時為 null。 */
   note: string | null
   /**
-   * viewing_record.hall_label。
-   *
-   * ⚠️ 2026-09-20 起**對照表沒有任何一列會填這裡**（見下方 FORMAT_TABLE 的註解：
-   * TITAN/MAPPA 已升格成獨立版本）。欄位留著而不是拿掉，是因為
-   * `normalizeRecords` 仍然把它寫成 `hallLabel`（本檔 313 行）、再由
-   * `scripts/import-mylog.ts` 寫進 `viewing_record.hall_label`，而日後真的遇到
-   * 「來源寫的廳別確實不是一種放映版本」的寫法時還用得到。
+   * viewing_record.hall_label。⚠️ 2026-09-20 起對照表**沒有任何一列會填這裡**
+   * （TITAN/MAPPA 已升格成獨立版本，見下方）。欄位留著是因為下游仍然寫這一欄，
    * 但**不要**再把它當成「歸不進既有版本就塞這裡」的出口——那正是被推翻的推理。
    */
   hall: string | null
 }
 
 /**
- * 放映版本 → screening_format.code。
- *
- * 逐字對照而非樣式比對：實測只有 10 種相異寫法，全部列出來比正規表示式
- * 更好讀，也讓日後冒出的新寫法在匯入時**明確報錯**而非被靜默歸到「其他」。
- *
- * ── TITAN 與 MAPPA：前一輪的決定已於 2026-09-20 被推翻 ─────────────────
- *
- * 舊結論（**不刪掉，留著是為了擋住重新推導**）：「TITAN 與 MAPPA 是威秀的
- * **廳型品牌**而非放映格式（其中一筆的備註寫「TITAN廳初體驗」），所以進
- * hall_label，format_code 記為 other。」
- *
- * David 2026-09-20 逐字推翻：「MAPPA 跟 TITAN 也是獨立的一種版本，不要歸類為
- * 『其他』」。新理由：`screening_format` 是 SPEC 明講「會持續長出成員的開放
- * 詞彙」，判準是**使用者買票時選的是哪一種放映版本**，而不是它在技術上算不算
- * 一套獨立的放映規格——照後者的判準，4DX 與 Dolby Cinema 同樣是品牌名。
- * 歸進 other 的代價是實測的：那 5 筆在 /app 與 /u/ 的版本分布圖上會併成
- * 「其他」一桶（RPC 是 `group by coalesce(r.format_code,'other')`），
- * 兩個相異的版本在圖上看不出來。
- *
- * ⇒ 兩者各自成為 screening_format 的成員（`mappa` / `titan`），
- *   且 **hall_label 留空**：既有慣例是「版本已經指明了是哪個廳時廳別欄就留空」，
- *   實測 imax 9 + 4dx 30 + dolby 1 共 39 筆的 hall_label 全部是 null。
- *   不留空的話 `app/utils/ticket.ts` 會印成「林口…威秀影城 (MAPPA) MAPPA」，
- *   成為全站唯一印兩次的紀錄。
- *
- * ⚠️ 這件事有兩半，只做一半下次一定漂回去：既有的 5 筆由
- *   `supabase/migrations/0016_screening_format_mappa_titan.sql` 就地改寫，
- *   這張表管的是**之後匯入的資料**。改動任一邊的人請連同另一邊一起看。
+ * 放映版本 → screening_format.code。逐字對照而非樣式比對：實測只有 10 種相異寫法，
+ * 全部列出來比正規表示式好讀，也讓日後冒出的新寫法**明確報錯**而非靜默歸到「其他」。
  */
+// ── TITAN / MAPPA：前一輪的決定已於 2026-09-20 被推翻 ──
+// 舊結論（**不刪，留著是為了擋住重新推導**）：「它們是威秀的廳型品牌而非放映格式，
+// 所以進 hall_label、format_code 記 other。」
+// 新理由：判準是**使用者買票時選的是哪一種版本**，不是它技術上算不算一套規格——照後者
+// 4DX 與 Dolby Cinema 同樣只是品牌名。歸進 other 的代價實測過：那 5 筆在分布圖上會併成
+// 「其他」一桶（RPC 是 `group by coalesce(r.format_code,'other')`），兩個版本看不出來。
+// ⇒ 各自成為 screening_format 的成員，且 **hall_label 留空**（既有慣例：版本已指明是哪個
+//   廳時廳別欄留空，實測 imax 9 + 4dx 30 + dolby 1 共 39 筆全是 null；不留空會印成
+//   「林口…威秀影城 (MAPPA) MAPPA」）。
+// ⚠️ 這件事有兩半：既有 5 筆由 `0016_screening_format_mappa_titan.sql` 就地改寫，這張表
+//    管的是之後匯入的資料。改任一邊的人請連同另一邊一起看，只做一半下次一定漂回去。
 const FORMAT_TABLE: Record<string, FormatMapping> = {
   '2D': { code: 'digital', note: null, hall: null },
   '2D (ATMOS)': { code: 'digital', note: 'ATMOS', hall: null },
@@ -213,18 +172,12 @@ export interface NormalizedRecord {
   hallLabel: string | null
   ticketCount: number
   /**
-   * viewing_record_cost.amount。
-   *
-   * 直接採用上游的 `cost`，不自行由 price/fee/tickets/discount 重算：
-   * 實測 19 筆對不上「price×tickets+fee−discount」，因為 `fee` 是**每張**
-   * 手續費而非每筆（`240,20,2,0,520` → 240×2+20×2=520）。上游的 `cost`
-   * 才是實付金額，也是唯一能同時解釋兌換票（`0,0,1,200,0`）與
-   * 折扣票（`357,0,1,113,357`）的欄位。
-   *
-   * **null 代表「這一筆不記金額」**，不是 0 元：雙片連映拆出來的第二筆
-   * 屬於同一次付款，票價全額記在第一筆，這一筆連 viewing_record_cost
-   * 那一列都不建（見 src/import/double-features.ts）。
+   * viewing_record_cost.amount。直接採用上游的 `cost` 不自行重算：實測 19 筆對不上
+   * 「price×tickets+fee−discount」，因為 `fee` 是**每張**手續費（`240,20,2,0,520`
+   * → 240×2+20×2）。`cost` 也是唯一能同時解釋兌換票與折扣票的欄位。
    */
+  // **null 代表「這一筆不記金額」不是 0 元**：雙片連映拆出的第二筆屬於同一次付款，
+  // 票價全額記在第一筆，連 viewing_record_cost 那一列都不建（見 double-features.ts）。
   amount: number | null
   memo: string | null
 }
@@ -242,10 +195,8 @@ export interface NormalizeResult {
 }
 
 /**
- * 逐筆正規化，並以解碼後的原始 CSV 列交叉驗證時區換算。
- *
- * 交叉驗證不是多餘的：`date` 欄的語意（UTC 存的是台北牆上時間）是逆推來的，
- * 而原始列裡就寫著答案。上游哪天改了 `date` 的產生方式，這裡會立刻炸出來，
+ * 逐筆正規化，並以解碼後的原始 CSV 列交叉驗證時區換算。交叉驗證不是多餘的：`date` 欄的
+ * 語意是逆推來的，而原始列裡就寫著答案 ⇒ 上游哪天改了產生方式這裡會立刻炸，
  * 而不是靜默地把 169 筆全部偏移八小時。
  */
 export function normalizeRecords(items: MyLogItem[]): NormalizeResult {

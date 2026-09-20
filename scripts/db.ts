@@ -1,23 +1,18 @@
 /**
- * 直連 Postgres 跑 SQL。migration 與 §8.1 的斷言都需要它——
- * PostgREST 看不到 pg_class / pg_proc，那些檢查只能走 SQL。
- *
+ * 直連 Postgres 跑 SQL。migration 與 §8.1 的斷言都需要它——PostgREST 看不到
+ * pg_class / pg_proc。連線字串取自 DATABASE_URL。
  *   npm run db:sql -- supabase/migrations/0001_init.sql
  *   npm run db:sql -- --query "select count(*) from public.film"
- *
- * 連線字串取自 DATABASE_URL（.env）。整份檔案以單一 simple-query
- * 送出，因此在隱式交易內執行：任何一句失敗即全部回滾，不會留下半套 schema。
+ * ⚠️ 整份檔案以單一 simple-query 送出 ⇒ 在隱式交易內執行：任何一句失敗即全部回滾。
  */
 
 import { readFile } from 'node:fs/promises'
 import process from 'node:process'
 import { Client, types as pgTypes } from 'pg'
 
-// node-postgres 預設把 date / timestamp 解析成 JS Date，console.table 再以
-// ISO（UTC）印出來——一個存著 2026-09-05 的 date 欄位會顯示成
-// 2026-09-04T16:00:00.000Z，看起來像是被時區轉換過。本專案刻意用
-// date + time 避開時區問題，斷言時被這個顯示層誤導會得出完全相反的結論。
-// 一律保留資料庫給的字串。
+// ⚠️ node-postgres 預設把 date/timestamp 解析成 JS Date，console.table 再以 UTC 印出來
+// ——存著 2026-09-05 的 date 欄位會顯示成 2026-09-04T16:00:00.000Z，看起來像被時區轉換過。
+// 斷言時被這個顯示層誤導會得出完全相反的結論 ⇒ 一律保留資料庫給的字串（踩雷 #253）。
 for (const oid of [1082 /* date */, 1114 /* timestamp */, 1184 /* timestamptz */, 1083])
   pgTypes.setTypeParser(oid, v => v)
 
@@ -41,11 +36,9 @@ async function main() {
     ssl: { rejectUnauthorized: false },
     statement_timeout: 300_000,
   })
-  // ★ 沒有這一段，`raise notice` 全部靜默消失。代價比看起來大：
-  //   - migration 裡的冒煙測試印「通過」也沒人看得到，等於沒印
-  //   - 9999_grants.sql 的「xxx 尚不存在，略過其 grant」會**無聲跳過授權**，
-  //     前端拿到的是沒有上下文的 401，而套用 migration 的人以為一切正常
-  //   PostgreSQL 的 notice 走的是獨立通道，不會出現在查詢結果裡。
+  // ★ 沒有這一段，`raise notice` 全部靜默消失（PostgreSQL 的 notice 走獨立通道）。代價
+  //   比看起來大：migration 的冒煙測試印「通過」沒人看得到；9999_grants.sql 的「xxx 尚不
+  //   存在，略過其 grant」會**無聲跳過授權**，前端拿到沒有上下文的 401。
   client.on('notice', (msg) => {
     if (msg.message)
       console.log(`[${(msg.severity ?? 'NOTICE').toLowerCase()}] ${msg.message}`)

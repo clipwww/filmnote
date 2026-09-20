@@ -1,17 +1,9 @@
 /**
- * TMDB API 客戶端。
- *
- * 重試與退避是**防禦性設計，非已證實的需求**：110–113 年全量匯入的
- * 9,076 次請求中，重試 0 次、遭 429 節流 0 次。但那次執行的實際併發
- * 接近 1（呼叫端當時逐筆等待），所以高併發下的節流行為仍未驗證。
- *
- * Python 原型曾在 8 併發下觀察到批次間約 6 倍的速度差異（709 筆/259 秒
- * vs 868 筆/1,669 秒），原因未確認——未量測 429，可能是網路或上游延遲
- * 而非節流。提高併發後若出現 429，`stats.throttled` 會記錄下來。
- *
- * 無論如何，不假設任何一次呼叫會成功：匯入管線必須能中斷續跑
- * （見 pipeline/checkpoint.ts）。
+ * TMDB API 客戶端。重試與退避是**防禦性設計而非已證實的需求**：110–113 年全量匯入的
+ * 9,076 次請求中重試 0 次、429 節流 0 次——但那次的實際併發接近 1，所以高併發下的節流
+ * 行為仍未驗證（Python 原型曾在 8 併發下看到批次間約 6 倍速度差，原因未確認）。
  */
+// 無論如何不假設任何一次呼叫會成功：匯入管線必須能中斷續跑（見 pipeline/checkpoint.ts）。
 
 import type { TmdbMovieDetail, TmdbSearchResult } from '#pipeline/types'
 
@@ -47,10 +39,8 @@ export class TmdbError extends Error {
 }
 
 /**
- * 併發閘門。
- *
- * 不用第三方套件是因為需求很小，而且這裡的行為值得被讀懂：
- * 超過上限的請求排隊等待，而非被丟棄或平行送出。
+ * 併發閘門。不用第三方套件是因為需求很小，而且這裡的行為值得被讀懂：超過上限的請求
+ * 排隊等待，而非被丟棄或平行送出。
  */
 class Gate {
   private active = 0
@@ -143,21 +133,15 @@ export class TmdbClient {
   }
 
   /**
-   * 台灣的**上映中**與**即將上映**清單。
-   *
-   * ── 為什麼是這兩支而不是 `/discover` ──────────────────────────────────
-   * `/discover/movie` 要自己組 `release_date.gte` 與 `with_release_type`，
-   * 而「台灣什麼時候算上映」正是這個專案最不想自己定義的東西——
-   * 政府核准資料才是權威。`now_playing` / `upcoming` 的 `region=TW`
-   * 由 TMDB 自己用台灣的上映資料算，我們只拿它當**線索**，不當事實。
-   *
-   * ⚠️ 回傳的 `release_date` 是 TMDB 的**主要**上映日，**不一定是台灣的**。
-   *   要台灣上映日必須另外呼叫 `detail()` 再走 `taiwanReleaseDate()`——
-   *   那是一部片一次請求，所以**不要在掃清單的時候順手做**。
-   *
-   * ⚠️ TMDB 的分頁上限是 500 頁，但這兩支實務上只有數頁。`maxPages` 是保險，
-   *   不是分頁器：超過就停，並由呼叫端決定要不要吵。
+   * 台灣的**上映中**與**即將上映**清單。用這兩支而不是 `/discover`：後者要自己組
+   * `release_date.gte` 與 `with_release_type`，而「台灣什麼時候算上映」正是這個專案最
+   * 不想自己定義的東西——政府核准資料才是權威，這裡只拿 TMDB 當線索。
    */
+  // ⚠️ 回傳的 `release_date` 是 TMDB 的**主要**上映日不一定是台灣的：要台灣上映日必須
+  //    另外 `detail()` 再走 `taiwanReleaseDate()`，那是一部片一次請求 ⇒ **不要在掃清單
+  //    的時候順手做**。
+  // ⚠️ `maxPages` 是保險不是分頁器（TMDB 上限 500 頁，這兩支實務上只有數頁）：超過就停，
+  //    由呼叫端決定要不要吵。
   async taiwanReleases(kind: 'now_playing' | 'upcoming', maxPages = 5): Promise<TmdbSearchResult[]> {
     const out: TmdbSearchResult[] = []
     for (let page = 1; page <= maxPages; page++) {

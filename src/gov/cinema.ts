@@ -1,9 +1,6 @@
 /**
- * 「全國電影院資料」CSV → Cinema[]
- *
- * 只取最新年度單一檔案。跨年度 schema 不穩定（2016 年有縣市與備註共 8 欄、
- * 2020 年反而拿掉地址與電話改成設立年份共 7 欄、2025 年為 6 欄），
- * 合併多個年度只會製造麻煩。
+ * 「全國電影院資料」CSV → Cinema[]。只取最新年度單一檔案：跨年度 schema 不穩定
+ * （2016 年 8 欄、2020 年反而拿掉地址與電話改成 7 欄、2025 年 6 欄），合併只會製造麻煩。
  */
 
 import type { Cinema, RawCinemaRow } from '#pipeline/types'
@@ -18,11 +15,9 @@ export interface CinemaParseResult {
   /** 認不出縣市的地址，需人工處理。實測 2025 年為 0 筆。 */
   unknownCity: { taxId: string, name: string, address: string }[]
   /**
-   * 「事業名稱」欄是空的、`name` 已退回公司名稱的那幾筆。
-   *
-   * 實測 2025 年 3 筆（21235165／25116865／54186685）。這是**每年都會重來**
-   * 的上游現象，所以要帶出去讓 `ingest-cinema` 印出來——不印的話，明年多了
-   * 第 4 筆不會有任何人知道，而它會直接長進「在哪看」的下拉選單裡。
+   * 「事業名稱」欄是空的、`name` 已退回公司名稱的那幾筆（實測 2025 年 3 筆）。
+   * 這是**每年都會重來**的上游現象 ⇒ 要帶出去讓 `ingest-cinema` 印出來，不印的話明年
+   * 多了第 4 筆不會有人知道，而它會直接長進「在哪看」的下拉選單。
    */
   blankName: { taxId: string, companyName: string, address: string }[]
 }
@@ -46,8 +41,7 @@ export function parseCinemaCsv(csv: string): CinemaParseResult {
   const blankName: CinemaParseResult['blankName'] = []
 
   for (const row of rows) {
-    // 事業名稱在來源資料中可能帶前後空白（實測 2025 年 2 筆：
-    // 「台中大遠百威秀影城 」與「 in89駁二電影院」）。
+    // 事業名稱可能帶前後空白（實測 2025 年 2 筆）。
     const govName = (row.事業名稱 ?? '').trim()
     const companyName = (row.公司名稱 ?? '').trim()
     const taxId = (row.統一編號 ?? '').trim()
@@ -55,28 +49,18 @@ export function parseCinemaCsv(csv: string): CinemaParseResult {
     const city = extractCity(address)
 
     /**
-     * ★ 事業名稱**可能整欄是空的**（實測 2025 年 3 筆：21235165 龍子電影事業、
-     *   25116865 國元影業、54186685 映捌玖數位影城，三筆都只填了公司名稱）。
-     *
-     * 空字串不是解析錯誤，是政府 CSV 的常態——但把它原樣往下傳會出事：
-     * `venue.name` 一路空到「在哪看」的下拉選單，被 `{{ name }} · {{ city }}`
-     * 這種樣板算繪成只剩「· 台北市」，看起來像選單裡混進了行政區名
-     * （2026-09-07 David 回報的就是這個）。**症狀在算繪層、病灶在這一行。**
-     *
-     * `SCREENS §6` 早就裁決 `displayName = name || companyName`，在這裡收斂：
-     * 下游七個直接讀 `venue.name` 的地方（記錄選單、匯入選單、票根卡的
-     * `venueSegment()`、兩支圖表的 `?? '（場所不明）'`…）各有各的爛法，
-     * 沒有任何一個共用層擋得住，只有源頭擋得住。
-     *
-     * ⚠️ 這只是**保底**，給的是法人全銜（「國元影業股份有限公司」）。真正的
-     *    店名由 `supabase/migrations/0015_venue_blank_name.sql` 以 `curated_fields`
-     *    寫死，那一支才是 UI 上會看到的名字。
-     * ⚠️ 不要改成「從公司名稱的全形括號裡挖店名」：全庫 110 筆 cinema 只有
-     *    1 筆是那個形狀（n=1），那是猜測不是規則。
-     * ⚠️ 這個 fallback 會連 `venue.raw` 一起變（`scripts/seed-supabase.ts` 存的
-     *    `raw` 是**這個物件本身**，不是政府 CSV 原樣），所以「政府那一欄本來
-     *    是空的」這個證據只剩下 `blankName` 的 console 輸出。見交接的 not_done。
+     * ★ 事業名稱**可能整欄是空的**（實測 2025 年 3 筆，只填了公司名稱）。空字串不是解析
+     * 錯誤而是政府 CSV 的常態，但原樣往下傳會出事：`venue.name` 一路空到下拉選單，被
+     * `{{ name }} · {{ city }}` 算繪成只剩「· 台北市」（2026-09-07 David 回報的就是這個）。
+     * **症狀在算繪層、病灶在這一行** ⇒ 照 `SCREENS §6` 的 `name || companyName` 在源頭收斂
+     * （下游七個直接讀 `venue.name` 的地方各有各的爛法，只有源頭擋得住）。
      */
+    // ⚠️ 這只是保底，給的是法人全銜；真正的店名由 `0015_venue_blank_name.sql` 的
+    //    `curated_fields` 寫死，那一支才是 UI 上會看到的名字。
+    // ⚠️ 不要改成「從公司名稱的全形括號裡挖店名」：全庫 110 筆只有 1 筆是那個形狀（n=1），
+    //    那是猜測不是規則。
+    // ⚠️ 這個 fallback 會連 `venue.raw` 一起變（seed 存的 raw 是**這個物件本身**），所以
+    //    「政府那一欄本來是空的」這個證據只剩下 `blankName` 的 console 輸出。
     const name = govName || companyName
 
     if (!city)
@@ -100,10 +84,8 @@ export function parseCinemaCsv(csv: string): CinemaParseResult {
 }
 
 /**
- * 檢查統一編號是否堪用為主鍵。
- *
- * 實測 2025 年 107/107 皆有值且零重複，但這是每年重新匯入時
- * 必須複驗的前提——上游一旦出現空值或重複，主鍵策略就要改。
+ * 檢查統一編號是否堪用為主鍵。實測 2025 年 107/107 皆有值且零重複，但這是每年重新匯入
+ * 時必須複驗的前提——上游一旦出現空值或重複，主鍵策略就要改。
  */
 export function assertTaxIdUsableAsKey(cinemas: Cinema[]): void {
   const empty = cinemas.filter(c => !c.taxId)
@@ -125,18 +107,11 @@ export function assertTaxIdUsableAsKey(cinemas: Cinema[]): void {
 }
 
 /**
- * 檢查每一家都有名字可用。
- *
- * `parseCinemaCsv` 已經把空的事業名稱退回公司名稱，所以走到這裡還是空的，
- * 代表**兩欄同時空**——那是上游格式真的壞掉，不是常態。
- *
- * ★ 為什麼要在這裡炸而不是讓它流下去：`0015` 之後 `venue.name` 有
- *   `venue_name_not_blank` 這道 CHECK，空名會在 `pnpm seed` 的 SQL 層以
- *   `23514` 炸掉——那個訊息看不出是哪一筆、也看不出是政府資料變了。
- *   在 parse 階段就攔下來，訊息裡帶得出統編與地址。
- *
- * ⚠️ `assertTaxIdUsableAsKey` **不看 name**（它只驗統編），所以上游把整欄
- *   名稱清空也照樣「通過」。這一支補的就是那個洞。
+ * 檢查每一家都有名字可用。走到這裡還是空的代表**兩欄同時空**，那是上游格式真的壞了。
+ * ★ 在 parse 階段炸而不是讓它流下去：`0015` 的 `venue_name_not_blank` CHECK 會在
+ *   `pnpm seed` 的 SQL 層以 23514 炸掉，而那個訊息看不出是哪一筆、也看不出是政府資料變了。
+ * ⚠️ `assertTaxIdUsableAsKey` 只驗統編**不看 name**，上游把整欄名稱清空也照樣通過——
+ *    這一支補的就是那個洞。
  */
 export function assertNameUsable(cinemas: Cinema[]): void {
   const blank = cinemas.filter(c => !c.name.trim())
