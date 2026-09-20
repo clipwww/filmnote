@@ -5,46 +5,34 @@ import AdminShell from './-AdminShell.vue'
 import StaffGate from './-StaffGate.vue'
 
 /**
- * `/admin/takedowns` —— DMCA 承辦（US-51~54）。`SCREENS §14` ③、視覺稿 ③。
- *
- * ── 這個佇列跟另外兩個的差別 ──────────────────────────────────
- * **漏掉一筆的後果是法律責任，不是資料品質。** 所以不按受理時間排，
- * 按期限排；快到期的用 error 色，而**全站只有這裡用紅色**。
- *
- * ── 所有日期與天數都讀 DB，前端絕不自己算工作日 ──────────────
- * `counter_deadlines` trigger 用 `business_days_after()` 算出
- * `litigation_deadline_at`（§90-9 的 10 個工作日）與 `restore_deadline_at`
- * （14 個工作日）；剩餘天數走 `business_days_between()`（0011）。
- * 前端自己算就是兩份定義，而它們**一定**會在國定假日那題上分岔。
- *
- * ⚠️ **誠實話（backend 在 0011 標的）：`business_days_*` 只扣週末，不扣國定
- *    假日。** 春節、清明、端午、中秋都沒扣 ⇒ 算出來的期限**偏早**。偏早對
- *    平台是保守的（比法定期限更早履行），但它是個已知的近似值，不是權威。
- *
- * ── 我先前回報錯的一件事，留著當紀錄 ─────────────────────────
- * 我上一輪說「`forwarded_at` 寫不進去 ⇒ trigger 從不觸發 ⇒ 兩個法定期限
- * 永遠是 null」。**那是推論，而且是錯的。** backend 實測後更正：
- * `counter_deadlines` 是 `before insert or update of forwarded_at`，
- * **INSERT 那一次就會觸發**，函式取 `coalesce(new.forwarded_at, new.received_at)`。
- * 真正的缺陷比較細但不比較輕：§90-9 的起算點是「**轉送**回復通知給著作權人」，
- * 錨在 `received_at` 上算出來的日期**不是法定的那一個**，而且在沒有寫入路徑之前
- * 永遠改不掉——更麻煩的是平台無法舉證自己何時轉送過。0011 的
- * `admin_forward_counter_notice()` 就是補這一步。
- *
- * ── 通知人的姓名與 email 完整顯示 ────────────────────────────
- * David 已在三個選項中裁定全揭露：§90-6 要求轉送通知，當事人要提回復乃至
- * 應訴都必須知道對方是誰。**不要自作主張改成遮蔽。**
- *
- * ── 寫入一律走 RPC，不靠 `grant update` ──────────────────────
- * 這三張表是法遵證據。給 `grant update on takedown_notice to authenticated`
- * ＋ `takedown_staff for all` 等於讓任何 staff 改得動 claimant_name、
- * work_description、received_at——也就是**竄改證據**。RPC 只動流程欄位，
- * 而且時間戳是伺服器端的 `now()`，客戶端沒辦法把「我們何時通知使用者」往前補登。
- *
- * ⚠️ **還有一顆按不下去：「已收到訴訟證明」。** `notice_status` 有
- *    `litigation_notified` 這個值，但整個 schema **沒有任何地方寫得進它**
- *    （grep 過 0001–0011，只有 enum 定義那一行）。維持 disabled 並寫明原因，
- *    不假裝它會動。已回報。
+ * `/admin/takedowns` —— DMCA 承辦（US-51~54、`SCREENS §14` ③）。跟另外兩個佇列的差別：
+ * **漏掉一筆的後果是法律責任不是資料品質** ⇒ 不按受理時間排、按期限排，快到期的用 error 色，
+ * 而**全站只有這裡用紅色**。通知人的姓名與 email 完整顯示（§90-6），**不要自作主張改成遮蔽**。
+ */
+/*
+ * 所有日期與天數都讀 DB，前端絕不自己算工作日：trigger 用 `business_days_after()` 算
+ * §90-9 的 10 個工作日與 14 個工作日，剩餘天數走 `business_days_between()`。前端自己算就是
+ * 兩份定義，而它們**一定**會在國定假日那題上分岔。
+ */
+/*
+ * ⚠️ 誠實話：`business_days_*` **只扣週末不扣國定假日**（春節、清明、端午、中秋都沒扣）
+ * ⇒ 算出來的期限偏早。偏早對平台是保守的，但它是已知的近似值不是權威。
+ */
+/*
+ * ⚠️ 我上一輪回報「forwarded_at 寫不進去 ⇒ trigger 從不觸發 ⇒ 期限永遠 null」，**那是推論
+ * 而且是錯的**。實測：trigger 是 `before insert or update of forwarded_at`，INSERT 那次就會觸發。
+ * 真正的缺陷比較細：§90-9 的起算點是「**轉送**」，錨在 `received_at` 上算出來的不是法定那一個，
+ * 而且平台無法舉證自己何時轉送過。`admin_forward_counter_notice()` 就是補這一步。
+ */
+/*
+ * 寫入一律走 RPC 不靠 `grant update`：這三張表是法遵證據，給 update 權限等於讓任何 staff
+ * 改得動 claimant_name／received_at——**竄改證據**。RPC 只動流程欄位，時間戳是伺服器端的
+ * `now()`，客戶端沒辦法把「我們何時通知使用者」往前補登。
+ */
+/*
+ * ⚠️ 「已收到訴訟證明」按不下去：`notice_status` 有 `litigation_notified`，但整個 schema
+ * **沒有任何地方寫得進它**（grep 過 0001–0011，只有 enum 定義那一行）。維持 disabled 並寫明
+ * 原因，不假裝它會動。已回報。
  */
 definePageMeta({ layout: 'default' })
 useSeoMeta({ title: 'DMCA 承辦', robots: 'noindex, nofollow' })
@@ -165,11 +153,9 @@ const selected = computed(() => notices.value.find(n => n.id === selectedId.valu
 const openCount = computed(() => notices.value.filter(n => n.status !== 'restored' && n.status !== 'rejected').length)
 
 /**
- * 剩餘**工作日**，由 `business_days_between()` 算（0011）。
- * 未來回正數、今天回 0、已逾期回負數——逾期不回 0 是刻意的：
- * 「今天到期」與「已經遲了三天」在這個佇列裡是完全不同的兩件事。
- *
- * 一次把畫面上會用到的期限全部問完，不要一列一次往返。
+ * 剩餘**工作日**，由 `business_days_between()` 算（0011）。未來回正數、今天回 0、
+ * 已逾期回負數——逾期不回 0 是刻意的：「今天到期」與「已經遲了三天」在這個佇列裡是
+ * 完全不同的兩件事。一次把畫面上會用到的期限全部問完，不要一列一次往返。
  */
 const workdaysLeft = ref<Map<string, number>>(new Map())
 
@@ -516,11 +502,9 @@ const liveTakedowns = computed(() => selected.value?.actions.filter(a => !a.rest
           </div>
 
           <!--
-            ⚠️ 「已轉送使用者」與「回復通知已轉送」是**手動勾的，不能自動填**。
-               寄出通知是站外行為，程式無從得知它真的發生過（0006 的註解寫得很
-               清楚）。自動填只會產生一個看起來已履行、實際沒有的紀錄，
-               **而那正是日後要拿來舉證的欄位**。所以它們長得像「我確認我寄了」
-               的動作，不是狀態顯示。
+            ⚠️ 「已轉送使用者」與「回復通知已轉送」是**手動勾的不能自動填**：寄出通知是站外行為，
+               程式無從得知它真的發生過。自動填只會產生一個看起來已履行、實際沒有的紀錄，
+               **而那正是日後要拿來舉證的欄位**。所以它們長得像「我確認我寄了」的動作。
           -->
           <UAlert
             v-if="selected.status !== 'restored'"
