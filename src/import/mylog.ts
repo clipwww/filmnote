@@ -130,7 +130,16 @@ export interface FormatMapping {
   code: string
   /** viewing_record.format_note，沒有額外資訊時為 null。 */
   note: string | null
-  /** viewing_record.hall_label。只有廳型品牌（非放映格式）才填。 */
+  /**
+   * viewing_record.hall_label。
+   *
+   * ⚠️ 2026-09-20 起**對照表沒有任何一列會填這裡**（見下方 FORMAT_TABLE 的註解：
+   * TITAN/MAPPA 已升格成獨立版本）。欄位留著而不是拿掉，是因為
+   * `normalizeRecords` 仍然把它寫成 `hallLabel`（本檔 313 行）、再由
+   * `scripts/import-mylog.ts` 寫進 `viewing_record.hall_label`，而日後真的遇到
+   * 「來源寫的廳別確實不是一種放映版本」的寫法時還用得到。
+   * 但**不要**再把它當成「歸不進既有版本就塞這裡」的出口——那正是被推翻的推理。
+   */
   hall: string | null
 }
 
@@ -140,8 +149,29 @@ export interface FormatMapping {
  * 逐字對照而非樣式比對：實測只有 10 種相異寫法，全部列出來比正規表示式
  * 更好讀，也讓日後冒出的新寫法在匯入時**明確報錯**而非被靜默歸到「其他」。
  *
- * TITAN 與 MAPPA 是威秀的**廳型品牌**而非放映格式（其中一筆的備註寫
- * 「TITAN廳初體驗」），所以進 hall_label，format_code 記為 other。
+ * ── TITAN 與 MAPPA：前一輪的決定已於 2026-09-20 被推翻 ─────────────────
+ *
+ * 舊結論（**不刪掉，留著是為了擋住重新推導**）：「TITAN 與 MAPPA 是威秀的
+ * **廳型品牌**而非放映格式（其中一筆的備註寫「TITAN廳初體驗」），所以進
+ * hall_label，format_code 記為 other。」
+ *
+ * David 2026-09-20 逐字推翻：「MAPPA 跟 TITAN 也是獨立的一種版本，不要歸類為
+ * 『其他』」。新理由：`screening_format` 是 SPEC 明講「會持續長出成員的開放
+ * 詞彙」，判準是**使用者買票時選的是哪一種放映版本**，而不是它在技術上算不算
+ * 一套獨立的放映規格——照後者的判準，4DX 與 Dolby Cinema 同樣是品牌名。
+ * 歸進 other 的代價是實測的：那 5 筆在 /app 與 /u/ 的版本分布圖上會併成
+ * 「其他」一桶（RPC 是 `group by coalesce(r.format_code,'other')`），
+ * 兩個相異的版本在圖上看不出來。
+ *
+ * ⇒ 兩者各自成為 screening_format 的成員（`mappa` / `titan`），
+ *   且 **hall_label 留空**：既有慣例是「版本已經指明了是哪個廳時廳別欄就留空」，
+ *   實測 imax 9 + 4dx 30 + dolby 1 共 39 筆的 hall_label 全部是 null。
+ *   不留空的話 `app/utils/ticket.ts` 會印成「林口…威秀影城 (MAPPA) MAPPA」，
+ *   成為全站唯一印兩次的紀錄。
+ *
+ * ⚠️ 這件事有兩半，只做一半下次一定漂回去：既有的 5 筆由
+ *   `supabase/migrations/0016_screening_format_mappa_titan.sql` 就地改寫，
+ *   這張表管的是**之後匯入的資料**。改動任一邊的人請連同另一邊一起看。
  */
 const FORMAT_TABLE: Record<string, FormatMapping> = {
   '2D': { code: 'digital', note: null, hall: null },
@@ -152,8 +182,8 @@ const FORMAT_TABLE: Record<string, FormatMapping> = {
   '4DX 3D': { code: '4dx', note: '3D', hall: null },
   '4DX 極爆': { code: '4dx', note: '極爆', hall: null },
   'Dolby Cinema': { code: 'dolby', note: null, hall: null },
-  'TITAN': { code: 'other', note: null, hall: 'TITAN' },
-  'MAPPA': { code: 'other', note: null, hall: 'MAPPA' },
+  'TITAN': { code: 'titan', note: null, hall: null },
+  'MAPPA': { code: 'mappa', note: null, hall: null },
 }
 
 /** 未知的版本寫法回傳 null，由呼叫端列進報告，不要自行猜測。 */

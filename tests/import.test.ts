@@ -108,9 +108,12 @@ describe('放映版本對照', () => {
     ['4DX 3D', '4dx', '3D', null],
     ['4DX 極爆', '4dx', '極爆', null],
     ['Dolby Cinema', 'dolby', null, null],
-    // TITAN / MAPPA 是廳型品牌不是放映格式，進 hall_label
-    ['TITAN', 'other', null, 'TITAN'],
-    ['MAPPA', 'other', null, 'MAPPA'],
+    // TITAN / MAPPA 各自是獨立的放映版本（David 2026-09-20 推翻了前一輪
+    // 「它們是廳型品牌 ⇒ 進 hall_label、format_code 記 other」的決定；
+    // 完整理由與舊結論留在 src/import/mylog.ts 的 FORMAT_TABLE 註解裡）。
+    // hall 一併留空：版本已經指明是哪個廳，不留空會印成「…威秀影城 (MAPPA) MAPPA」。
+    ['TITAN', 'titan', null, null],
+    ['MAPPA', 'mappa', null, null],
   ])('%s → format_code=%s note=%s hall=%s', (version, code, note, hall) => {
     expect(mapScreeningFormat(version)).toEqual({ code, note, hall })
   })
@@ -125,7 +128,10 @@ describe('放映版本對照', () => {
 
   it('format_code 全部落在 screening_format 的值域內', () => {
     // 0001_init.sql 種入的 screening_format.code
-    const valid = new Set(['digital', 'imax', 'imax_laser', '3d', '4dx', 'screenx', 'dolby', 'film_35', 'other'])
+    // ＋ 0016_screening_format_mappa_titan.sql 追加的 mappa / titan。
+    // ⚠️ 這一條守的是外鍵 viewing_record_format_code_fkey：這裡漏掉一個 code，
+    //    匯入時才會在 DB 層爆 23503。加新版本時務必兩邊一起加。
+    const valid = new Set(['digital', 'imax', 'imax_laser', '3d', '4dx', 'screenx', 'dolby', 'film_35', 'mappa', 'titan', 'other'])
     for (const version of knownFormats())
       expect(valid).toContain(mapScreeningFormat(version)!.code)
   })
