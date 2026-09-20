@@ -8,55 +8,32 @@ import { resolveTmdbOverride } from '#pipeline/import/tmdb-overrides'
 import { resolveVenueAlias } from '#pipeline/import/venue-aliases'
 
 /**
- * `/app/import` —— 匯入對帳（`SCREENS §13`、US-56~58、視覺稿 `mockups/import.html`）。
- *
- * ── 版面照真實規模設計，不是照「假設使用者有 10 筆」──────────
- * David 的實測數字：169 筆來源 → 174 筆紀錄、133 部相異作品、134 個相異片名、
- * 15 個相異影城名稱、NT$5x,xxx。整份版面的每一個決定都來自那批數字：
- *
- * ① **影城排在片名前面。** 只有 15 個相異名稱要對，對完覆蓋全部 169 筆；
- *    片名有 134 個。先做便宜的那一段，人才有動力做第二段。
- * ② **依筆數由多到少排序。** 第一列就是 115 筆——對完那一個，工作量少掉 68%。
- * ③ **下拉一律不預選。** 實測模糊比對會把「林口威秀」綁到「樹林秀泰影城」，
- *    而**錯配比不配更糟：不配看得見，錯配看不見**。人工對照表的建議只以文字
- *    顯示在旁邊，人還是要自己按下去。
- * ④ **把已經對好的摺起來。** 首次匯入命中 116/134 ⇒ 87% 不需要人做任何決定。
- *    平鋪出來的話要捲過 116 列才找得到真正要處理的那 18 列，而那 18 列才是
- *    這個畫面存在的理由。
- *
- * ── 純函式全部複用 `src/import/**`，一行都沒有重寫 ────────────
- * `normalizeRecords`（時區換算 + 原始列交叉驗證 + 三條欄位驗證）、
- * `resolveDoubleFeature` / `expandDoubleFeature`（雙片連映拆分）、
- * `resolveTmdbOverride`（人工對照表）、`resolveVenueAlias`（影城對照表）。
- * 這些在 David 的 174 筆真實資料上驗證過，這一頁**呼叫**它們，不改它們。
- *
- * ⚠️ 這個模組**必須維持瀏覽器可載入**——`2a5be22` 之前它 import 了
- *    `node:buffer`，那會讓整條路由在 dev 直接 500、在 build 靜默編成空物件
- *    （踩雷 #130）。日後往 `src/import/**` 加東西時，`node:` 內建模組一律不行。
- *
- * ── 三個實測結論直接長在畫面上 ────────────────────────────────
- * ① 時區偏移的方向與直覺相反：真正會跑掉的是**午夜場**（台北 00:00 的 UTC 是
- *    前一天 16:00）。`toTaipeiWallClock()` 處理掉了，但它會拿解碼後的原始 CSV 列
- *    交叉驗證，對不上就進 issues——所以這一頁要把 issues 顯示出來，不能吞掉。
- * ② 票價一律採用上游的 `cost`，不自行由 price×tickets+fee−discount 重算
- *    （`fee` 是每張不是每筆，19 筆對不上）。
- * ③ **雙片連映必須拆成多筆**：票價全額記在第一筆、**第二筆不建
- *    `viewing_record_cost` 那一列**。所以第 3 步的「有記票價」會少於「紀錄」，
- *    那不是 bug，畫面要主動解釋。
- *
- * ── 兩件事走 server 端點，都不是繞路 ─────────────────────────
- * **CSV 剖析**走 `POST /api/import/parse-csv`。前端不自己 `split(',')`：
- * 踩雷 #67，《劇場版IDOLiSH7》的原文片名含逗號且未被引號包住，用錯的模式
- * 解析會**靜默錯位**，畫面上只看得出「片名怪怪的」。
- *
- * **TMDB 查詢**走 `GET /api/import/tmdb-search`。key 只在
- * `runtimeConfig.tmdbApiKey`（server 端），瀏覽器打不到也不該打得到。
- *
- * ── 比對只有兩條**自動**路徑，其餘一律交給人 ──────────────────
- * 片庫中文片名完全吻合、人工對照表指定的 tmdb_id。沒有第三條自動路徑：
- * 舊 log 沒有片長，而片長交叉驗證是比對器唯一能擋住「片名相近但根本是
- * 另一部片」的機制（BUILD_PLAN §5 Step 10 ⚠️）。TMDB 查詢是**給人看的工具**，
- * 不是自動比對——按下去的是人。
+ * `/app/import` —— 匯入對帳（`SCREENS §13`、US-56~58）。版面照真實規模設計：
+ * 169 筆來源 → 174 筆紀錄、133 部相異作品、134 個相異片名、15 個相異影城名稱。
+ */
+/*
+ * 四個版面決定都來自那批數字：① 影城排在片名前（只有 15 個要對、對完覆蓋全部 169 筆，
+ * 片名有 134 個——先做便宜的那段人才有動力做第二段）；② 依筆數由多到少（第一列就是
+ * 115 筆，對完少掉 68% 工作量）；③ **下拉一律不預選**（實測模糊比對會把「林口威秀」
+ * 綁到「樹林秀泰影城」，而**錯配比不配更糟：不配看得見、錯配看不見**）；
+ * ④ 把已對好的摺起來（首次命中 116/134 = 87%，平鋪要捲過 116 列才找得到那 18 列）。
+ */
+/*
+ * 純函式全部複用 `src/import/**`，一行都沒重寫。⚠️ 這個模組**必須維持瀏覽器可載入**——
+ * `2a5be22` 之前它 import 了 `node:buffer`，那會讓整條路由在 dev 直接 500、在 build 靜默
+ * 編成空物件（踩雷 #130）。往 `src/import/**` 加東西時，`node:` 內建模組一律不行。
+ */
+/*
+ * 三個實測結論長在畫面上：① 時區偏移跑掉的是**午夜場**（台北 00:00 的 UTC 是前一天 16:00），
+ * 交叉驗證對不上就進 issues ⇒ 這一頁要顯示 issues 不能吞掉；② 票價一律採用上游的 `cost`
+ * 不自行重算（`fee` 是每張不是每筆，19 筆對不上）；③ **雙片連映拆成多筆**、票價全額記在
+ * 第一筆 ⇒ 第 3 步的「有記票價」會少於「紀錄」，那不是 bug，畫面要主動解釋。
+ */
+/*
+ * 兩件事走 server 端點都不是繞路：CSV 剖析走端點（前端自己 `split(',')` 會踩 #67——
+ * 《劇場版IDOLiSH7》原文片名含逗號且未被引號包住，會**靜默錯位**）；TMDB 查詢走端點
+ * （key 只在 server 端）。比對只有兩條**自動**路徑（中文片名完全吻合、人工對照表的 tmdb_id），
+ * 沒有第三條：舊 log 沒有片長，而片長交叉驗證是唯一擋得住「片名相近但根本是另一部片」的機制。
  */
 definePageMeta({ layout: 'default' })
 useSeoMeta({ title: '匯入舊紀錄' })
@@ -66,19 +43,14 @@ const user = useSupabaseUser()
 const toast = useToast()
 
 /**
- * 這一頁只有本人能用（David 2026-09-20：「沒權限的話 Menu 也不需要出現」）。
- * 選單那一側在 `AppNav.vue` 擋，這裡擋的是**直接打網址**進來的人。
- *
- * ⚠️ 這兩處都只是 UI。真正的閘門在 `server/utils/import-auth.ts`，兩支端點各自
- *   assert 一次——**不要**因為這裡擋掉了就把端點那一層拿掉。
- * ⚠️ 而那個閘門自己也只是**功能閘門不是安全邊界**：匯入的實際寫入走瀏覽器端的
- *   RLS，任何登入者本來就能寫自己的紀錄（`/app/records/new` 就是那條路）。
- *
- * `canImport` 走 `/api/import/allowed`（只回布林、email 不出伺服器），`server: false`。
- * ★ **一定要配 `canImportKnown` 用三態**：`canImport` 初值是 `false`，
- *   只看它的話**第一幀會對本人顯示一次「沒有對外開放」再跳回來**——
- *   那正是踩雷 #169 的形狀（分不出「沒有」與「還沒到」就會對使用者說一次謊）。
- *   問到之前兩邊都不畫，寧可空一下也不要說謊。
+ * 這一頁只有本人能用。選單那側在 `AppNav.vue` 擋，這裡擋的是**直接打網址**進來的人。
+ * ⚠️ 這兩處都只是 UI，真正的閘門在 `server/utils/import-auth.ts`（兩支端點各 assert 一次）
+ * ——**不要**因為這裡擋掉了就把端點那層拿掉。
+ */
+/*
+ * ⚠️ 而那個閘門自己也只是**功能閘門不是安全邊界**：匯入的實際寫入走瀏覽器端的 RLS。
+ * ★ `canImport` 初值是 `false` ⇒ **一定要配 `canImportKnown` 用三態**，只看它的話第一幀會對
+ *   本人顯示一次「沒有對外開放」再跳回來——分不出「沒有」與「還沒到」就會說一次謊（#169）。
  */
 const { canImport, canImportKnown } = useMyIdentity()
 
@@ -98,12 +70,9 @@ const parsing = ref(false)
 const headerSkipped = ref(0)
 
 /**
- * ★ **`issues` 不是附註，是產品功能。** US-58 的原文就是「看到匯入時哪些片
- * 沒比對到」——被擋下來的列是使用者**唯一**會知道「這幾筆沒進來」的管道。
- * 截斷、摺疊到看不見、或只顯示前三筆，等於安靜地少匯入。
- *
- * 兩個來源的 issue 形狀不同（CSV 剖析階段 vs 正規化階段），這裡收斂成一種，
- * 因為對使用者來說它們是同一件事：「這一列沒進來，原因是這個」。
+ * ★ **`issues` 不是附註是產品功能**（US-58 原文就是「看到匯入時哪些片沒比對到」）：
+ * 被擋下來的列是使用者**唯一**會知道「這幾筆沒進來」的管道，截斷或摺到看不見等於安靜地
+ * 少匯入。兩個來源的形狀不同，這裡收斂成一種——對使用者來說它們是同一件事。
  */
 interface ImportIssue {
   /** 給人看的定位：CSV 是第幾列，JSON 是原始那一行的內容。 */
@@ -174,12 +143,9 @@ async function readFile(file: File) {
 }
 
 /**
- * CSV 走 server 端剖析（`POST /api/import/parse-csv`）。
- *
- * ⚠️ **不要在前端自己 split(',')**。踩雷 #67：《劇場版IDOLiSH7》的原文片名
- * 含逗號而且沒有被引號包住，用錯的模式解析會**靜默錯位**——欄位全部往左移一格，
- * 而畫面上看起來只是「片名怪怪的」。那支端點用的是 RFC 4180 的最小實作，
- * 而且會把解析不出來的列放進 `issues`。
+ * CSV 走 server 端剖析。⚠️ **不要在前端自己 `split(',')`**（踩雷 #67）：
+ * 《劇場版IDOLiSH7》的原文片名含逗號而且沒有被引號包住，用錯的模式解析會**靜默錯位**
+ * ——欄位全部往左移一格，而畫面上看起來只是「片名怪怪的」。端點用 RFC 4180 的最小實作。
  */
 async function ingestCsv(csv: string) {
   const res = await $fetch<{
@@ -277,15 +243,10 @@ interface VenueRow {
 }
 
 /**
- * ⚠️ 這裡查 `venue` 而不是 `venue_option`，而那是**刻意違反**
- * `useRecordOptions` 那條「一律查 venue_option」的規則。
- *
- * 理由：`venue_option` 濾掉已歇業、已合併、海外與待審場所，那對「新增一筆
- * 今天的紀錄」是對的——2020 年就歇業的日新威秀不該出現在選單裡。但**匯入的是
- * 歷史紀錄**，2016 年在日新威秀看的那一場就是在日新威秀看的。把它擋掉只會逼
- * 使用者亂綁一個還在營業的影城，那正是「錯配比不配更糟」的那種錯。
- *
- * 代價是選單裡會出現歇業與海外場所，所以標籤上要標出來。
+ * ⚠️ 這裡查 `venue` 不是 `venue_option`，**刻意違反**「一律查 venue_option」那條規則：
+ * 後者濾掉已歇業／已合併／海外／待審，那對「新增今天的紀錄」是對的，但**匯入的是歷史
+ * 紀錄**——2016 年在日新威秀看的那場就是在日新威秀看的，擋掉只會逼人亂綁一個還在營業的。
+ * 代價是選單會出現歇業與海外場所，所以標籤上要標出來。
  */
 const { data: venueData } = useAsyncData('import-venues', async () => {
   const { data, error } = await supabase
@@ -307,23 +268,14 @@ interface VenuePick {
 }
 
 /**
- * ★ 2026-09-07：**名字不可以跟其餘標註一起丟進 `filter(Boolean)`。**
- *
- * 原本的寫法是 `[v.name, v.city, …].filter(Boolean).join(' · ')`。`venue.name`
- * 有 3 列是空字串（政府 CSV 的事業名稱欄本來就空），`['', '台北市', null, null]`
- * 過完 `filter(Boolean)` 只剩 `['台北市']` ⇒ 標籤變成一個**裸的城市名**，
- * 連分隔符都沒有，看起來像選單裡混進了行政區。
- * （`new.vue` 是同一個病灶的另一個面，那邊至少還留著一個孤兒中點。）
- *
- * 名字是主體：它為空的時候要**看得出是空的**，不是悄悄消失。所以名字自己
- * 一段、不進 filter；真的空了就印出那個場所的 id，讓人查得到是哪一筆。
- * 這條路徑刻意直接查 `venue`（見上面的檔頭註解），所以吃得到 `venue_option`
- * 濾掉的列——資料層的保證在這裡不能當成理所當然。
- *
- * 分隔用**開眼式括號量詞串**，不用中點（DESIGN_SYSTEM §49／§824：`A · B · C`
- * 是 Letterboxd 的簽名）。形狀與 `app/utils/ticket.ts` 的 `venueSegment()`
- * 一致：名稱 + 半形空白 + 括號／標註，例如
- *   `台北日新威秀影城 (台北市) 已歇業`
+ * ★ **名字不可以跟其餘標註一起丟進 `filter(Boolean)`**：`venue.name` 有 3 列是空字串
+ * （政府 CSV 的事業名稱欄本來就空），`['', '台北市', null, null]` 過完只剩 `['台北市']`
+ * ⇒ 標籤變成一個**裸的城市名**，連分隔符都沒有，看起來像選單裡混進了行政區。
+ */
+/*
+ * 名字是主體：它為空時要**看得出是空的**不是悄悄消失 ⇒ 自己一段、不進 filter，真空了就印
+ * 場所 id 讓人查得到。這條路徑直接查 `venue`（見檔頭），所以資料層的保證在這裡不能當理所當然。
+ * 分隔用開眼式括號量詞串不用中點（`A · B · C` 是 Letterboxd 的簽名），形狀同 `venueSegment()`。
  */
 const venuePicks = computed<VenuePick[]>(() => venues.value.map((v) => {
   const marks = [
@@ -347,10 +299,8 @@ interface VenueGroup {
 }
 
 const venueGroups = computed<VenueGroup[]>(() => {
-  // ⚠️ 這裡數的是**來源筆數**不是展開後的筆數。雙片連映拆出來的兩列共用
-  //    同一次進場、同一個影城，數兩次會讓「林口威秀 115 筆」變成 120 筆，
-  //    跟標題的「匯入 169 筆紀錄」對不起來。拆分後的鍵是 `<原鍵>#n`，
-  //    去掉後綴就回到來源那一筆。
+  // ⚠️ 這裡數的是**來源筆數**不是展開後的：雙片連映拆出來的兩列共用同一次進場、同一個影城，
+  //    數兩次會讓「林口威秀 115 筆」變成 120 筆，跟標題的「匯入 169 筆紀錄」對不起來。
   const seen = new Map<string, Set<string>>()
   for (const r of rows.value) {
     const sourceKey = r.importKey.replace(/#\d+$/, '')
@@ -385,12 +335,8 @@ const VENUE_MAP_KEY = 'filmnote:import-venue-map'
 
 /**
  * 對好的 15 組對照存起來，否則下次匯入要重對一次。
- *
- * ⚠️ 存在 localStorage 是**過渡作法**。`SCREENS §13` 標記過「影城人工對照」
- *    在 `BUILD_PLAN §3` 的路由表上沒有位置，而且它不只匯入時需要——使用者以後
- *    手打「林口威秀」也會需要同一張表。要不要獨立成 `/app/settings/venues`
- *    或存進資料庫，**需要主 session 決定**，設計端與這一頁都不自己決定。
- *    在那之前至少不要讓人白對一次。
+ * ⚠️ 存在 localStorage 是**過渡作法**：這張表不只匯入時需要（以後手打「林口威秀」也要），
+ * 要不要獨立成 `/app/settings/venues` 或進資料庫**需要主 session 決定**。在那之前至少不要白對。
  */
 function loadVenueMap() {
   if (import.meta.server)
@@ -449,14 +395,9 @@ const titleGroups = ref<TitleGroup[]>([])
 const matching = ref(false)
 
 /**
- * 比對的兩條**確定**路徑，都不猜。
- *
- * ① 片庫中文片名完全吻合（首次匯入 50 部／72 筆走這條）
- * ② 人工對照表指定的 tmdb_id → 片庫裡那一部（`ALL_OVERRIDES`，20 個片名／30 筆）
- *
- * 沒有第三條。相近片名只當**建議**顯示在卡片上，要人自己按——
- * `runtimeOf` 回 null 時片長交叉驗證會靜默跳過，而舊 log 沒有片長，
- * 所以自動比對在這裡是最沒有把握的時候最敢猜（BUILD_PLAN §5 Step 10 ⚠️）。
+ * 比對的兩條**確定**路徑，都不猜：① 片庫中文片名完全吻合（首次 50 部／72 筆）；
+ * ② 人工對照表指定的 tmdb_id（20 個片名／30 筆）。沒有第三條——相近片名只當**建議**，
+ * 要人自己按：`runtimeOf` 回 null 時片長交叉驗證會靜默跳過，而舊 log 沒有片長。
  */
 async function runMatch() {
   matching.value = true
@@ -546,10 +487,9 @@ const undecided = computed(() => titleGroups.value.filter(g => !g.filmId && !g.s
 const skipped = computed(() => titleGroups.value.filter(g => !g.filmId && g.skipped))
 
 /**
- * ⚠️ 未決定的卡片要分批。實測 33 張卡就是 4,614px 的頁面，而**首次匯入是
- *    96 張**（BUILD_PLAN §5 Step 10：未命中 18 部／21 筆是補了對照表之後的數字，
- *    第一次跑是 96/169 沒對到）——那會攤成一萬多 px。本專案已經有兩次
- *    「頁面攤開一萬七千 px／兩萬兩千 px」的紀錄，都是同一個錯誤換一頁再犯。
+ * ⚠️ 未決定的卡片要分批：實測 33 張卡就是 4,614px 的頁面，而**首次匯入是 96 張**
+ * （96/169 沒對到）——那會攤成一萬多 px。本專案已經有兩次「頁面一萬七千／兩萬兩千 px」
+ * 的紀錄，都是同一個錯誤換一頁再犯。
  */
 const UNDECIDED_PAGE = 12
 const shownUndecided = ref(UNDECIDED_PAGE)
@@ -578,16 +518,13 @@ function openPick(g: TitleGroup) {
 }
 
 /**
- * TMDB 查詢（`GET /api/import/tmdb-search`）。
- *
- * ⚠️ **這是給人看的工具，不是自動比對。** 舊 log 沒有片長，而片長交叉驗證是
- *    比對器唯一能擋住「片名相近但根本是另一部片」的機制——實測
- *    《Fate stay night Heaven's feel》就是這樣配到系列第二部的
- *    （BUILD_PLAN §5 Step 10 ⚠️）。所以這裡只把候選攤開給人看，按下去的是人。
- *
- * 端點回的 `existing` 是「片庫裡有沒有這個 tmdb_id」。有 ⇒ 一鍵選它；
- * 沒有 ⇒ 明說片庫還沒有這一部，讓人改按「新增為作品」——**不要**假裝
- * 可以直接用一個 tmdb_id 建作品，那需要 service_role。
+ * TMDB 查詢。⚠️ **這是給人看的工具不是自動比對**：舊 log 沒有片長，而片長交叉驗證是唯一
+ * 擋得住「片名相近但根本是另一部片」的機制——實測《Fate stay night Heaven's feel》
+ * 就是這樣配到系列第二部的。所以這裡只把候選攤開給人看，按下去的是人。
+ */
+/*
+ * 端點回的 `existing` 是「片庫裡有沒有這個 tmdb_id」：有 ⇒ 一鍵選它；沒有 ⇒ 明說片庫還沒有，
+ * 讓人改按「新增為作品」——**不要**假裝可以直接用一個 tmdb_id 建作品，那需要 service_role。
  */
 interface TmdbHit {
   tmdbId: number
@@ -755,16 +692,13 @@ const alreadyThere = computed(() =>
 const skippedCount = computed(() => rows.value.length - importable.value.length)
 
 /**
- * ★ **匯入格式漂移的警報**（踩雷 #134）。
- *
- * `import_key` 是原始列的 base64，所以冪等的前提是**位元組完全相同**。
- * 上游哪天改了匯出格式（多一個結尾逗號、欄位數變了、空白不同），同一份資料
- * 的 key 就全部變成新的——而它**不會報錯**，只會安靜地把十二年的紀錄變成兩份。
- *
- * 實測：把沒有備註的列從 10 欄補成 11 欄，104/169 個 key 全變了。
- *
- * 判準是「這個人**已經匯過東西**，但這份檔案幾乎對不上」。
- * 第一次匯入（`priorImported === 0`）不該示警——那時全部都是新的才正常。
+ * ★ **匯入格式漂移的警報**（踩雷 #134）。`import_key` 是原始列的 base64 ⇒ 冪等的前提是
+ * **位元組完全相同**：上游改了匯出格式（多一個結尾逗號、欄位數變了）同一份資料的 key 就全變，
+ * 而它**不會報錯**，只會安靜地把十二年的紀錄變成兩份。實測補一欄 ⇒ 104/169 個 key 全變。
+ */
+/*
+ * 判準是「這個人**已經匯過東西**，但這份檔案幾乎對不上」。第一次匯入不該示警——
+ * 那時全部都是新的才正常。
  */
 const DRIFT_MIN_PRIOR = 10
 const driftWarning = computed(() => {
@@ -811,14 +745,9 @@ const importing = ref(false)
 const result = ref<{ inserted: number, costs: number, skipped: number } | null>(null)
 
 /**
- * 冪等靠 `unique (user_id, import_key)`，但這裡**不用 upsert**：
- * 那個唯一索引是 partial（`where import_key is not null`），
- * PostgREST 的 `on_conflict=` 推不出 partial index 的述詞，會回
- * 「there is no unique or exclusion constraint matching the ON CONFLICT specification」。
- *
- * 改成「先讀已存在的鍵、只寫沒有的」有兩個好處：一是不必跟 PostgREST 的
- * 推論規則賭；二是**第 3 步就能先告訴使用者「這次會新增幾筆」**，
- * 而那正是對帳畫面該回答的問題。
+ * 冪等靠 `unique (user_id, import_key)`，但**不用 upsert**：那個唯一索引是 partial，
+ * PostgREST 的 `on_conflict=` 推不出 partial index 的述詞會直接報錯。
+ * 改成「先讀已存在的鍵、只寫沒有的」還多一個好處：**第 3 步就能先說「這次會新增幾筆」**。
  */
 async function runImport() {
   if (!user.value || !toInsert.value.length)
@@ -893,9 +822,13 @@ const moneyText = (n: number) => `NT$${Math.round(n).toLocaleString('zh-Hant-TW'
       </h1>
       <p class="mt-2 text-muted">
         這是站主搬遷自己舊資料用的一次性工具，沒有對外開放。
-        要一筆一筆記，用<NuxtLink to="/app/records/new" class="text-primary hover:underline">記一場</NuxtLink>；
+        要一筆一筆記，用<NuxtLink to="/app/records/new" class="text-primary hover:underline">
+          記一場
+        </NuxtLink>；
         要一次補很多筆，
-        <NuxtLink to="/legal/dmca" class="text-primary hover:underline">從受理窗口</NuxtLink>跟我說一聲。
+        <NuxtLink to="/legal/dmca" class="text-primary hover:underline">
+          從受理窗口
+        </NuxtLink>跟我說一聲。
       </p>
     </template>
 
