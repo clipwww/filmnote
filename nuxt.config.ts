@@ -34,6 +34,32 @@ export default defineNuxtConfig({
   modules: ['@nuxt/ui', '@nuxtjs/supabase'],
   css: ['~/assets/css/main.css'],
 
+  /**
+   * 預設亮色（David 2026-09-20：「能夠預設大家都使用亮色系嗎？
+   * 暗色系越看越不滿意，但打算之後再調整」）。
+   *
+   * 在這之前沒有這段設定 ⇒ 吃 `@nuxt/ui` 的預設 `'system'`，
+   * 也就是**跟隨使用者的作業系統**，而台灣不少人的手機是整天暗色。
+   *
+   * ⚠️ **暗色沒有被移除，也不要移除。** 它仍然是導覽列「外觀」裡選得到的三個
+   *   選項之一（跟隨系統／亮色／暗色），`DESIGN_SYSTEM §7` 也仍然規範它的色票
+   *   （亮 `rgb(248,237,220)`／暗 `rgb(29,22,16)`）。改的只是**沒選過的人拿到哪一個**。
+   *   ⇒ 不要因為「預設是亮色」就去刪暗色的 token 或跳過暗色的驗收。
+   *
+   * ⚠️ **這個改動對「已經選過」的人完全沒有作用。** 偏好存在 localStorage
+   *   （`@nuxtjs/color-mode` 的 `nuxt-color-mode` 鍵），一旦有值就以它為準——
+   *   包含開發者自己的瀏覽器。驗收時**要用無痕視窗或新的 profile**，
+   *   否則會看到「改了沒效」而那是假的。同一個陷阱在 `§7 #170` 記過：
+   *   已存的偏好會蓋掉 `prefers-color-scheme` 的模擬。
+   *
+   * `fallback` 一併設成 light：那是「使用者選了跟隨系統、但偵測不到系統偏好」時
+   * 的退路，讓**每一條不確定的路徑都落在同一個方向**。
+   */
+  colorMode: {
+    preference: 'light',
+    fallback: 'light',
+  },
+
   // ★ `#pipeline` 在 package.json 的 imports 裡是 "#pipeline/*": "./src/*"，
   //   而 Node 的 subpath imports **不補副檔名**——`#pipeline/match/matcher`
   //   會去找不存在的 `./src/match/matcher`（實檔是 .ts）。rollup 與 TS 的
