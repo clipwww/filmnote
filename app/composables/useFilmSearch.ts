@@ -48,10 +48,9 @@ export function useFilmSearch() {
     }
     const mine = ++seq
     // ★ 查 `film` 不是 `film_public`：後者的 where 有 `visibility = 'public'` ⇒ **使用者自己剛新增、
-    //   還在審核中的 UGC 作品不在裡面**，US-17 要的「可立刻用於記錄」會只在新增完那一次成立。
-    //   `film` 由 `film_read` 把關（公開的 + 自己的 + staff），語意正確，trgm 索引也建在它上面。
-    // ⚠️ `merged_into_film_id` 要自己濾：view 有濾、基表沒有，選到被合併掉的那一列會寫出一筆
-    //   指向敗方的紀錄。
+    //   還在審核中的 UGC 作品不在裡面**，US-17 的「可立刻用於記錄」會只在新增完那一次成立。
+    //   `film` 由 `film_read` 把關，語意正確，trgm 索引也建在它上面。
+    // ⚠️ `merged_into_film_id` 要自己濾：view 有濾、基表沒有，選到被合併的那一列會寫出指向敗方的紀錄。
     const { data } = await supabase
       .from('film')
       .select('id,slug,title_zh,title_original,release_year,country,review_state')

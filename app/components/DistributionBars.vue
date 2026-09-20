@@ -7,9 +7,11 @@ import type { DistItem } from '~/utils/stats'
  * IMAX 7），而 375px 下每個標籤只分到約 90px，長影城名會被截到無法辨識（§5.2）。
  */
 /*
- * ⚠️⚠️ **顏色不可在 JS 裡用 `useColorMode()` 挑再寫 inline style**（踩雷 #88）。本來就是那樣寫，
- * 在 `ssr: false` 的 `/app` 完全正常，2026-09-06 搬到 SSR 的 `/u/` 立刻炸：
- * `rendered on server: #685946`（亮）vs `expected on client: #A59788`（暗），而畫面看起來正常。
+ * ⚠️⚠️ **顏色不可在 JS 裡用 `useColorMode()` 挑再寫 inline style**（踩雷 #88）：在 `ssr: false`
+ * 的 `/app` 完全正常，2026-09-06 搬到 SSR 的 `/u/` 立刻炸——server `#685946`（亮）
+ * vs client `#A59788`（暗），而畫面看起來正常。
+ */
+/*
  * ⇒ 亮暗兩組都印成 custom property（兩邊都是常數），由 `dark:` variant 挑。
  *   ⚠️ 不要改用 `<style scoped>` 的 `:global(.dark) X`——**實測沒有生效**。
  */

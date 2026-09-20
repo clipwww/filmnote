@@ -30,13 +30,13 @@ export function useMyUsername() {
  * （或帳號不可服務）時 RPC 回 NULL，這裡就是 `null`。
  */
 /*
- * ⚠️ 三件會靜默出錯的事，都寫在資料的形狀上不是這裡的程式碼裡：
- * ① 函式宣告 `returns jsonb` ⇒ `data` 直接就是物件，當成陣列取 `data[0].totals` 會得到
- *    undefined 而不是錯誤；
- * ② `weekday_hour.weekday` 是 **isodow**（1=週一）不是 `dow`（0=週日），當成 0-indexed 會讓
- *    整張熱力圖平移一天而且不報錯（轉換在 `hourGrid()`，有測試守著）；
+ * ⚠️ 三件會靜默出錯的事，都寫在資料的形狀上不是程式碼裡：① `returns jsonb` ⇒ `data` 直接就是
+ * 物件，當成陣列取 `data[0].totals` 得到 undefined 而不是錯誤；② `weekday_hour.weekday` 是
+ * **isodow**（1=週一）不是 `dow`，當 0-indexed 會讓熱力圖整張平移一天而且不報錯（有測試守）。
+ */
+/*
  * ③ `daily` 是具名欄位不是 ECharts 要的 `[date, value]`（刻意的：不把圖表函式庫的格式綁進
- *    API 契約），前端 map 一下。
+ * API 契約），前端 map 一下。
  */
 export function useYearStats(username: Ref<string | null>, year: Ref<number | null>) {
   const supabase = useSupabaseClient<Database>()

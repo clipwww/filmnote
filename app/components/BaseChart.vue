@@ -51,16 +51,19 @@ const emit = defineEmits<{
 /*
  * ① `<ClientOnly>` ＋ **固定高度的 `#fallback`**：canvas 在 Node 裡會爆，而 default slot 會從
  *    server build 被 tree-shake ⇒ 沒有 fallback 就會在 hydration 前塌成 0 高（#60／#61）。
+ */
+/*
  * ② 高度用 inline style 不寫在 `<style scoped>`：Tailwind 4 把 utility 放進 `@layer utilities`，
- *    而 SFC 的 scoped style 是**未分層**的——未分層 CSS 贏過所有 layer，一條 `.chart{height:100%}`
+ *    而 SFC 的 scoped style 是**未分層**的（未分層 CSS 贏過所有 layer）⇒ 一條 `.chart{height:100%}`
  *    會靜靜蓋掉 `h-[400px]`，容器變 0 高、ECharts 以 0×0 初始化（#49）。
  */
 /*
- * ③ `autoresize`：側邊欄收合時 window 尺寸沒變、`window.resize` 不觸發，vue-echarts 走
- *    ResizeObserver（#59）。
- * ④ 不用內建的 `'dark'` theme：我們每個顏色都在 option 裡顯式指定，而它會塞一個
- *    `#100c2a` 的深紫底進來。改成 `transparent` 由卡片的 `bg-default` 透出來；深淺切換靠
- *    `:key` 重建（`setTheme()` 不會重算 `visualMap.pieces` 與顯式的 `itemStyle.color`）。
+ * ③ `autoresize`：側邊欄收合時 window 尺寸沒變、`window.resize` 不觸發，走 ResizeObserver（#59）。
+ */
+/*
+ * ④ 不用內建的 `'dark'` theme：我們每個顏色都在 option 裡顯式指定，而它會塞一個 `#100c2a` 的
+ *    深紫底進來 ⇒ 改成 `transparent` 由卡片的 `bg-default` 透出來。深淺切換靠 `:key` 重建
+ *    （`setTheme()` 不會重算 `visualMap.pieces` 與顯式的 `itemStyle.color`）。
  */
 use([
   CanvasRenderer,
