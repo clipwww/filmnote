@@ -72,7 +72,7 @@ export function useRecordDraft() {
    * 疊上去而不是覆蓋。⚠️ `/app/films/new` 建立完作品之後只知道「哪一部片」，其餘欄位是使用者
    * 離開 `/app/records/new` 之前存的 ⇒ 用 `save({ film })` 會把日期、影城、票價整組洗掉，
    * 而那正是這整層草稿要保住的東西。
-  */
+   */
   function merge(partial: RecordDraft) {
     save({ ...(read() ?? {}), ...partial })
   }
