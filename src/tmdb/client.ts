@@ -142,6 +142,36 @@ export class TmdbClient {
     return data.results ?? []
   }
 
+  /**
+   * 台灣的**上映中**與**即將上映**清單。
+   *
+   * ── 為什麼是這兩支而不是 `/discover` ──────────────────────────────────
+   * `/discover/movie` 要自己組 `release_date.gte` 與 `with_release_type`，
+   * 而「台灣什麼時候算上映」正是這個專案最不想自己定義的東西——
+   * 政府核准資料才是權威。`now_playing` / `upcoming` 的 `region=TW`
+   * 由 TMDB 自己用台灣的上映資料算，我們只拿它當**線索**，不當事實。
+   *
+   * ⚠️ 回傳的 `release_date` 是 TMDB 的**主要**上映日，**不一定是台灣的**。
+   *   要台灣上映日必須另外呼叫 `detail()` 再走 `taiwanReleaseDate()`——
+   *   那是一部片一次請求，所以**不要在掃清單的時候順手做**。
+   *
+   * ⚠️ TMDB 的分頁上限是 500 頁，但這兩支實務上只有數頁。`maxPages` 是保險，
+   *   不是分頁器：超過就停，並由呼叫端決定要不要吵。
+   */
+  async taiwanReleases(kind: 'now_playing' | 'upcoming', maxPages = 5): Promise<TmdbSearchResult[]> {
+    const out: TmdbSearchResult[] = []
+    for (let page = 1; page <= maxPages; page++) {
+      const data = await this.request<{ results?: TmdbSearchResult[], total_pages?: number }>(
+        `/movie/${kind}`,
+        { language: 'zh-TW', region: TW_REGION, page: String(page) },
+      )
+      out.push(...(data.results ?? []))
+      if (page >= (data.total_pages ?? 1))
+        break
+    }
+    return out
+  }
+
   /** 取影片明細，含台灣上映日所需的 release_dates。 */
   async detail(id: number): Promise<TmdbMovieDetail> {
     return this.request<TmdbMovieDetail>(`/movie/${id}`, {
