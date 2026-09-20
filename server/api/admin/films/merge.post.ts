@@ -2,24 +2,15 @@ import { z } from 'zod'
 import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
 
 /**
- * 作品合併（Step 7）。同一部片被建了兩次時，把敗方併進勝方。
- *
- * ★ 授權同 approve：靠 `merge_films()` 裡的 `is_service_context() or is_staff()`，
- *   不在這個檔案裡重寫一次，也不用 service role（踩雷 #26）。
- *   BUILD_PLAN §1.1 記載這條在採用 `current_user` 判準時，**以一般登入使用者
- *   呼叫實測回 204（合併成功）**——那是真正被攻破過的一條，所以驗收必須測
- *   已登入的一般使用者，不是只測匿名。
- *
- * ⚠️ BUILD_PLAN §5 Step 7 第 4 點寫「只改 film_identity 指向，viewing_record
- *   一列不動」。**實作不是這樣，而且實作是對的。** `merge_films()` 會
- *   `update viewing_record set film_id = p_winner`。原因：所有公開讀取路徑
- *   （`record_read`、`record_is_public`、`viewing_record_public`）都直接 join
- *   `film_id` 並要求 `merged_into_film_id is null`，紀錄若還指著敗方就會整批
- *   從公開頁消失。0001 §4 的表頭註解也寫著「一列都不動」，同樣是舊設計的殘留。
- *
- *   使用者真正在乎的不變量是「一筆紀錄都不會不見」，那個由 `film_merge_log`
- *   的 `moved_records` 記錄並在驗收中斷言。已回報主 session。
+ * 作品合併（Step 7）。★ 授權同 approve：靠 `merge_films()` 裡的
+ * `is_service_context() or is_staff()`，不在這裡重寫也不用 service role（§7 #26）。
+ * §1.1 記載這條曾以**一般登入使用者呼叫實測回 204**（合併成功）⇒ 驗收必須測已登入的
+ * 一般使用者，不是只測匿名。
  */
+// ⚠️ BUILD_PLAN §5 Step 7 第 4 點寫「viewing_record 一列不動」，**實作不是這樣而且實作
+//    是對的**：所有公開讀取路徑都 join film_id 並要求 `merged_into_film_id is null`，
+//    紀錄還指著敗方就會整批從公開頁消失。真正的不變量是「一筆紀錄都不會不見」，由
+//    `film_merge_log.moved_records` 記錄並在驗收中斷言。
 
 const bodySchema = z.object({
   loserId: z.uuid('敗方 id 格式不正確'),
@@ -84,10 +75,8 @@ export default defineEventHandler(async (event) => {
     .limit(1)
     .maybeSingle()
 
-  // 合併會搬動別人的觀影紀錄，是這個系統裡少數不可逆的管理動作之一。
-  // 權威的稽核軌跡在 film_merge_log（上面那一段就是從它讀的），這一行是
-  // 給 Vercel 的函式日誌看的——出事時那裡是最先看得到的地方，而查 DB 需要
-  // 另一套權限。兩者刻意重複。
+  // 合併會搬動別人的紀錄，是少數不可逆的管理動作。權威的稽核軌跡在 film_merge_log，
+  // 這一行是給函式日誌看的——出事時那裡最先看得到，查 DB 要另一套權限。
   // eslint-disable-next-line no-console -- 管理動作的稽核日誌，見上方說明
   console.log('[admin/films/merge]', JSON.stringify({
     loserId,

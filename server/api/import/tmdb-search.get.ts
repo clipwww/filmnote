@@ -6,24 +6,15 @@ import { TmdbClient } from '#pipeline/tmdb/client'
 import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
 
 /**
- * 匯入流程的 TMDB 線上比對（`/app/import`）。
- *
- * ★ 為什麼一定要是 server 端點：`NUXT_TMDB_API_KEY` 是 server-only。
- *   瀏覽器打不到 TMDB，**也不該打得到**——把 key 丟進 client bundle 等於公開它，
- *   而 TMDB 的條款把 key 綁在申請者身上。
- *
- * ★ 這支**只讀不寫**。它不建作品、不寫 film_identity、不碰快照表。
- *   匯入 UI 拿到候選之後，實際建立仍走既有的 `film` insert 與
- *   `link_film_to_tmdb()`——那條路徑上有 tmdb_id 的唯一鍵、有 policy、有
- *   film_identity 的同步 trigger。在這裡順手建一部作品會繞過全部三樣。
- *
- * ★ 回傳值刻意帶上 `existing`：同一個 tmdb_id 在片庫裡已經有作品時，UI 要顯示的
- *   是「對應到這一部」而不是「建立新作品」。少了這個欄位，使用者會替已經存在的
- *   片再建一部 UGC，然後日後要人工合併——那正是 §7 #81 那批孤兒的來源。
- *   ⚠️ `film.tmdb_id` 有 UNIQUE 而且是存在性 oracle（踩雷 #35），所以這裡只回
- *   「片庫裡有沒有」與該作品的公開識別（slug/title），**不回 id 以外的內部狀態**，
- *   而且整支端點要求登入。
+ * 匯入流程的 TMDB 線上比對（`/app/import`）。必須是 server 端點：TMDB key 是
+ * server-only，丟進 client bundle 等於公開它（條款把 key 綁在申請者身上）。
+ * ★ **只讀不寫**：建作品仍走 `film` insert + `link_film_to_tmdb()`，那條路上有唯一鍵、
+ *   policy 與 film_identity 的同步 trigger，在這裡順手建會繞過全部三樣。
  */
+// ★ 回傳帶 `existing`：片庫已有同一個 tmdb_id 時 UI 要顯示「對應到這一部」，少了它
+//   使用者會替已存在的片再建一部 UGC（§7 #81 那批孤兒的來源）。
+// ⚠️ `film.tmdb_id` 是存在性 oracle（踩雷 #35）⇒ 只回「有沒有」與公開識別，不回內部
+//    狀態，而且整支端點要求登入。
 
 const querySchema = z.object({
   q: z.string().trim().min(1).max(120),
@@ -45,16 +36,14 @@ export default defineEventHandler(async (event) => {
   if (!parsed.success)
     throw createError({ statusCode: 422, statusMessage: '需要 q（1–120 字）' })
 
-  // TMDB 的配額是綁在我們的 key 上的，所以節流保護的是**我們自己**，
-  // 不是使用者。匯入畫面一次可能有幾十個未比對片名，手滑按「全部比對」
+  // 配額綁在我們的 key 上 ⇒ 節流保護的是**我們自己**：匯入畫面手滑按「全部比對」
   // 就是幾十個請求。
   assertWithinRateLimit(event, { windowMs: 60_000, max: 30, scope: 'tmdb-search' })
 
   const apiKey = useRuntimeConfig().tmdbApiKey
   if (!apiKey) {
-    // 沒有 key 時回 503 而不是空陣列。空陣列會被 UI 呈現成「TMDB 查無此片」，
-    // 於是使用者去建了一部其實 TMDB 有的 UGC 作品——一個會說謊的空結果
-    // 比一個錯誤訊息貴得多。
+    // 沒有 key 回 503 不回空陣列：空陣列會被 UI 呈現成「TMDB 查無此片」，於是使用者
+    // 建了一部其實 TMDB 有的 UGC 作品——會說謊的空結果比錯誤訊息貴得多。
     throw createError({ statusCode: 503, statusMessage: '未設定 NUXT_TMDB_API_KEY，線上比對暫不可用' })
   }
 
@@ -74,8 +63,8 @@ export default defineEventHandler(async (event) => {
   const ranked = [...results]
     .sort((a, b) => {
       if (year) {
-        // 年份吻合的往前排。差一年也算吻合——TMDB 記的是首映地上映日，
-        // 台灣上映常常跨到下一年（實測 2,480 部裡這種情況並不罕見）。
+        // 年份吻合的往前排，差一年也算：TMDB 記首映地上映日，台灣上映常跨到下一年
+        // （實測 2,480 部裡並不罕見）。
         const da = Math.abs(Number(a.release_date?.slice(0, 4)) - year)
         const db = Math.abs(Number(b.release_date?.slice(0, 4)) - year)
         const na = Number.isFinite(da) ? da : 99
@@ -87,8 +76,7 @@ export default defineEventHandler(async (event) => {
     })
     .slice(0, MAX_RESULTS)
 
-  // 片庫裡已經有哪幾個 tmdb_id。用呼叫者自己的 client（film_read policy），
-  // 已核准的公開作品所有登入者都看得到，所以這裡不會多洩漏任何東西。
+  // 用呼叫者自己的 client：已核准的公開作品所有登入者本來就看得到，不多洩漏東西。
   const db = await serverSupabaseClient(event)
   const ids = ranked.map(r => r.id)
   const existingById = new Map<number, { id: string, slug: string | null, title_zh: string }>()
@@ -106,8 +94,7 @@ export default defineEventHandler(async (event) => {
 
   return {
     query: parsed.data.q,
-    // 空陣列代表 TMDB 確實查無此片，不是錯誤（TmdbClient.search 的契約）。
-    // 上面所有失敗路徑都 throw 了，所以這裡的 [] 是可以信的。
+    // 空陣列代表確實查無此片而不是錯誤：上面所有失敗路徑都 throw 了。
     results: ranked.map(r => ({
       tmdbId: r.id,
       title: r.title,

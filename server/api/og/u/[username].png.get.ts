@@ -1,14 +1,9 @@
 import { profileCard } from '~~/server/utils/og-card'
 
 /**
- * 版面②：公開個人頁的 OG 圖，**以 YearStrip 為英雄**（`SCREENS §16.2`）。
- *
- * ★ 把年表放上 OG 圖是刻意的：它是全站簽名，而且**零字型成本**——格子是方塊、
- *   年份是拉丁數字。使用者名稱受 DB 約束為純 ASCII，所以這張圖**結構上不可能
- *   缺字**，沒有降級態。
- *
- * ⚠️ 站上的 `/u/[username]` 目前還沒有年表（frontend 補到一半）。OG 圖上有、
- *   點進去沒有，是 design 對帳時列為最嚴重的一條。照規格做，不是規格錯了。
+ * 版面②：公開個人頁的 OG 圖，以 YearStrip 為英雄（`SCREENS §16.2`）。年表是全站簽名
+ * 且**零字型成本**（方塊 + 拉丁數字），而 username 受 DB 約束為純 ASCII ⇒ 這張圖
+ * **結構上不可能缺字**，沒有降級態。⚠️ 站上還沒有年表，照規格做，不是規格錯了。
  */
 export default defineEventHandler(async (event) => {
   // ⚠️ 不要換回 getRouterParam('username')：那個鍵實際上叫 `username.png`，

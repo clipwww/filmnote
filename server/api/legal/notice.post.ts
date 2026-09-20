@@ -2,23 +2,16 @@ import { z } from 'zod'
 
 /**
  * 侵權通知的受理窗口（著作權法 §90-4 第 3、4 款、§90-6）。
- *
- * ★ **未登入者必須能提交。** 這是法定義務，不是便利功能：著作權人不會、也不該
- *   為了通知我們而先註冊一個帳號。所以這支端點不驗身分。
- *
- * ★ 這張表在 API 層是**單向**的：`anon` 有 INSERT grant、沒有 SELECT grant，
- *   所以寫得進去、讀不出來（實測是 42501，比 RLS 更早擋下）。
- *   ⇒ 這裡用 `publicSupabase()`（匿名視角）而不是 service_role。端點的權限
- *     不該大於法律要求的那一點點；用 service_role 會讓「寫得進、讀不出」這個
- *     結構性保證只剩下「我們沒有寫讀取的程式碼」這種靠自律的保證。
- *   ⇒ 也因此 `.insert()` 後面**不能**接 `.select()`——沒有 SELECT policy 就拿不到
- *     RETURNING，接了會整個請求失敗。回應只回 `{ ok: true }`。
- *
- * ★ 路由放在 `/api/legal/…` 而不是 `/legal/…`：`server/middleware/
- *   strip-auth-on-cacheable.ts` 會對 `/legal/**` 拔掉 session cookie。這支端點
- *   不需要身分所以無所謂，但隔壁的 counter-notice 需要——兩支放在一起才不會有人
- *   日後把它搬到 `/legal/` 底下然後對著「登入了卻說沒登入」除錯半天。
+ * ★ **未登入者必須能提交**：那是法定義務不是便利功能，著作權人不該為了通知我們而
+ *   先註冊帳號 ⇒ 這支不驗身分。
  */
+// ★ 這張表在 API 層是**單向**的：anon 有 INSERT grant、沒有 SELECT grant（實測 42501，
+//   比 RLS 更早擋下）⇒ 用匿名 client 而不是 service_role，端點的權限不該大於法律要求
+//   的那一點點。也因此 `.insert()` 後面**不能**接 `.select()`（拿不到 RETURNING 會整個
+//   請求失敗），回應只回 `{ ok: true }`。
+// ★ 路由在 `/api/legal/…` 而不是 `/legal/…`：middleware 會對後者拔掉 session cookie。
+//   這支不需要身分，但隔壁的 counter-notice 需要——兩支放一起才不會有人搬過去然後對著
+//   「登入了卻說沒登入」除錯半天。
 
 const noticeSchema = z.object({
   // §90-6 及施行辦法要求的記載事項
@@ -55,18 +48,12 @@ async function resolveTargetFilm(targetUrl: string): Promise<string | null> {
 }
 
 export default defineEventHandler(async (event) => {
-  // 全站唯一對匿名開放寫入的表，資料庫層完全沒有防護（BUILD_PLAN §6.2）。
-  //
-  // ⚠️ 上限從 5 放寬到 20（2026-09-07）。原因不是流量，是**備援消失了**：
-  // 同日 David 裁定 `/legal/copyright` 不再公告電子郵件，這張表成為 §90-4 第 3 款
-  // 唯一的受理窗口。舊的 429 文案給的解法正好是「改寄信箱」——信箱一撤，
-  // 觸發速率限制就等於把唯一的法定窗口關掉一小時，而擋到的人是法務或權利人
-  // （`app/schemas/takedown.ts` 檔頭：「擋掉他們的代價是法遵要件失效」）。
-  // 這個窗口的濫用成本本來就低於關閉它的成本。
-  //
-  // ⚠️ 這個數字不精確，而且**不要寫進使用者看得到的文案**：`server/utils/rate-limit.ts`
-  // 是行程內記憶體，Vercel 上每個實例各一份 ⇒ 實際上限比 20 寬鬆，寫死在畫面上
-  // 就是另一個做不到的承諾。
+  // 全站唯一對匿名開放寫入的表，資料庫層完全沒有防護（§6.2）。
+  // ⚠️ 上限 5→20（2026-09-07）：原因不是流量而是**備援消失了**——同日起 `/legal/copyright`
+  //    不再公告電子郵件，這張表成為 §90-4 第 3 款唯一的受理窗口，觸發限流等於把唯一的
+  //    法定窗口關掉一小時，而擋到的人是法務或權利人。濫用成本低於關閉它的成本。
+  // ⚠️ 這個數字不精確，**不要寫進使用者看得到的文案**：限流是行程內記憶體、每個實例
+  //    各一份 ⇒ 實際上限比 20 寬鬆，寫死在畫面上就是另一個做不到的承諾。
   assertWithinRateLimit(event, { scope: 'legal-notice', windowMs: 60 * 60_000, max: 20 })
 
   const parsed = noticeSchema.safeParse(await readBody(event))
@@ -89,8 +76,7 @@ export default defineEventHandler(async (event) => {
       target_url: body.targetUrl,
       target_film_id: await resolveTargetFilm(body.targetUrl),
       statement_good_faith: true,
-      // status 交給 default 'received'：takedown_insert policy 的 with check
-      // 就是釘死這個值，顯式傳其他值會被擋下。
+      // status 交給 default 'received'：policy 的 with check 就是釘死這個值。
     })
 
   if (error)

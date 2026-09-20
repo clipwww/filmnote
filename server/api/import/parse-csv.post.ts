@@ -6,26 +6,14 @@ import { parseMyLogCsv } from '~~/server/utils/mylog-csv'
 import { serverSupabaseUser } from '#supabase/server'
 
 /**
- * `/app/import` 的 CSV 剖析。前端把檔案內容當字串送上來，這裡回 `MyLogItem[]`。
- *
- * ★ 為什麼是端點而不是讓前端自己 import：剖析器住在 `server/utils/**`，
- *   那是 server-only。而且**剖析規則只該有一份**——它與 CLI 匯入
- *   （`scripts/import-mylog.ts`）產出的 `import_key` 必須完全一致，
- *   否則同一筆紀錄從兩條路徑進來會變成兩筆。前端另寫一份一定會漂移。
- *
- * ★ 這支**不寫任何東西**。它只把 CSV 變成結構化資料回給 UI，讓使用者確認
- *   比對結果之後再走既有的建立流程。剖析與寫入分開，是因為使用者需要在
- *   中間插手（未比對到的片名要選 TMDB 候選或自建 UGC）。
- *
- * ★ `issues` 不是附註，是**要顯示出來的東西**。踩雷 #67 的整個教訓就是
- *   「CSV 用錯模式會靜默錯位」——剖析器選擇拒絕可疑的列而不是猜，
- *   那些列如果不顯示給使用者看，就等於安靜地少匯入了幾筆。
+ * `/app/import` 的 CSV 剖析，回 `MyLogItem[]`。★ 是端點而不是讓前端自己 import：
+ * 剖析規則只該有一份——它與 CLI 匯入產出的 `import_key` 必須完全一致，否則同一筆
+ * 從兩條路徑進來會變成兩筆。★ 這支**不寫任何東西**，寫入由使用者確認後另走。
  */
+// ★ `issues` 不是附註是**要顯示出來的東西**：剖析器選擇拒絕可疑的列而不是猜（踩雷
+//   #67），不顯示就等於安靜地少匯入了幾筆。
 
-/**
- * 2 MB。實測 174 筆約 20 KB，所以這個上限是「十年份的資料再乘以五十」。
- * 設上限是因為這支要跑一個字元一個字元的 tokenizer，而 Vercel 的函式有執行時間限制。
- */
+/** 2 MB。實測 174 筆約 20 KB ⇒ 這是「十年份再乘以五十」。設上限是因為 tokenizer 逐字元跑。 */
 const MAX_BYTES = 2 * 1024 * 1024
 
 const bodySchema = z.object({
@@ -33,9 +21,8 @@ const bodySchema = z.object({
 })
 
 export default defineEventHandler(async (event) => {
-  // 未登入 401、登入但不是本人 403。判斷只有一份，見 `import-auth.ts` 的檔頭
-  // （⚠️ 那是功能閘門不是權限邊界：這支端點本來就不寫任何東西）。
-  // supabase 的接線刻意留在這裡，讀的人一眼看得到問身分的是誰。
+  // 未登入 401、登入但不是本人 403。判斷只有一份（見 import-auth.ts：那是功能閘門
+  // 不是權限邊界）。supabase 的接線刻意留在這裡，讀的人一眼看得到問身分的是誰。
   await assertImportOwnerFrom({
     user: () => serverSupabaseUser(event),
     allowedEmail: () => process.env.IMPORT_TARGET_EMAIL,
@@ -55,8 +42,8 @@ export default defineEventHandler(async (event) => {
 
   const { items, issues, headerSkipped } = parseMyLogCsv(parsed.data.csv)
 
-  // 全部都剖析失敗時通常不是資料壞了，是檔案根本不是這個格式（例如選錯檔）。
-  // 回 200 加一個空陣列會讓 UI 顯示「0 筆可匯入」，而使用者不知道自己選錯檔。
+  // 全部剖析失敗通常是選錯檔。回 200 + 空陣列會讓 UI 顯示「0 筆可匯入」，使用者
+  // 不會知道自己選錯了。
   if (!items.length && issues.length) {
     throw createError({
       statusCode: 422,
@@ -69,8 +56,7 @@ export default defineEventHandler(async (event) => {
     headerSkipped,
     count: items.length,
     items,
-    // ★ 全部回，不截斷。被拒絕的列是使用者唯一會知道「這幾筆沒進來」的管道，
-    //   截斷等於安靜地少匯入。
+    // ★ 全部回不截斷：被拒絕的列是使用者唯一會知道「這幾筆沒進來」的管道。
     issues,
   }
 })

@@ -2,25 +2,15 @@ import { z } from 'zod'
 import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
 
 /**
- * 回復通知（著作權法 §90-9）。
- *
- * 被取下的使用者主張自己沒有侵權時提出。提出之後：
- *   - 服務提供者轉送給著作權人（填 `forwarded_at`）
- *   - 著作權人 **10 個工作日**內未提出訴訟證明 → 須於 **14 個工作日**內回復
- * 兩個期限由 0001 的 `counter_notice_deadlines` trigger 自動算，各處不會漂移。
- *
- * ★ 用**呼叫者自己的** client（`serverSupabaseClient`）而不是 service_role：
- *   「誰可以對哪一件通知提回復」這個判斷已經寫在 RLS 裡了
- *   （0006 的 `takedown_affected_user` 只讓被取下的當事人讀得到那一列，
- *    0001 的 `counter_insert` 要求 `profile_id = auth.uid()`）。
- *   端點若改用 service_role，等於把那道判斷從資料庫搬到這個檔案裡重寫一次，
- *   而兩份判斷一定會漂移。這裡讓資料庫當唯一的真相。
- *
- * ★ 這支需要 session cookie。`server/middleware/strip-auth-on-cacheable.ts`
- *   會對 `/legal/**` 拔掉 cookie，**但不會動 `/api/legal/**`**（它比對的是
- *   路徑開頭）。把這支搬到 `/legal/` 底下會讓每個請求都變成未登入，而且
- *   沒有任何錯誤訊息——只會是 401。
+ * 回復通知（著作權法 §90-9）。被取下者主張未侵權時提出；轉送著作權人後，對方 10 個
+ * 工作日內未提訴訟證明就須於 14 個工作日內回復。兩個期限由 0001 的
+ * `counter_notice_deadlines` trigger 算，各處不會漂移。
  */
+// ★ 用呼叫者自己的 client 而不是 service_role：「誰可以對哪一件通知提回復」已經寫在
+//   RLS 裡（`takedown_affected_user` + `counter_insert` 的 profile_id = auth.uid()），
+//   改用 service_role 等於把那道判斷搬來這裡重寫一次然後漂移。
+// ★ 這支需要 session cookie，而 middleware 會對 `/legal/` 底下拔掉 cookie（比對路徑
+//   開頭，不動 `/api/legal/`）⇒ 搬過去會讓每個請求都變成未登入，而且只會是 401。
 
 const counterSchema = z.object({
   noticeId: z.coerce.number().int().positive(),
@@ -35,17 +25,9 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 401, statusMessage: '請先登入' })
 
   /**
-   * ⚠️ 踩雷 #13：`@nuxtjs/supabase` v2 的 `serverSupabaseUser()` 回的是 **JWT claims**
-   * （`JwtPayload`），只有 `sub`，**沒有 `id`**。而 `JwtPayload` 有索引簽章，所以
-   * `user.id` 在型別上完全合法——`pnpm typecheck` 不會說話，執行期才是 `undefined`。
-   *
-   * 這一支曾經整條壞掉而沒有人發現（2026-09-08 對抗式覆核抓到）：`profile_id` 是
-   * `undefined` 時，PostgREST 的查詢會變成 `profile_id=eq.undefined` 回 400
-   * `invalid input syntax for type uuid`，於是查重那一步就 500；就算繞過查重，
-   * `.insert()` 也會把值為 `undefined` 的鍵整個從 JSON body 省掉，撞上 NOT NULL。
-   * ⇒ **§90-9 的回復通知在那段期間是完全提不出來的**，而那是避風港流程的一環。
-   *
-   * 取一次、命名清楚，讓下面兩個用到的地方不可能再各自寫錯。
+   * ⚠️ 踩雷 #13：`serverSupabaseUser()` 回的是 JWT claims，只有 `sub` 沒有 `id`，而
+   * `user.id` 在型別上完全合法 ⇒ typecheck 不會說話、執行期才是 undefined。這一支曾
+   * 因此整條壞掉而沒人發現（2026-09-08 抓到，§90-9 的回復通知那段期間完全提不出來）。
    */
   const profileId = user.sub
 
@@ -61,8 +43,8 @@ export default defineEventHandler(async (event) => {
 
   const db = await serverSupabaseClient(event)
 
-  // 讀得到這一列，就代表 RLS 認定呼叫者是被取下的當事人。讀不到就是 404 ——
-  // 刻意不區分「不存在」與「不是你的」，否則這支端點會變成通知編號的探測器。
+  // 讀得到就代表 RLS 認定呼叫者是當事人；讀不到一律 404，不區分「不存在」與「不是
+  // 你的」，否則這支端點會變成通知編號的探測器。
   const { data: notice, error: readError } = await db
     .from('takedown_notice')
     .select('id,status')
@@ -90,11 +72,8 @@ export default defineEventHandler(async (event) => {
   // trigger 算好的兩個期限直接回給前端顯示。
   const { data: created, error: insertError } = await db
     .from('counter_notice')
-    // subject_ref 由 0009 的 fill_subject_ref trigger 自動補成 profile_id，
-    // 這裡仍然顯式帶上：它是 NOT NULL，所以型別要求寫入端給值——
-    // **那是刻意的**。忘記帶會變成編譯錯誤，而不是等到某人刪帳號、
-    // 三振紀錄的鏈斷掉之後才發現。trigger 是給 SQL 層寫入端（admin_add_strike）
-    // 的後盾，型別是給 TypeScript 寫入端的。
+    // subject_ref 有 trigger 會自動補，這裡仍顯式帶上：它是 NOT NULL ⇒ 忘記帶是編譯
+    // 錯誤，而不是等到某人刪帳號、三振紀錄的鏈斷掉才發現。trigger 是 SQL 寫入端的後盾。
     .insert({ notice_id: noticeId, profile_id: profileId, subject_ref: profileId, reason })
     .select('id,received_at,litigation_deadline_at,restore_deadline_at')
     .single()

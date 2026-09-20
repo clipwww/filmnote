@@ -1,9 +1,7 @@
 /**
- * 公開作品頁的資料來源。以匿名視角讀取，輸出與觀看者無關 ⇒ 可被 ISR 快取。
- *
- * ★ 這裡刻意**完全不選取票價欄位**。RLS 本來就會擋（`viewing_record_cost` 是
- *   獨立的一列），但 ISR 會把回應連同 `_payload.json` 一起快取並公開可讀，
- *   所以票價不該從一開始就進到這條路徑（踩雷 #10）。
+ * 公開作品頁的資料來源。匿名視角讀取，輸出與觀看者無關 ⇒ 可被 ISR 快取。
+ * ★ 刻意**完全不選取票價欄位**：RLS 本來就會擋，但 ISR 會把回應連同
+ *   `_payload.json` 一起快取並公開可讀 ⇒ 票價不該從一開始就進到這條路徑（踩雷 #10）。
  */
 export default defineEventHandler(async (event) => {
   const slug = getRouterParam(event, 'slug')

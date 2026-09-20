@@ -2,10 +2,8 @@ import { recordCard, safeHero } from '~~/server/utils/og-card'
 
 /**
  * 版面①：單筆紀錄的 OG 圖（`SCREENS §16.2`、US-32）。主力版面。
- *
- * ★ 一律以**匿名視角**讀資料（`publicSupabase()`）。爬蟲本來就是 anon，而這張圖
- *   對所有人必須逐位元組相同——用帶 cookie 的 client 會讓「誰先造訪」決定
- *   CDN 裡那張圖長什麼樣。票價因此在結構上就進不來（`SCREENS §16.3`）。
+ * ★ 一律匿名視角：這張圖對所有人必須逐位元組相同，用帶 cookie 的 client 會讓「誰先
+ *   造訪」決定 CDN 裡那張圖長什麼樣。票價因此在結構上就進不來（§16.3）。
  */
 export default defineEventHandler(async (event) => {
   // ⚠️ 不要換回 getRouterParam('id')：那個鍵實際上叫 `id.png`。見 og-route.ts。
@@ -34,8 +32,7 @@ export default defineEventHandler(async (event) => {
 
   const { fonts, cmap } = await loadOgFonts()
 
-  // 缺字降級態（§16.4）：畫不出來就換掉片名那一行，日期／影城／場次／顯名列
-  // 全部保留。**絕不渲染豆腐格**——一個破格子讀起來是「這站壞了」。
+  // 缺字降級態（§16.4）：畫不出來就換掉片名那一行，其餘全部保留。絕不渲染豆腐格。
   const hero = safeHero(film?.title_zh, cmap.codepoints)
 
   const meta = [
