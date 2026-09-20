@@ -2,22 +2,13 @@
 import type { YearStripRow } from '~/utils/stats'
 
 /**
- * 年表 — 全站簽名（`SCREENS.md §2.1`）。每年一列，一列 53 格，**每格是一週**。
- *
- * ── 為什麼是週不是日 ──────────────────────────────────────────
- * 實測 169 筆分散在 12 年，日層級的填滿率約 6%——一張 7×53 的年格子有 96%
- * 是空的，看起來不是「密度」而是「荒涼」。收成週之後跳到約 22%，密集期與
- * 空窗立刻讀得出來。這是真實資料逼出來的偏離，不是懶。
- *
- * ── 為什麼不用圖表庫 ──────────────────────────────────────────
- * 純 CSS grid。舊專案用 d3 手寫 imperative DOM，在 SSR 下是負擔；而且這裡
- * 每一格都要能被鍵盤走到、被螢幕閱讀器讀到，canvas 給不了。
- *
- * ── 格子寬度是彈性的，不是規格寫的 5px／8px ────────────────────
- * §2.1 算的 371px（53 格 × 節距 7）假設整條佔滿 375px 的視窗寬。實際上它在
- * 卡片裡，還要跟左邊的年份與右邊的場次數共用一行——375px 下扣掉頁面與卡片的
- * padding 只剩約 230px 給 53 格。所以格子改成 `flex: 1` 由容器決定寬度，
- * **高度固定**。年表是密度概覽，格子是不是正方形不影響它要傳達的東西。
+ * 年表 — 全站簽名（`SCREENS.md §2.1`）。每年一列 53 格，**每格是一週**：實測 169 筆分散在
+ * 12 年，日層級填滿率約 6%（7×53 有 96% 是空的，看起來是荒涼不是密度），收成週跳到約 22%。
+ * 純 CSS grid 不用圖表庫：每一格都要能被鍵盤走到、被螢幕閱讀器讀到，canvas 給不了。
+ */
+/*
+ * 格子寬度是彈性的，不是 §2.1 算的 5px／8px：那個 371px 假設整條佔滿 375px 視窗，實際上它
+ * 在卡片裡還要跟年份與場次數共用一行，375px 下只剩約 230px 給 53 格 ⇒ `flex: 1`、高度固定。
  */
 const props = withDefaults(defineProps<{
   rows: YearStripRow[]
@@ -26,13 +17,10 @@ const props = withDefaults(defineProps<{
   /** false ⇒ 只當門面，不可點也不進 tab 順序。 */
   interactive?: boolean
   /**
-   * 是否在最上面放一列「全部年度」。
-   *
-   * ★ 2026-09-06：全期成為預設檢視視角之後，**回到全期必須是看得見的一個選項**。
-   *   做成「再點一次同一年就回到全部」那種隱藏切換是不行的：年表本身就是這一頁的
-   *   檢視選擇器，而一個選擇器不能有一個選不到、只能猜出來的狀態——尤其它還是預設值，
-   *   使用者第一眼看到的就是它，卻找不到它在哪一列被標示著。
-   */
+     * 是否在最上面放一列「全部年度」。★ 全期是**預設**檢視視角 ⇒ 回到全期必須是**看得見的
+     * 一個選項**：做成「再點一次同一年就回全部」那種隱藏切換不行——年表就是這頁的選擇器，
+     * 而一個選擇器不能有一個選不到、只能猜出來的狀態，尤其它還是預設值。
+     */
   showAll?: boolean
 }>(), { interactive: true, showAll: true })
 
@@ -43,17 +31,13 @@ const emit = defineEmits<{ 'update:selected': [year: number | null] }>()
 const allRecords = computed(() => props.rows.reduce((n, r) => n + r.records, 0))
 
 /**
- * 三階，取值與年度出席圖同一組（`att` = heat-0/4/6）。
- * ⚠️ **圖例與格子必須從同一個陣列取。** 舊版 mockup 的 CSS 與 JS 各維護一份，
- * 圖例跟圖已經不同色了（§5.4b）。
- *
- * ⚠️ **不可以用 `useColorMode()` 在 JS 裡挑顏色。** 這個元件會出現在 `/u/`，
- * 那是 SSR 頁：伺服器端算出來的是亮色、瀏覽器 hydrate 時可能是暗色，
- * 兩份 inline style 對不起來 ⇒ `Hydration completed but contains mismatches`，
- * 而畫面看起來完全正常（實測就是這樣抓到的）。
- * 改成把**亮暗兩組值都**當成 custom property 印出來（兩邊都是常數，SSR 與
- * client 必然相同），由下方的 `<style>` 依 `.dark` 決定用哪一組。
- * 值仍然只有 CHART 一個來源。
+ * 三階，取值與年度出席圖同一組（`att` = heat-0/4/6）。⚠️ **圖例與格子必須從同一個陣列取**
+ * ——舊 mockup 的 CSS 與 JS 各維護一份，圖例跟圖已經不同色了（§5.4b）。
+ */
+/*
+ * ⚠️ **不可以用 `useColorMode()` 在 JS 裡挑顏色**：這支會出現在 SSR 的 `/u/`，兩邊算出不同
+ * 模式 ⇒ `Hydration completed but contains mismatches`，而畫面看起來完全正常（實測抓到的）。
+ * 改成亮暗兩組都印成 custom property（兩邊都是常數），由 `.dark` 決定用哪一組。
  */
 /** 0 場 / 1 場 / 2 場以上。 */
 function level(n: number): 0 | 1 | 2 {
@@ -61,12 +45,9 @@ function level(n: number): 0 | 1 | 2 {
 }
 
 /**
- * 每一格同時帶亮暗兩個值，由 Tailwind 的 `dark:` variant 挑一個。
- *
- * ⚠️ 試過在 SFC 的 `<style scoped>` 裡寫 `:global(.dark) .year-strip`，**沒有生效**——
- * 實測暗色模式下 `--att-0` 仍然解析成亮色的 `#EADDCA`，而畫面「看起來只是顏色怪」。
- * Nuxt UI 註冊的 `@variant dark (&:where(.dark, .dark *))` 是全站都在用、
- * 確定會動的那一條，所以改用它。
+ * 每一格同時帶亮暗兩個值，由 Tailwind 的 `dark:` variant 挑。⚠️ 試過在 `<style scoped>` 裡寫
+ * `:global(.dark) .year-strip`，**沒有生效**——實測暗色下 `--att-0` 仍解析成亮色的 `#EADDCA`，
+ * 而畫面「看起來只是顏色怪」。改用 Nuxt UI 註冊的那條 dark variant（全站都在用、確定會動）。
  */
 function cellVars(n: number) {
   const i = level(n)
@@ -90,23 +71,18 @@ function move(delta: number) {
 }
 
 /**
- * 下面那句提示的 id，掛在 listbox 的 `aria-describedby` 上。
- *
- * ⚠️ **一定要 `useId()`，不可以 `Math.random()` / `Date.now()` / 模組層計數器**
- * （踩雷 #98）：`/u/` 是 SSR，伺服器與瀏覽器各生一次就是兩個不同的字串 ⇒
- * hydration mismatch，而畫面看起來完全正常。
- * 同一條理由寫在 `DistributionBars.vue` 的 `restId`（「展開清單的 id」，約 :126-132）——
- * ⚠️ **引符號名不要只引行號**：同一輪在那個 `useId()` 上方插了三十行，行號就作廢了。
+ * 下面那句提示的 id，掛在 listbox 的 `aria-describedby` 上。⚠️ **一定要 `useId()`**（#98）：
+ * `/u/` 是 SSR，兩邊各生一次就是 hydration mismatch，而畫面看起來完全正常。
+ * 同一條理由也寫在 `DistributionBars.vue` 的 `restId`（⚠️ 引符號名不要引行號，行號會作廢）。
  */
 const hintId = useId()
 </script>
 
 <template>
   <!--
-    ⚠️ 提示那一句**不能放進 `role="listbox"` 裡面**：listbox 的子節點只能是
-       `option`／`group`，塞一段散文進去，螢幕閱讀器要嘛把它唸成一個選項、
-       要嘛整個跳過。所以外面多包一層純 div，提示是 listbox 的**兄弟**，
-       再用 `aria-describedby` 接回去。
+    ⚠️ 提示那一句**不能放進 `role="listbox"` 裡面**：listbox 的子節點只能是 `option`／`group`，
+       塞散文進去螢幕閱讀器要嘛唸成一個選項、要嘛整個跳過。所以外面多包一層純 div，
+       提示是 listbox 的**兄弟**，再用 `aria-describedby` 接回去。
   -->
   <div>
     <div
@@ -116,44 +92,32 @@ const hintId = useId()
       class="space-y-1"
     >
       <!--
-        ★ hover／focus-visible／選中的底色一律是 `bg-accented`，**不是 `bg-elevated`**。
-          這是量出來的，不是品味：
-          · 亮色的 `bg-elevated` = neutral-100 = `--color-paper-100` = `#eaddca`，
-            而空白週那一格的顏色 `CHART.light.att[0]` 逐字也是 `#EADDCA`——**同一個值**。
-            hover 上去，那一列的 53 格會整條消失（對比 1.00:1），看起來像畫面壞掉。
-          · 暗色更省事：`bg-muted` 與 `bg-elevated` 都是 neutral-800（`#3d332c`），
-            而 `att[0]` 是 `#392f24`，對比只有 1.06:1，一樣糊掉。
-          · `bg-accented`（亮 paper-200／暗 paper-700）對 `att[0]` 是 1.18:1／1.29:1，
-            兩個模式下空白格都還讀得出來（暗色甚至比原本坐在 `bg-default` 上的 1.21:1
-            更清楚）。`ChartBand.vue` 那條「1.16:1 會跟底糊在一起」記的是同一筆帳。
-          ⇒ 要改這裡的底色，先去 `app/utils/chart-theme.ts` 對一次 `att[0]` 的值。
-
-        ★ hover 與「選中」用**同一個**底色：hover 的意思就是「按下去會變成這樣」。
-          兩者靠左邊那條 `border-l-primary` 與粗體年份區分，不再發明第三種色階。
-          只在 `interactive` 為真時才給 hover——`interactive: false` 是「只當門面」。
-
-        ⚠️ **不加 transition。** DS §6 逐字寫著「沒有每張卡片的 hover transition」，
-           而且 13 列同時在畫面上，逐列淡入淡出會讓整張年表看起來在呼吸。
-           沒有動畫也就不需要 `motion-reduce:`（這個 repo 沒有全域規則）。
-        ⚠️ 底色與粗體都不改變**列高**，也不改 `border-l-2` 的寬度——那兩者一動，
-           整條年表會在 hover 時逐列跳版。
+        ★ hover／focus-visible／選中的底色一律是 `bg-accented` **不是 `bg-elevated`**，這是量出來的：
+          亮色 `bg-elevated` = `#eaddca`，而空白週那格的 `att[0]` 逐字也是 `#EADDCA`（同一個值）
+          ⇒ hover 上去那一列 53 格會整條消失（對比 1.00:1），看起來像畫面壞掉。
+      -->
+      <!--
+        暗色 `bg-muted`／`bg-elevated` 都是 `#3d332c`、`att[0]` 是 `#392f24`，對比只有 1.06:1 一樣糊。
+        `bg-accented` 對 `att[0]` 是亮 1.18:1／暗 1.29:1，兩個模式下空白格都還讀得出來。
+        ⇒ 要改這裡的底色，先去 `app/utils/chart-theme.ts` 對一次 `att[0]` 的值。
+      -->
+      <!--
+        ★ hover 與「選中」用**同一個**底色（hover 的意思就是「按下去會變成這樣」），靠左邊那條
+          `border-l-primary` 與粗體年份區分，不發明第三種色階。只在 `interactive` 為真時給 hover。
+        ⚠️ **不加 transition**（DS §6，而且 13 列同時在畫面上會看起來在呼吸）；底色與粗體都不改
+           列高、也不改邊框寬度——那兩者一動，整條年表會在 hover 時逐列跳版。
       -->
 
       <!--
-        ★「全部年度」——全期檢視視角（2026-09-06 起是**預設**）。
-          它刻意沒有 53 格：那 53 格的座標軸是「一個日曆年裡的第幾週」，
-          跨年度沒有這個座標。把十三年疊起來畫成一列會是一條幾乎全滿的黑帶，
-          既不傳達東西，又會被讀成「這是某一年」。所以這一列只有標籤與總數，
-          並用一條髮絲線跟下面的年份列分開，讀起來是「檢視範圍」而不是「某一年」。
-
-          ⚠️ 2026-09-14 補：這一列被選中（＝預設狀態）時，**亮色下那條髮絲線看不見**
-             ——`border-b-default` 是 `--ui-border` = neutral-200 = paper-200，而
-             `bg-accented` 亮色也正好是 paper-200，底色就蓋在自己的邊框上。
-             這是接受的：選中時分隔的工作改由「整塊 tan 色區的下緣」對下面 paper-25 的
-             年份列去做，分隔沒有消失，只是換了一個東西在做。
-             **不要改用 `border-accented` 去救**——暗色的 `--ui-border-accented` 是
-             neutral-700，跟暗色的 `bg-accented` 又是同一個值，只是把同一個碰撞搬到
-             另一個模式去而已。
+        ★「全部年度」——全期檢視視角（預設）。刻意沒有 53 格：那 53 格的座標軸是「一個日曆年裡的
+          第幾週」，跨年度沒有這個座標；十三年疊起來會是一條幾乎全滿的黑帶，又會被讀成「某一年」。
+          所以這一列只有標籤與總數，用髮絲線跟年份列分開，讀起來是「檢視範圍」不是「某一年」。
+      -->
+      <!--
+        ⚠️ 這一列被選中（＝預設狀態）時**亮色下那條髮絲線看不見**：`border-b-default` 與
+           `bg-accented` 在亮色都是 paper-200。這是接受的（分隔改由整塊 tan 色區的下緣去做）。
+           **不要改用 `border-accented` 去救**——暗色的它與 `bg-accented` 又是同一個值，
+           只是把同一個碰撞搬到另一個模式去。
       -->
       <div
         v-if="showAll"
@@ -217,10 +181,8 @@ const hintId = useId()
     </div>
 
     <!--
-      提示。照 `HourHeatmap.vue` 末尾的先例（`mt-2 text-xs text-muted`）。
-      2026-09-14 David：「年表的年份能點擊這件事不太明顯」——底色回饋只有滑鼠移上去
-      才看得到，觸控裝置根本沒有 hover，所以還要有一句話直接說它會發生什麼事。
-      `interactive: false`（只當門面）時不出現：那時點了不會有任何事。
+      提示（照 `HourHeatmap.vue` 末尾的先例）。2026-09-14：年份能點這件事不明顯——底色回饋只有
+      滑鼠移上去才看得到，觸控裝置根本沒有 hover。`interactive: false`（只當門面）時不出現。
     -->
     <p v-if="interactive" :id="hintId" class="mt-2 text-xs text-muted">
       <!-- 後半句只有在真的有那一列時才成立——`showAll: false` 的呼叫端沒有「全部年度」。 -->
