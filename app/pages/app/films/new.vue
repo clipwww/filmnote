@@ -9,29 +9,20 @@ import { filmSchema, toFilmRow } from '~/schemas/film'
 import { POSTER_MAX_EDGE, resizePoster } from '~/utils/image'
 
 /**
- * `/app/films/new` — 手動新增作品（`SCREENS.md §11`、US-13~18）。
- *
- * **這是流程的一部分，不是錯誤處理。** 它是「找不到片」這條路的終點，也是
- * 硬約束 (1) 最重要的落點——必須讀起來像流程的下一步，不像錯誤畫面，
- * 也不像後台表單。帶著已輸入的片名進來，第一個欄位已經填好。
- *
- * ── 建立的順序不能換 ─────────────────────────────────────────
- * 1. 先 insert `film`（拿到 id）
- * 2. 再上傳海報到 `ugc-poster/{film_id}/…`
- * 3. **再把路徑寫回 `film.ugc_poster_path`**
- *
- * 第 2 步不能先做：`ugc_poster_write` policy 的 `with check` 要求
- * `exists (select 1 from film where id = ugc_poster_film(name) and created_by = auth.uid())`，
- * 也就是**檔名裡的那個 film 必須已經存在而且是你的**，否則整個上傳被 RLS 擋掉。
- *
- * 第 3 步最容易漏，而且漏了很難查：上傳成功、審核後 anon 也讀得到，但
- * `film.ugc_poster_path` 還是 null ⇒ `film_public.ugc_poster_path` 是 null ⇒
- * **畫面退回文字卡片，而海報其實已經公開可讀**（BUILD_PLAN §5 Step 7 第 1 點）。
- *
- * ── 審核不搬檔 ───────────────────────────────────────────────
- * 單一 private bucket + RLS 把關，不是雙 bucket 搬檔（那個架構在 §1.1 修正 C
- * 已被否決）。`approve_film()` 一改審核狀態，同一個檔案就從「只有作者與 staff
- * 讀得到」變成「所有人讀得到」。讀取一律走 signed URL。
+ * `/app/films/new` — 手動新增作品（`SCREENS.md §11`、US-13~18）。**這是流程的一部分不是錯誤
+ * 處理**：它是「找不到片」這條路的終點，必須讀起來像流程的下一步，不像錯誤畫面也不像後台
+ * 表單。帶著已輸入的片名進來，第一個欄位已經填好。
+ */
+/*
+ * 建立的順序不能換：① insert `film` 拿 id ② 上傳海報到 `ugc-poster/{film_id}/…`
+ * ③ **把路徑寫回 `film.ugc_poster_path`**。第 2 步不能先做——`ugc_poster_write` 的 with check
+ * 要求檔名裡那個 film 已經存在而且是你的，否則整個上傳被 RLS 擋掉。
+ */
+/*
+ * 第 3 步最容易漏而且很難查：上傳成功、審核後 anon 也讀得到，但 `ugc_poster_path` 還是 null
+ * ⇒ **畫面退回文字卡片，而海報其實已經公開可讀**。
+ * 審核不搬檔：單一 private bucket ＋ RLS 把關，`approve_film()` 一改狀態同一個檔案就從
+ * 「只有作者與 staff 讀得到」變成「所有人讀得到」。讀取一律走 signed URL。
  */
 const route = useRoute()
 const supabase = useSupabaseClient<Database>()
@@ -133,10 +124,10 @@ function clearPoster() {
 
 onBeforeUnmount(releasePreview)
 
-/* ── 即時票根預覽 ─────────────────────────────────────────────
-   存在的理由只有一個：**讓人在按下按鈕之前就看到「沒有海報也是一張完整的票根」**，
-   而不是先想像出一個破圖、再被一句安慰的文案安撫。這也是 §0「無海報的卡片要好到
-   使用者不會希望它變成海報」唯一能被使用者親眼驗證的地方。 */
+/* ── 即時票根預覽 ──
+   存在的理由只有一個：**讓人在按下按鈕之前就看到「沒有海報也是一張完整的票根」**，而不是
+   先想像出一個破圖、再被一句安慰的文案安撫。這也是 §0「無海報的卡片要好到使用者不會希望
+   它變成海報」唯一能被使用者親眼驗證的地方。 */
 function todayLocal(): string {
   const d = new Date()
   const p = (n: number) => String(n).padStart(2, '0')
@@ -304,17 +295,15 @@ async function retryPoster() {
         <div class="grid grid-cols-2 gap-4">
           <UFormField label="國別" name="country" hint="選填">
             <!--
-              ★ 用原生 `<datalist>` 而不是選單元件：國別**必須可以自由輸入**
-              （片庫裡沒有的國家不該被擋住），但也**必須跟既有資料一致**——
-              片庫的國別**全部來自政府資料**，所以用語是一致的：中文國名、
-              一個國家一種寫法（台灣的兩種寫法已由 `src/normalize/country.ts`
-              與 `0014_country_taiwan.sql` 收斂成「台灣」）。一旦有人打
-              「Japan」或「JP」，國別分布圖就會多出一個永遠合不起來的分類。
-              ⚠️ 這裡刻意**不寫當下的計數**：本來寫著「日本 651、美國 578、
-              中華民國 403」，2026-09-06 國別一正規化那行就變成假話了。
-              註解要寫規則，不要寫會過期的數字。
-              建 ISO 對照表不是解：政府資料用的是中文國名不是 ISO 碼，對不起來。
-              建議清單直接從片庫的相異值長出來，天生跟既有資料一致，也會自己成長。
+              ★ 用原生 `<datalist>` 而不是選單元件：國別**必須可以自由輸入**（片庫裡沒有的國家不該被
+                擋住），但也**必須跟既有資料一致**——片庫的國別全部來自政府資料，用語是一致的中文國名。
+                一旦有人打「Japan」或「JP」，國別分布圖就會多出一個永遠合不起來的分類。
+            -->
+            <!--
+              ⚠️ 這裡刻意**不寫當下的計數**：本來寫著「日本 651、美國 578、中華民國 403」，2026-09-06
+                 國別一正規化那行就變成假話了。**註解要寫規則，不要寫會過期的數字。**
+              建 ISO 對照表不是解（政府資料用的是中文國名不是 ISO 碼）；建議清單直接從片庫的相異值長
+              出來，天生跟既有資料一致，也會自己成長。
             -->
             <UInput v-model="state.country" placeholder="日本" list="country-options" class="w-full" />
             <datalist id="country-options">
