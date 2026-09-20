@@ -1,5 +1,7 @@
 import { Buffer } from 'node:buffer'
+import process from 'node:process'
 import { z } from 'zod'
+import { assertImportOwnerFrom } from '~~/server/utils/import-auth'
 import { parseMyLogCsv } from '~~/server/utils/mylog-csv'
 import { serverSupabaseUser } from '#supabase/server'
 
@@ -31,9 +33,13 @@ const bodySchema = z.object({
 })
 
 export default defineEventHandler(async (event) => {
-  const user = await serverSupabaseUser(event)
-  if (!user)
-    throw createError({ statusCode: 401, statusMessage: '請先登入' })
+  // 未登入 401、登入但不是本人 403。判斷只有一份，見 `import-auth.ts` 的檔頭
+  // （⚠️ 那是功能閘門不是權限邊界：這支端點本來就不寫任何東西）。
+  // supabase 的接線刻意留在這裡，讀的人一眼看得到問身分的是誰。
+  await assertImportOwnerFrom({
+    user: () => serverSupabaseUser(event),
+    allowedEmail: () => process.env.IMPORT_TARGET_EMAIL,
+  })
 
   const parsed = bodySchema.safeParse((await readBody(event)) ?? {})
   if (!parsed.success)

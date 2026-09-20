@@ -1,5 +1,7 @@
 import type { TmdbSearchResult } from '#pipeline/types'
+import process from 'node:process'
 import { z } from 'zod'
+import { assertImportOwnerFrom } from '~~/server/utils/import-auth'
 import { TmdbClient } from '#pipeline/tmdb/client'
 import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
 
@@ -32,9 +34,12 @@ const querySchema = z.object({
 const MAX_RESULTS = 8
 
 export default defineEventHandler(async (event) => {
-  const user = await serverSupabaseUser(event)
-  if (!user)
-    throw createError({ statusCode: 401, statusMessage: '請先登入' })
+  // 未登入 401、登入但不是本人 403。與 `parse-csv` 共用同一支判斷
+  // （抄兩份一定會漂移，而漂移的方向會是兩支端點對同一個人給出不同答案）。
+  await assertImportOwnerFrom({
+    user: () => serverSupabaseUser(event),
+    allowedEmail: () => process.env.IMPORT_TARGET_EMAIL,
+  })
 
   const parsed = querySchema.safeParse(getQuery(event))
   if (!parsed.success)
