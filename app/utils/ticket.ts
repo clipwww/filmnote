@@ -1,33 +1,24 @@
 /**
- * 票根卡（`TicketCard`）的文字組裝。`DESIGN_SYSTEM §4.3`。
- *
- * ⚠️ 這些函式的存在理由跟 `format-datetime.ts` 一樣：**分隔符必須在字串裡就組好**。
- * Vue 的 whitespace 處理預設是 'condense'，用相鄰元素加空白做分隔會 render 成
- * `2D16:00`。所以 meta 行是一個字串、一次插值。
+ * 票根卡的文字組裝（`DESIGN_SYSTEM §4.3`）。⚠️ **分隔符必須在字串裡就組好**：
+ * Vue 的 whitespace 預設 'condense'，用相鄰元素加空白做分隔會 render 成 `2D16:00`。
+ * 所以 meta 行是一個字串、一次插值。
  */
 
 /** 日期帶（票根撕線那一側）要顯示的幾段。 */
 export interface DateBand {
   year: string
   /**
-   * 月份的英文縮寫：`Jul`。2026-09-06 David 指定。
-   *
-   * 順帶解決一件事：`Jul` 由 Inter 供應（拉丁排在字型堆疊第一位，§2.2），
-   * 而 `tabular-nums` 本來就只能由 Inter 提供 ⇒ 整條日期帶終於在同一套
-   * 字型的同一組度量裡，多張卡的數字真的對得齊。
+   * 月份的英文縮寫：`Jul`。順帶解決一件事：`Jul` 由 Inter 供應（拉丁排字型堆疊第一），
+   * 而 `tabular-nums` 本來就只能由 Inter 提供 ⇒ 整條日期帶在同一套字型的同一組度量裡，
+   * 多張卡的數字真的對得齊。
    */
   month: string
   /** 日，補零到兩位，配 tabular-nums 才對得齊。 */
   day: string
   /**
-   * 星期的英文縮寫：`Sun`。
-   *
-   * ⚠️ 這裡**刻意不用中文的「日」**，理由不是統一風格：
-   * 月份變成 `Jul` 之後，帶子上出現 `Jul / 26 / 日` 這個組合，而「日」在中文裡
-   * 同時是「星期日」與「日期的單位」——緊貼在一個拉丁月份與一個兩位數後面，
-   * 它會被讀成後者。`Sun` 沒有這個歧義，整條帶子也只剩一套字型與一組度量。
-   * （代價是本站唯一一處以英文呈現的星期。若要改回中文，連月份一起改回去，
-   *   不要只改一半——混排的那一版正是被這一條換掉的。）
+   * 星期的英文縮寫：`Sun`。⚠️ **刻意不用中文的「日」**——月份變成 `Jul` 之後，
+   * `Jul / 26 / 日` 裡的「日」同時是「星期日」與「日期的單位」，緊貼一個拉丁月份與兩位數
+   * 之後會被讀成後者。要改回中文請連月份一起改（混排那版正是被這條換掉的）。
    */
   weekday: string
 }
@@ -36,16 +27,13 @@ const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep
 const WEEKDAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 /**
- * `2026-07-26` → `{ year: '2026', month: 'Jul', day: '26', weekday: 'Sun' }`。
- *
- * ⚠️ 刻意用 `Date.UTC` 算星期，不用 `new Date('2026-07-26').getDay()`。
- * 後者把字串當 UTC 午夜解析後再轉成**本地**時間，任何 UTC 以西的時區
- * （美洲全境）都會退一天，而且不會報錯。`watched_on` 存的是台北牆上時間的
- * 日期，本來就沒有時區可言，全程留在 UTC 算才不會位移。
- *
- * ⚠️ 縮寫用寫死的陣列，不用 `Intl.DateTimeFormat('en', { month: 'short' })`：
- * 後者的輸出隨 ICU 版本而異（`Sept` 與 `Sep` 在不同 Node／瀏覽器上都出現過），
- * 而這三個字母要在每一張卡、每一台機器上等寬對齊。
+ * `2026-07-26` → `{ year, month, day, weekday }`。⚠️ 刻意用 `Date.UTC` 算星期：
+ * `new Date('2026-07-26').getDay()` 把字串當 UTC 午夜再轉本地，UTC 以西全境退一天而且不報錯。
+ * `watched_on` 是台北牆上時間的日期，本來就沒有時區可言。
+ */
+/*
+ * ⚠️ 縮寫用寫死的陣列不用 `Intl.DateTimeFormat`：後者的輸出隨 ICU 版本而異
+ * （`Sept` 與 `Sep` 在不同 Node／瀏覽器上都出現過），而這三個字母要在每一台機器上等寬對齊。
  */
 export function dateBand(date: string | null | undefined): DateBand | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date ?? '')
@@ -57,13 +45,9 @@ export function dateBand(date: string | null | undefined): DateBand | null {
 }
 
 /**
- * 票價的顯示文字。三種狀態必須看得出差別（§4.3）：
- *
- *   null → `null`，這一項**不存在**。絕不渲染 `NT$ ———` 之類的佔位，
- *          那等於公告「這裡有一個價格但不給你看」。沒資料與被隱藏都走這條。
- *   0    → `免費`。實測 David 的紀錄有 16 筆是 0，那是招待票／兌換票，
- *          不是「不知道」也不是「零元」。顯示 `NT$0` 會讀成後者。
- *   其他 → `NT$520`
+ * 票價的顯示文字，三種狀態必須看得出差別（§4.3）：null ⇒ 這一項**不存在**（絕不渲染
+ * `NT$ ———` 之類的佔位，那等於公告「這裡有一個價格但不給你看」）；0 ⇒ `免費`
+ * （實測 16 筆是招待票／兌換票，顯示 `NT$0` 會被讀成「零元」）；其他 ⇒ `NT$520`。
  */
 export function costText(cost: number | null | undefined): string | null {
   if (cost === null || cost === undefined || Number.isNaN(cost))
@@ -84,19 +68,14 @@ export interface TicketMeta {
 }
 
 /**
- * meta 的**第一段：影城（含廳別）**。`林口MITSUI OUTLET PARK威秀影城 (7廳)`
- *
- * ⚠️ **這一段必須是不可切開的單位**（呼叫端給它 `whitespace-nowrap`）。
- * 資料庫存的是政府影城主檔的**官方全名**，不是口語簡稱。實測 108 家的名稱長度
- * （全形計 2）中位 14、p95 22、最長 30，而超過 24 的只有一家——
- * `林口MITSUI OUTLET PARK威秀影城`，正好是 David 68% 場次的主場。
- *
- * 375px 的票根卡裡可用 277px，13px 實量：
- *   最長影城名 + `(7廳)`  248.9px  ✅ 單行放得下
- *   整串擠成一行          360.5px  ❌ 必換行，斷點會落在名稱中間
- *
- * 斷在名稱中間的後果是「影城」跑到第二行開頭、緊接著「數位」，
- * 讀起來像在一個叫**「影城 數位」**的地方看的——量詞串的結構整個糊掉。
+ * meta 第一段：影城（含廳別）。⚠️ **必須是不可切開的單位**（呼叫端給 `whitespace-nowrap`）。
+ * 存的是政府主檔的官方全名：實測 108 家名稱長度（全形計 2）中位 14、p95 22、最長 30，
+ * 超過 24 的只有一家——正好是 David 68% 場次的主場。
+ */
+/*
+ * 375px 的票根卡裡可用 277px，13px 實量：最長影城名 + `(7廳)` 是 248.9px（單行放得下），
+ * 整串擠成一行是 360.5px（必換行，斷點會落在名稱中間）。斷在名稱中間的後果是「影城」跑到
+ * 第二行開頭、緊接著「數位」，讀起來像在一個叫**「影城 數位」**的地方看的。
  */
 export function venueSegment(m: Pick<TicketMeta, 'venueName' | 'hallLabel'>): string | null {
   const parts = [m.venueName, m.hallLabel ? `(${m.hallLabel})` : null]
@@ -105,13 +84,9 @@ export function venueSegment(m: Pick<TicketMeta, 'venueName' | 'hallLabel'>): st
 }
 
 /**
- * meta 的**第二段：版本／時間／張數／票價**。`數位 16:00 2張 NT$520`
- *
- * **開眼式括號量詞串，不用中點分隔。** 中點串（`A · B · C`）是 Letterboxd 的
- * 簽名手法之一，也是 AI 生成設計的預設長相，§0 已明文避開。括號與量詞是
- * 台灣人看售票網站與票根本來就在讀的寫法。
- *
- * 票價一律排最後（§4.3）。
+ * meta 第二段：版本／時間／張數／票價。**開眼式括號量詞串，不用中點分隔**——中點串
+ * （`A · B · C`）是 Letterboxd 的簽名也是 AI 生成設計的預設長相，§0 已明文避開；
+ * 括號與量詞是台灣人看售票網站與票根本來就在讀的寫法。票價一律排最後（§4.3）。
  */
 export function detailSegment(m: Omit<TicketMeta, 'venueName' | 'hallLabel'>): string | null {
   const parts = [

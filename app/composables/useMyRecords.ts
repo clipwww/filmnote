@@ -8,48 +8,36 @@ export interface MyRecord extends TicketCardRecord {
   year: string
   formatCode: string | null
   /**
-   * 作品的識別。多刷排行（band 7）以 `film_id` 分組，抽屜要把排行的一列
-   * 對回紀錄只能靠它——片名會撞、`slug` 對未審核的 UGC 作品是 null。
-   * DB 上 NOT NULL，所以這裡不宣告成可選：宣告成可選的話，map 忘了帶
-   * 會 typecheck 全綠而抽屜永遠是空的。
+   * 作品的識別（多刷排行以 `film_id` 分組，抽屜只能靠它對回紀錄——片名會撞、
+   * slug 對未審核 UGC 是 null）。DB 上 NOT NULL ⇒ **不宣告成可選**：
+   * 宣告成可選的話 map 忘了帶會 typecheck 全綠而抽屜永遠是空的。
    */
   filmId: string
   /**
-   * 場所的識別。**影城分布長條**點一列時，抽屜靠它把紀錄過濾出來
-   * （`matchesDistPick(r, 'venue', key)`，key 就是 `venue_id`）。
-   *
-   * ⚠️ 不可以改用 `venueName` 比對：`venue.name` 不保證唯一（同名分館），
-   *   而且 RPC 的影城分布本來就是 `group by r.venue_id`——兩邊用不同的東西
-   *   分組，長條上的筆數與抽屜列出的張數就會對不起來。
-   * `viewing_record.venue_id` 在 DB 上可為 null（沒填場所），所以這裡是可為 null；
-   *   `matchesDistPick()` 會把 null 對到空字串那一桶。
+   * 場所的識別，影城分布長條的抽屜靠它過濾。⚠️ **不可改用 `venueName` 比對**：
+   * `venue.name` 不保證唯一（同名分館），而 RPC 本來就是 `group by r.venue_id`
+   * ——兩邊用不同的東西分組，長條的筆數與抽屜的張數就會對不起來。
    */
   venueId: string | null
   /**
-   * 作品的國別。**國別分布長條**點一列時的過濾依據
-   * （`matchesDistPick(r, 'country', key)`）。
-   *
-   * ⚠️ 值直接取自 `film.country`，**沒有正規化**——必須與 RPC
-   *   `coalesce(f.country, '')` 分組的那個字串一模一樣，否則對不上。
-   *   null（作品沒填國別）由 `matchesDistPick()` 折進「未分類」那一桶。
+   * 作品的國別，國別分布長條的抽屜靠它過濾。⚠️ 值直接取自 `film.country`，
+   * **沒有正規化**——必須與 RPC `coalesce(f.country, '')` 分組的字串一模一樣。
    */
   country: string | null
 }
 
 /**
- * 登入者自己的全部紀錄，已整成 `TicketCard` 吃的形狀。
- *
- * `/app`（儀表板）與 `/app/records`（完整列表）共用同一份 `useAsyncData` key，
+ * 登入者自己的全部紀錄。`/app` 與 `/app/records` 共用同一份 `useAsyncData` key，
  * 兩頁之間切換不會重打一次資料庫。
- *
- * ── 為什麼是四個 query 不是一個 join ─────────────────────────
- * 票價存在獨立的 `viewing_record_cost`（RLS 只能遮列不能有條件地遮欄，
- * `show_cost` 這條規則必須靠結構強制），而海報路徑在 `film_public` view 上
- * 不在 `film` 表上。這裡刻意分開取再在前端併，不繞 PostgREST 的巢狀 select——
- * 巢狀 select 一旦跨 RLS 邊界，缺欄位時是靜默回 null 不是報錯。
- *
- * ⚠️ `limit(500)`：David 現在 174 筆。這個上限會隨時間爆，且爆的時候是靜默
- * 少資料。真正的解是分頁，但那要等 `/api/records` 支援 offset/limit。
+ */
+/*
+ * 為什麼是四個 query 不是一個 join：票價在獨立的 `viewing_record_cost`（RLS 只能遮列不能
+ * 有條件地遮欄，`show_cost` 必須靠結構強制）、海報路徑在 `film_public` view 上不在 `film` 表。
+ * 刻意分開取再在前端併，不繞 PostgREST 的巢狀 select——它跨 RLS 邊界時缺欄位是靜默回 null。
+ */
+/*
+ * ⚠️ `limit(500)`：David 現在 174 筆。這個上限會隨時間爆，**且爆的時候是靜默少資料**。
+ * 真正的解是分頁，但那要等 `/api/records` 支援 offset/limit。
  */
 export function useMyRecords() {
   const supabase = useSupabaseClient<Database>()
@@ -73,12 +61,9 @@ export function useMyRecords() {
     const filmIds = [...new Set(rows.map(r => r.film_id))]
     const venueIds = [...new Set(rows.map(r => r.venue_id))]
     const [films, posters, venues, costs] = await Promise.all([
-      // ★ `country` 必須從 `film` 表拿，**不是 `film_public`**（下面那支）。
-      //   `film_public` 的 where 是 `visibility='public' and moderation_state='visible'`
-      //   ⇒ **自己新增的私密 UGC 作品（visibility='private'）不在裡面**。
-      //   從那支拿的話那些紀錄的 country 會是 null，於是它們在國別分布上
-      //   全部掉進「未分類」——而長條的筆數來自 RPC（`left join public.film`），
-      //   兩邊母體不同，抽屜就會少列。這裡本來就已經在讀 `film` 表了。
+      // ★ `country` 必須從 `film` 表拿**不是 `film_public`**：後者的 where 排除了
+      //   `visibility='private'` ⇒ 自己新增的私密 UGC 作品不在裡面，那些紀錄的 country
+      //   會變 null 而全部掉進「未分類」，但長條的筆數來自 RPC（left join film）⇒ 抽屜少列。
       supabase.from('film').select('id,slug,title_zh,title_original,country,ugc_poster_path,visibility,review_state').in('id', filmIds),
       // 海報只在 view 上。自己的私密 UGC 作品不會出現在這裡，那時就沒有海報欄——
       // 正是 §4.3 要的行為，不必補 fallback。
@@ -90,10 +75,8 @@ export function useMyRecords() {
     const pm = new Map((posters.data ?? []).map(f => [f.id, f.tmdb_poster_path]))
 
     /**
-     * UGC 海報存在 private bucket，`ugc_poster_path` 是**路徑不是 URL**，
-     * 直接塞進 `<img src>` 只會得到 400。要能顯示必須換成 signed URL。
-     * 批次簽一次（`createSignedUrls`），不要一部片一個往返。
-     * 沒有 UGC 海報時整段跳過——絕大多數紀錄走的是 TMDB 熱連結。
+     * UGC 海報在 private bucket，`ugc_poster_path` 是**路徑不是 URL**，直接塞進
+     * `<img src>` 只會得到 400 ⇒ 必須換成 signed URL。批次簽一次，不要一部片一個往返。
      */
     const ugcPaths = (films.data ?? [])
       .map(f => f.ugc_poster_path)
@@ -133,14 +116,9 @@ export function useMyRecords() {
       isPrivate: r.visibility === 'private',
       film: {
         /**
-         * ⚠️ 只有**公開且已審核**的作品才給連結。
-         *
-         * 使用者自己新增的 UGC 作品在 insert 當下就有 slug（資料庫的觸發器產的），
-         * 但 `/film/[slug]` 走 `/api/film/[slug]`，那支明確用匿名 client
-         * （為了讓 ISR 快取安全），所以私密作品對**作者自己也是 404**。
-         * 不擋的話畫面上會出現一個看起來正常、點下去卻是錯誤頁的連結——
-         * 而且 Nuxt 會在 hover 之前就去 prefetch 它的 payload，於是每一張這種卡
-         * 都在 console 留一個 404。實測就是這樣發現的。
+         * ⚠️ 只有**公開且已審核**的作品才給連結：UGC 作品 insert 當下就有 slug，但
+         * `/film/[slug]` 走的端點用匿名 client（為了 ISR 快取安全）⇒ 私密作品對**作者自己
+         * 也是 404**。不擋的話 Nuxt 會在 hover 前就 prefetch，每張這種卡都留一個 404。
          */
         slug: (() => {
           const f = fm.get(r.film_id)
@@ -180,11 +158,9 @@ export function groupByYear<T extends { year: string }>(rows: T[]): { year: stri
 }
 
 /**
- * 一年的量詞句所需的數字（`DESIGN_SYSTEM §4.4`）。
- *
- * `tickets`：`ticket_count` 沒填時當 1 張——「看了一場但沒說幾張票」的
- * 合理讀法是一張，當 0 會讓總票數比場次還少，那是明顯錯的。
- * `spendIsPartial`：有紀錄沒有票價時為 true。金額不能假裝是全年總額。
+ * 一年的量詞句所需的數字（`DESIGN_SYSTEM §4.4`）。`ticket_count` 沒填時當 1 張——
+ * 「看了一場但沒說幾張票」的合理讀法是一張，當 0 會讓總票數比場次還少。
+ * `spendIsPartial`：有紀錄沒有票價時為 true，金額不能假裝是全年總額。
  */
 export function yearTotals(rows: MyRecord[]) {
   let tickets = 0
