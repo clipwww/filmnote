@@ -65,6 +65,23 @@ const supabase = useSupabaseClient<Database>()
 const user = useSupabaseUser()
 const toast = useToast()
 
+/**
+ * 這一頁只有本人能用（David 2026-09-20：「沒權限的話 Menu 也不需要出現」）。
+ * 選單那一側在 `AppNav.vue` 擋，這裡擋的是**直接打網址**進來的人。
+ *
+ * ⚠️ 這兩處都只是 UI。真正的閘門在 `server/utils/import-auth.ts`，兩支端點各自
+ *   assert 一次——**不要**因為這裡擋掉了就把端點那一層拿掉。
+ * ⚠️ 而那個閘門自己也只是**功能閘門不是安全邊界**：匯入的實際寫入走瀏覽器端的
+ *   RLS，任何登入者本來就能寫自己的紀錄（`/app/records/new` 就是那條路）。
+ *
+ * `canImport` 走 `/api/import/allowed`（只回布林、email 不出伺服器），`server: false`。
+ * ★ **一定要配 `canImportKnown` 用三態**：`canImport` 初值是 `false`，
+ *   只看它的話**第一幀會對本人顯示一次「沒有對外開放」再跳回來**——
+ *   那正是踩雷 #169 的形狀（分不出「沒有」與「還沒到」就會對使用者說一次謊）。
+ *   問到之前兩邊都不畫，寧可空一下也不要說謊。
+ */
+const { canImport, canImportKnown } = useMyIdentity()
+
 type Step = 'upload' | 'venues' | 'titles' | 'review' | 'done'
 const step = ref<Step>('upload')
 
@@ -865,8 +882,26 @@ const moneyText = (n: number) => `NT$${Math.round(n).toLocaleString('zh-Hant-TW'
 
 <template>
   <div class="mx-auto max-w-3xl px-4 py-8">
+    <!--
+      ── 非本人：整頁不給表單 ──────────────────────────────
+      ⚠️ 這是 UI 不是防線（防線在兩支端點的 assertImportOwner）。
+      文案刻意不說「你沒有權限」——這不是權限問題，是這個工具只為一個帳號存在。
+    -->
+    <template v-if="canImportKnown && !canImport">
+      <h1 class="text-2xl font-bold tracking-tight">
+        匯入舊紀錄
+      </h1>
+      <p class="mt-2 text-muted">
+        這是站主搬遷自己舊資料用的一次性工具，沒有對外開放。
+        要一筆一筆記，用<NuxtLink to="/app/records/new" class="text-primary hover:underline">記一場</NuxtLink>；
+        要一次補很多筆，
+        <NuxtLink to="/legal/dmca" class="text-primary hover:underline">從受理窗口</NuxtLink>跟我說一聲。
+      </p>
+    </template>
+
     <!-- ── 第 0 步：讀檔 ──────────────────────────────────── -->
-    <template v-if="step === 'upload'">
+    <!-- ⚠️ `canImport &&` 不可省：沒有它，問到答案之前非本人也會先看到表單。 -->
+    <template v-else-if="canImport && step === 'upload'">
       <h1 class="text-2xl font-bold tracking-tight">
         匯入舊紀錄
       </h1>

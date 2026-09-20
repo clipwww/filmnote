@@ -23,7 +23,7 @@ import type { DropdownMenuItem } from '@nuxt/ui'
  */
 const supabase = useSupabaseClient()
 const colorMode = useColorMode()
-const { username, isStaff, isSignedIn } = useMyIdentity()
+const { username, isStaff, isSignedIn, canImport } = useMyIdentity()
 
 /**
  * 觸發鈕上的 Google 頭像（2026-09-07 David：**只在登入後的私密面顯示，
@@ -108,7 +108,14 @@ const items = computed<DropdownMenuItem[][]>(() => {
       { label: '個人紀錄管理', icon: 'i-lucide-list', to: '/app/records' },
       { label: '記一場', icon: 'i-lucide-plus', to: '/app/records/new' },
       { label: '新增作品', icon: 'i-lucide-clapperboard', to: '/app/films/new' },
-      { label: '匯入舊紀錄', icon: 'i-lucide-upload', to: '/app/import' },
+      // 「匯入舊紀錄」只有本人看得到（David 2026-09-20：「沒權限的話 Menu 也不需要出現」）。
+      // 判準來自 `/api/import/allowed`（只回布林，email 不出伺服器）。
+      // ⚠️ 這是入口的顯示與否，**不是**權限——真正的閘門在
+      //   `server/utils/import-auth.ts`，而那個自己也只是功能閘門不是安全邊界。
+      //   猜錯不會讓任何人多做到什麼，只會讓選單多一條點進去被擋的路。
+      ...(canImport.value
+        ? [{ label: '匯入舊紀錄', icon: 'i-lucide-upload', to: '/app/import' }]
+        : []),
     ],
     [
       { label: '搜尋作品', icon: 'i-lucide-search', to: '/search' },
