@@ -7,6 +7,8 @@
 | [SPEC.md](./SPEC.md) | **產品規格（權威）**。58 條 user stories、資料模型、實測覆蓋率、Out of Scope 與其理由。 |
 | [BUILD_PLAN.md](./BUILD_PLAN.md) | Nuxt 應用建置計畫。Supabase schema/RLS 完整 SQL、專案設定、路由、逐步驗證方式、法遵落點。 |
 
+- [CODE_STYLE.md](CODE_STYLE.md) — 註解慣例（≤3 行、不寫原話、什麼不可以蒸發）
+
 ## 調研
 
 | 文件 | 內容 |
