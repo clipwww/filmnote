@@ -3,19 +3,16 @@ import type { EChartsOption } from 'echarts'
 import type { YearStats } from '~/utils/stats'
 
 /**
- * 年度出席圖（`SCREENS.md §9` band 2）。7×53 日格。
- *
- * ── 三個會靜默壞掉的地方 ──────────────────────────────────────
- * 1. **`calendar` 只能設 `left` 與 `top`。** 同時設 `right` / `width` 會覆蓋
- *    `cellSize` 的寬度分量，方格靜默變形成 6.9×14 的長條（§5.3-3）。
- *    這是最容易踩且錯了不會報錯的雷。
- * 2. **`cellSize: 'auto'` 不是手機的解答**——寬高各自拉滿容器，375×180 下
- *    方格會變成 6.90×23.40 的長條，直接破壞方格語彙（§5.3-4）。
- *    整年固定 53 欄 × cellSize，**ECharts 自己完全不提供橫向捲動**，
- *    手機唯一乾淨解是固定像素寬放進外層 `overflow-x: auto`（§5.3-5）。
- * 3. **`visualMap.pieces` 用 `gt`/`lte` 不用 `min`/`max`**（§5.3-9）。
- *    `{min:1,max:1}` 接 `{min:2}` 會讓「剛好 2 場」的日子整格消失，而那些
- *    日子正是雙片連映——這張圖唯一想讓人看見的東西。
+ * 年度出席圖（`SCREENS.md §9` band 2），7×53 日格。三個會靜默壞掉的地方：
+ * ① **`calendar` 只能設 `left` 與 `top`**——同時設 `right`／`width` 會覆蓋 `cellSize` 的寬度
+ *    分量，方格靜默變形成 6.9×14 的長條（§5.3-3）。最容易踩且錯了不會報錯。
+ */
+/*
+ * ② **`cellSize: 'auto'` 不是手機的解答**：寬高各自拉滿容器，375×180 下方格會變成 6.90×23.40
+ *    的長條。整年固定 53 欄 × cellSize 而 **ECharts 自己完全不提供橫向捲動** ⇒ 手機唯一乾淨解
+ *    是固定像素寬放進外層 `overflow-x: auto`（§5.3-4／5）。
+ * ③ **pieces 用 `gt`/`lte` 不用 `min`/`max`**（§5.3-9）：`{min:1,max:1}` 接 `{min:2}` 會讓
+ *    「剛好 2 場」的日子整格消失，而那些日子正是雙片連映。
  */
 const props = defineProps<{
   year: number
@@ -48,13 +45,10 @@ const option = computed<EChartsOption>(() => {
     visualMap: {
       type: 'piecewise' as const,
       show: false,
-      // ★ 只作用在第 0 個 series（heatmap）。
-      //   `seriesIndex` 不寫的話 visualMap 會**吃掉每一個 series**，把下面那個
-      //   scatter 的 itemStyle.color 也覆寫成 att[2]——小點跟格子同色，等於不存在。
-      //   實測（2019 年有兩天是雙片連映，合成三層 canvas 後數像素）：
-      //     不寫 seriesIndex → 最深色 200px、小點 0px
-      //     寫了            → 最深色 152px（小點在深格上挖掉 48px）+ 肉眼可見
-      //   兩種寫法在畫面上都「看起來正常」，差別只有那兩天的標記在不在。
+      // ★ 只作用在第 0 個 series（heatmap）。不寫 `seriesIndex` 的話 visualMap 會**吃掉每一個
+      //   series**，把下面那個 scatter 的 `itemStyle.color` 也覆寫成 att[2]——小點跟格子同色。
+      //   實測（2019 年兩天雙片連映，合成三層 canvas 數像素）：不寫 → 最深色 200px、小點 0px；
+      //   寫了 → 最深色 152px（小點挖掉 48px）+ 肉眼可見。兩種寫法在畫面上都「看起來正常」。
       seriesIndex: 0,
       pieces: attendancePieces(isDark.value),
     },

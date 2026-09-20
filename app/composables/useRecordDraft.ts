@@ -1,16 +1,14 @@
 import type { FilmOption } from '~/composables/useFilmSearch'
 
 /**
- * `/app/records/new` 的草稿。
- *
- * 存在的理由只有一個情境：使用者記到一半發現片庫裡沒有這部片，被送去
- * `/app/films/new` 新增，回來時**其餘欄位必須原樣還在**（`SCREENS §11`）。
- * 沒有這一層的話，「找不到片」這條路會懲罰那些已經填完日期、影城、票價的人——
- * 而那正是硬約束 (1) 最不能壞的一條路。
- *
+ * `/app/records/new` 的草稿。存在的理由只有一個情境：使用者記到一半發現片庫裡沒有這部片、
+ * 被送去 `/app/films/new`，回來時**其餘欄位必須原樣還在**（`SCREENS §11`）——沒有這一層，
+ * 「找不到片」這條路會懲罰那些已經填完日期、影城、票價的人。
+ */
+/*
  * 用 `sessionStorage` 不是 `localStorage`：一筆記到一半的紀錄不該活過分頁。
- * 讀取是**取走**（take）不是複製——草稿被還原之後就不該再存在，否則使用者
- * 下次乾淨地開新表單時會冒出上次的殘骸。
+ * 讀取是**取走**（take）不是複製——草稿被還原之後就不該再存在，否則下次乾淨地開新表單時
+ * 會冒出上次的殘骸。
  */
 const KEY = 'filmnote:record-draft'
 
@@ -71,12 +69,10 @@ export function useRecordDraft() {
   }
 
   /**
-   * 疊上去而不是覆蓋。
-   *
-   * ⚠️ `/app/films/new` 建立完作品之後只知道「哪一部片」，其餘欄位是使用者
-   * 離開 `/app/records/new` 之前存的。用 `save({ film })` 會把日期、影城、
-   * 票價整組洗掉——而那正是這整層草稿要保住的東西。
-   */
+   * 疊上去而不是覆蓋。⚠️ `/app/films/new` 建立完作品之後只知道「哪一部片」，其餘欄位是使用者
+   * 離開 `/app/records/new` 之前存的 ⇒ 用 `save({ film })` 會把日期、影城、票價整組洗掉，
+   * 而那正是這整層草稿要保住的東西。
+  */
   function merge(partial: RecordDraft) {
     save({ ...(read() ?? {}), ...partial })
   }

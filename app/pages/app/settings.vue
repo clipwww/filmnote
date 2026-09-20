@@ -29,10 +29,8 @@ await useAsyncData('settings', async () => {
 }, { server: false, watch: [user] })
 
 /**
- * US-30：主動開啟票價公開。
- *
- * 這個開關只改 profile.show_cost 一個布林值——票價本身不需要搬動，
- * 因為 cost_read policy 是即時判斷的（紀錄公開 且 作者已開 show_cost）。
+ * US-30：主動開啟票價公開。這個開關只改 `profile.show_cost` 一個布林值——票價本身不需要搬動，
+ * 因為 `cost_read` policy 是即時判斷的（紀錄公開 且 作者已開 show_cost）。
  * 關掉的瞬間，所有人的查詢就再也讀不到那些列，零資料遷移。
  */
 async function toggleShowCost(value: boolean) {

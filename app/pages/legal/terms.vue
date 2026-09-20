@@ -1,11 +1,8 @@
 <script setup lang="ts">
 /**
- * `/legal/terms` — 服務條款（`SCREENS §15.1`、`BUILD_PLAN §6.1 ①`）。
- *
- * 正文全部在 `legal_document`（`kind='terms'`），這一頁只負責版面。
- * ⚠️ 不得要求登入、不得放在任何牆後：`nuxt.config.ts` 的 `/legal/**` 是
- * `prerender: true`，`supabase.redirectOptions.include` 也只涵蓋 `/app` 與
- * `/admin`——兩邊都不要動。
+ * `/legal/terms` — 服務條款（`SCREENS §15.1`）。正文全部在 `legal_document`，這一頁只負責版面。
+ * ⚠️ 不得要求登入、不得放在任何牆後：`supabase.redirectOptions.include` 只涵蓋 `/app` 與
+ * `/admin`，`nuxt.config.ts` 的 `/legal/**` 設定也不要動。
  */
 useSeoMeta({
   title: '服務條款',

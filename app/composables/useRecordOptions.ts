@@ -11,11 +11,9 @@ export interface VenueOption {
 const LAST_VENUE_KEY = 'filmnote:last-venue'
 
 /**
- * 新增／編輯紀錄用的選項來源。
- *
- * ★ 場所一律查 `venue_option` view，不要直接查 `venue`。
- *   view 已濾掉已歇業、已合併、海外與待審 UGC 場所；直接查 venue 會讓
- *   2020 年就歇業的日新威秀出現在「新增紀錄」的選單裡（見 0002 migration）。
+ * 新增／編輯紀錄用的選項來源。★ 場所一律查 `venue_option` view 不要直接查 `venue`：
+ * view 已濾掉已歇業、已合併、海外與待審 UGC 場所，直接查 venue 會讓 2020 年就歇業的
+ * 日新威秀出現在「新增紀錄」的選單裡（見 0002 migration）。
  */
 export function useVenueOptions() {
   const supabase = useSupabaseClient<Database>()

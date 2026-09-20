@@ -1,19 +1,14 @@
 import { z } from 'zod'
 
 /**
- * 手動新增作品的表單（US-13~18）。
- *
- * ── 只有中文片名必填 ─────────────────────────────────────────
- * US-14 寫的是「只需填片名與年份」，但**連年份都不該擋**：缺的欄位之後比對到
- * TMDB 會自己補（US-18）。**擋住人比資料不完整更糟**——這一頁是「找不到片」
- * 流程的終點，是硬約束 (1) 最重要的落點，它必須讀起來像流程的下一步，
- * 不像錯誤畫面也不像後台表單。
- *
- * ── 空值一律 null 不是空字串 ─────────────────────────────────
- * `film` 的 `title_original` / `country` 是 `not null default ''`，
- * 所以寫入時空值要轉成 `''` 而不是 null；但**表單層面**維持 null，
- * 因為票根卡上「沒有原文片名」與「原文片名是空字串」要走同一條路：
- * 不渲染那一行，而不是渲染一個空行。
+ * 手動新增作品的表單（US-13~18）。**只有中文片名必填**：US-14 寫「只需填片名與年份」，但
+ * **連年份都不該擋**（缺的欄位之後比對到 TMDB 會自己補）。**擋住人比資料不完整更糟**
+ * ——這一頁是「找不到片」流程的終點，必須讀起來像流程的下一步。
+ */
+/*
+ * 空值一律 null 不是空字串：`film` 的 `title_original`／`country` 是 `not null default ''`，
+ * 寫入時空值要轉成 `''`；但**表單層面**維持 null，因為票根卡上「沒有原文片名」與「原文片名
+ * 是空字串」要走同一條路——不渲染那一行，而不是渲染一個空行。
  */
 
 function emptyToNull<T extends z.ZodTypeAny>(schema: T) {
@@ -43,12 +38,9 @@ export const filmSchema = z.object({
 export type FilmForm = z.output<typeof filmSchema>
 
 /**
- * 表單 → `film` 的欄位。
- *
- * ⚠️ 這五個常數不是「順便填的預設值」，是 `film_insert_ugc` policy 的
- * `with check` 條件——少一個或填錯一個，insert 會被 RLS 擋掉並回
- * 「new row violates row-level security policy」，而錯誤訊息不會告訴你是哪一欄。
- * `created_by` 由呼叫端補上目前使用者。
+ * 表單 → `film` 的欄位。⚠️ 這五個常數不是「順便填的預設值」，是 `film_insert_ugc` policy 的
+ * `with check` 條件——少一個或填錯一個，insert 會被 RLS 擋掉並回「new row violates row-level
+ * security policy」，而錯誤訊息不會告訴你是哪一欄。`created_by` 由呼叫端補上目前使用者。
  */
 export function toFilmRow(form: FilmForm) {
   return {
