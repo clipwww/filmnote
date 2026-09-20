@@ -53,37 +53,20 @@ function formatRuntime(mins: number | null | undefined) {
 <template>
   <div class="mx-auto max-w-5xl px-4 py-10">
     <!--
-      ★ 根節點**不能**是 `v-if`（2026-09-14，配合 `app.pageTransition` 的換頁淡入）。
-
-      <Transition> 的 hooks 掛在這個元件 render 出來的**根 vnode** 上。原本的根是
-      `<div v-if="film" …>`，`film` 為 falsy 時它 render 成**註解節點**——註解沒有樣式，
-      fade 對它是 no-op ⇒ 那一次換頁變成硬切。
-
-      ⚠️ 而且**不會有任何警告**。Vue 的 `isElementRoot()` 是
-         `vnode.shapeFlag & (6 | 1) || vnode.type === Comment`
-         （`@vue/runtime-core` 的 `renderComponentRoot`），明文把 `Comment` 放行，
-         理由是「可能只是 v-if 分支切換」。真正會噴
-         `Component inside <Transition> renders non-element root node that cannot be
-         animated.` 的是 **Fragment 根**（多根 template，或根是 `<slot />`）。
+      ★ 根節點**不能**是 `v-if`（配合 `app.pageTransition`）：`<Transition>` 的 hooks 掛在根 vnode
+        上，而 `v-if` 為 falsy 時 render 成**註解節點**——註解沒有樣式，fade 對它是 no-op。
+      ⇒ 外層 `<div>` 永遠存在，`v-if` 移到內層的 `<template>`（不產生 DOM 節點，視覺差異是零）。
+    -->
+    <!--
+      ⚠️ **不會有任何警告**：Vue 的 `isElementRoot()` 明文把 `Comment` 放行（「可能只是 v-if 分支
+         切換」），真正會噴 `renders non-element root node` 的是 **Fragment 根**。
          ⇒ v-if 根屬於「壞掉但 console 全綠」那一類，只能靠規則擋，不能靠跑起來看。
-
-      ⇒ 外層 `<div>` 永遠存在（class 一個字都沒動），`v-if` 移到內層的 `<template>`。
-        用 `<template>` 而不是再包一層 `<div>`：它不產生任何 DOM 節點，
-        所以這次改動的 DOM 與視覺差異是**零**。
-        同一個寫法見 `app/components/LegalDocumentView.vue`。
-
-      ⚠️ 副作用只有一個且無害：`film` 為 falsy 時外層 div 會留下一個空的 `py-10` 盒子
-        （以前是什麼都不 render）。它沒有底色也沒有框，看不見；而且這條路徑到不了
-        ——`server/api/film/[slug].get.ts` 查不到片是 `throw createError(404)`，
-        不會回 200 + `film: null`；而上面的 `error` 分支是 `fatal: true`，直接進錯誤頁。
-
-      ★★ **這段註解在 div 裡面是必要的，不是排版品味**：`<template>` 的直接子註解
-        自己就是一個根節點 ⇒ 寫在 div 上方就是兩個根 ⇒ Fragment ⇒ 淡入不生效，
-        Nuxt 噴 `[NUXT_E4004] … does not have a single root node`（2026-09-14 實跑抓到）。
-        也因此上面那句「不會有任何警告」只對 **Vue 自己**成立：Nuxt 的 E4004 查的是
-        render 出來的 `vnode.el.nodeName`（`#comment` / `#text`），多根與 falsy 的
-        v-if 根**兩種都抓得到**——但只在瀏覽器裡真的換一次頁時才出現。
-        完整經過見 `app/pages/u/[username].vue` 同位置的註解與 `nuxt.config.ts`。
+    -->
+    <!--
+      ★★ **這段註解在 div 裡面是必要的不是排版品味**：`<template>` 的直接子註解自己就是一個根
+         節點 ⇒ 寫在 div 上方就是兩個根 ⇒ Fragment ⇒ Nuxt 噴 `[NUXT_E4004]`（2026-09-14 實跑抓到）。
+         也因此上面那句「不會有任何警告」只對 **Vue 自己**成立：Nuxt 的 E4004 查的是 render 出來的
+         `vnode.el.nodeName`，多根與 falsy 的 v-if 根兩種都抓得到——但只在瀏覽器真的換一次頁時。
     -->
     <template v-if="film">
       <div class="flex flex-col gap-8 sm:flex-row">
