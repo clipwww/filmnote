@@ -1,22 +1,17 @@
 <script setup lang="ts">
 /**
- * 折線圖圖例的那一小段線。實線（資料）或虛線（基準）。
- *
- * ── 為什麼圖例是 HTML 不是畫在 canvas 裡 ──────────────────────────────────
+ * 折線圖圖例的那一小段線（實線＝資料、虛線＝基準）。圖例是 HTML 不是畫在 canvas 裡：
  * canvas 裡的圖例拿不到鍵盤與螢幕閱讀器（`DS §5.6`）。
- *
- * ── ★★ 為什麼要有這個元件，而不是在頁面上寫 `:style="{ background: … }"` ──
- * 顏色**不可以在 JS 裡用 `useColorMode()` 挑再寫進 inline style**（踩雷 #88）：
- * 伺服器端算出來的是一種模式、瀏覽器 hydrate 時是另一種 ⇒
- * `Hydration completed but contains mismatches`，而畫面看起來完全正常。
- *
- * `/app` 是 `ssr: false` 所以看不到，但 `/u/` 是 SSR——2026-09-06 把圖表搬過去時
- * 實測就炸了（`rendered on server: background:#29211A` vs
- * `expected on client: background:#F8EDDC`）。兩頁各寫一份 inline style
- * 的話，`/app` 那份會永遠看起來是對的，於是沒有人會發現 `/u/` 那份是錯的。
- *
- * 正解與 `YearStrip`／`DistributionBars` 同一招：亮暗兩組值都印成 custom property
- * （常數 ⇒ SSR 與 client 必然相同），由 Nuxt UI 註冊的 `dark:` variant 挑一組。
+ */
+/*
+ * ★★ 為什麼要有這個元件而不是在頁面上寫 `:style="{ background: … }"`：顏色**不可以在 JS 裡
+ * 用 `useColorMode()` 挑再寫進 inline style**（踩雷 #88）——`/app` 是 `ssr: false` 所以看不到，
+ * 但 `/u/` 是 SSR，2026-09-06 搬過去時實測就炸了（server `#29211A` vs client `#F8EDDC`）。
+ */
+/*
+ * 兩頁各寫一份 inline style 的話，`/app` 那份會永遠看起來是對的，於是沒有人會發現 `/u/` 那份
+ * 是錯的。正解與 `YearStrip`／`DistributionBars` 同一招：亮暗兩組都印成 custom property
+ * （常數 ⇒ SSR 與 client 必然相同），由 `dark:` variant 挑一組。
  */
 const props = withDefaults(defineProps<{
   /** `ink` = 資料線（實線）；`baseline` = 歷年平均（虛線）。 */

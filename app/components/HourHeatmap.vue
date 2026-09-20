@@ -6,22 +6,17 @@ import type { HourGrid } from '~/utils/stats'
 import { hourHeatmapHeight, hourHeatmapOption } from '~/utils/hour-heatmap-option'
 
 /**
- * 時段熱點圖（`SCREENS.md §9` band 3）。**直式：星期 7 欄 × 時段列。**
- *
- * 方向沿用舊專案——7 欄天生塞得進 375px，永遠不需要橫向捲動。這是舊碼裡
- * 最有價值的判斷（§5.5）。
- *
- * ── option 在哪 ──────────────────────────────────────────────
- * 建構搬到 `~/utils/hour-heatmap-option.ts` 了（那三條硬限制的註解也在那裡）。
- * 唯一的理由是可測：「兩條總和軸真的存在、而且跟格盤對齊」只有在能離開瀏覽器
- * render 一次的情況下才驗得到，而 SFC 進不了 vitest。
- *
- * ── 這張圖有三種可點的東西 ────────────────────────────────────
- * 1. 112 個格子（含值為 0 的）→ `{ kind: 'slot' }`
- * 2. 底部那一列每個星期的總和 → `{ kind: 'weekday' }`
- * 3. 右側那一欄每個時段的總和 → `{ kind: 'hour' }`
- * 原本的星期／時段標籤**維持 silent**（沒有 `triggerEvent` 就是 silent），
- * 它們不是按鈕。
+ * 時段熱點圖（`SCREENS.md §9` band 3）。**直式：星期 7 欄 × 時段列**——方向沿用舊專案，
+ * 7 欄天生塞得進 375px、永遠不需要橫向捲動，這是舊碼裡最有價值的判斷（§5.5）。
+ */
+/*
+ * option 的建構搬到 `~/utils/hour-heatmap-option.ts`（那三條硬限制的註解也在那裡）。唯一的
+ * 理由是可測：「兩條總和軸真的存在而且跟格盤對齊」只有能離開瀏覽器 render 一次才驗得到，
+ * 而 SFC 進不了 vitest。
+ */
+/*
+ * 三種可點的東西：112 個格子（含值為 0 的）→ `slot`、底部每個星期的總和 → `weekday`、
+ * 右側每個時段的總和 → `hour`。原本的星期／時段標籤**維持 silent**，它們不是按鈕。
  */
 const props = defineProps<{ grid: HourGrid }>()
 
@@ -50,17 +45,13 @@ const height = computed(() => hourHeatmapHeight(props.grid))
 const option = computed(() => hourHeatmapOption(props.grid, isDark.value))
 
 /**
- * ECharts 的 click。三種來源：
- *
- * - **格子**：`params.data` 是 `[x, y, value]`。
- * - **軸標籤**：`params.data` 是 undefined，改帶 `targetType: 'axisLabel'` 與
- *   `componentType: 'xAxis' | 'yAxis'`＋`componentIndex`（源頭是 echarts 的
- *   `AxisBuilder.makeAxisEventDataBase`）。只有設了 `triggerEvent` 的軸會送，
- *   而我們只在第二條（總和）軸上設，所以 `componentIndex` 一定是 1。
- *
- * ⚠️ **不要改用 `params.value` 反查是哪一欄。** 兩條 x 軸的原始類目一模一樣
- * （都是「一…日」），而總和的數字會重複——David 的欄總和裡週三與週四都是 13。
- * 用 `dataIndex`（category 軸的類目索引）。
+ * ECharts 的 click，三種來源：**格子**的 `params.data` 是 `[x, y, value]`；**軸標籤**的
+ * `params.data` 是 undefined，改帶 `targetType: 'axisLabel'` 與 `componentType` ＋
+ * `componentIndex`。只有設了 `triggerEvent` 的軸會送，而我們只在第二條（總和）軸上設。
+ */
+/*
+ * ⚠️ **不要改用 `params.value` 反查是哪一欄**：兩條 x 軸的原始類目一模一樣（都是「一…日」），
+ * 而總和的數字會重複——David 的欄總和裡週三與週四都是 13。用 `dataIndex`（類目索引）。
  */
 function onPick(params: {
   data?: unknown

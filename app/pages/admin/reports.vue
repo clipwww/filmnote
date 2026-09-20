@@ -5,26 +5,19 @@ import AdminShell from './-AdminShell.vue'
 import StaffGate from './-StaffGate.vue'
 
 /**
- * `/admin/reports` —— 片名／影城錯誤回報（US-49/50）。`SCREENS §14` ④、視覺稿 ④。
- *
- * 三個佇列裡內容最單純的一個：誰、回報哪一筆、說哪裡錯了、目前的值是什麼。
- *
- * ── 結案走 `admin_resolve_report()`（0011）───────────────────
- * 我上一輪回報說「缺 UPDATE grant」。backend 查出來比那更糟：
- * `data_report` **一條 staff policy 都沒有**（只有 `report_insert` /
- * `report_read`）⇒ 就算補 grant 也不會動。0011 補了 policy、`staff_reply`
- * 欄位與 RPC，現在結案是真的做得到的。
- *
- * `staff_reply` **回報者看得到**（`report_read` 讓 reporter 讀自己那幾筆），
- * 所以它是寫給對方看的，不是內部備註。駁回沒填理由會被 DB 擋（23514）——
- * 沒有理由的駁回，回報者只會再回報一次同一件事。
- *
- * ── ⚠️ 「照著改」在這一頁**只代表「我受理了」，不代表系統幫你改** ──
- * `film.title_zh` 的權威來源是影視局開放資料（`title_zh_source = 'gov'`），
- * 被人工覆蓋之後下次資料更新會打架。修正要進覆蓋層——`source_authority`
- * 已經有 `admin` 這一格，但**覆蓋層本身還沒有設計**。在那之前這一頁
- * 不提供任何直接改片名的入口，按鈕文案也不敢寫成「照著改」：
- * 寧可少一個功能，不要多一個會被下次匯入靜默洗掉的功能。已回報。
+ * `/admin/reports` —— 片名／影城錯誤回報（US-49/50）。三個佇列裡內容最單純的一個：
+ * 誰、回報哪一筆、說哪裡錯了、目前的值是什麼。結案走 `admin_resolve_report()`（0011）。
+ */
+/*
+ * 我上一輪回報「缺 UPDATE grant」，實際上比那更糟：`data_report` **一條 staff policy 都沒有**
+ * ⇒ 就算補 grant 也不會動。0011 補了 policy、`staff_reply` 欄位與 RPC。
+ * `staff_reply` **回報者看得到**，所以是寫給對方看的不是內部備註；駁回沒填理由會被 DB 擋
+ * （23514）——沒有理由的駁回，回報者只會再回報一次同一件事。
+ */
+/*
+ * ⚠️ 「照著改」在這一頁**只代表「我受理了」，不代表系統幫你改**：`film.title_zh` 的權威來源
+ * 是影視局開放資料，人工覆蓋之後下次更新會打架。修正要進覆蓋層，而**覆蓋層本身還沒有設計**。
+ * 在那之前不提供任何直接改片名的入口——寧可少一個功能，不要多一個會被下次匯入靜默洗掉的功能。
  */
 definePageMeta({ layout: 'default' })
 useSeoMeta({ title: '資料回報', robots: 'noindex, nofollow' })
