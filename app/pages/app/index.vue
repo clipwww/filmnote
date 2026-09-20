@@ -133,37 +133,13 @@ const spendNote = computed(() => {
     : null
 })
 
-/**
- * ⚠️⚠️ **牆被截斷了要看得見，不可以默默少畫。**
- *
- * 判準是**兩條獨立的路對帳**，不是跟一個常數比：
- *   · `records.length` —— `useMyRecords()` 實際拿回幾筆（上限 500）
- *   · `totalRecords`   —— RPC 算的權威總數
- * 這樣就不會跟 `useMyRecords.ts:69` 那個 `500` 漂移——把那邊改成 800，
- * 這裡不用動也還是對的。**不要在這個檔案裡寫死 500。**
- *
- * ★ `recordsLoading` 要擋在最前面：`records` 是另一支平行的請求，它還沒到
- *   的時候 `records.length` 是 0 而 `totalRecords` 已經是 174，不擋的話
- *   每次載入都會閃一句「只放得下 0 筆」。
- *
- * ⚠️ **實測不到的那一半**：David 174 筆遠低於 500，真實資料**永遠走不到**
- *   `shown < all` 這個分支（踩雷 #175：測試資料走不到它要測的分支，
- *   弄壞實作照樣綠）。能驗的只有反向那一半——174 === 174 時它必須是 null。
+/*
+ * ⚠️ 「牆被截斷了要看得見」那一段判準**搬進 `PosterWall.vue` 了**，因為它是
+ *   兩頁共用的規則（`/app` 受 `useMyRecords()` 的 `.limit(500)` 限制、
+ *   `/u/` 受端點一次 200 筆限制，形狀一模一樣）。這一頁只負責把兩條路的數字
+ *   交出去：`records`（實際拿到幾筆）與 `totalRecords`（RPC 算的權威總數）。
+ *   ⚠️ **不要在這個檔案裡寫死 500**——判準是兩條路對帳，不是跟常數比。
  */
-const truncatedNote = computed(() => {
-  // ★★ `shown === 0` **不是截斷，是壞掉**——那一種由牆那邊的「讀不到你的紀錄。」負責。
-  //   這一句與那一句是**兄弟節點不是 v-if 鏈**，兩邊各自的條件必須自己把對方排除掉：
-  //   少了 `!records.value.length` 這一半，紀錄回空陣列時畫面會同時出現
-  //   「讀不到你的紀錄。」與「這面牆只放得下最近 0 筆，你總共有 174 筆。」
-  //   ——後面那句是胡說。三道綠與死碼 grep 都抓不到這個，只有把請求弄壞才看得見。
-  if (recordsLoading.value || !records.value.length)
-    return null
-  const shown = records.value.length
-  const all = totalRecords.value
-  return shown < all
-    ? `這面牆只放得下最近 ${shown} 筆，你總共有 ${all} 筆。`
-    : null
-})
 
 /**
  * ── 每年花費 ──（David 2026-09-07 需求 6／7；2026-09-20 起是這一頁唯一的 band）
@@ -212,20 +188,6 @@ const hasSpend = computed(() => (allStats.value?.totals?.spend_known_records ?? 
 const spendInsight = '你自己記下的票價，逐年合計。'
 
 /**
- * 牆的格線。**真牆與載入骨架共用同一個字串**，免得兩邊漂移之後
- * 骨架的欄數跟真牆對不起來（那會讓每次載入都跳一次版）。
- *
- * 幾何（算出來的，不是量的）：容器 `max-w-4xl px-4` 在 375px 剩 343px，
- * 3 欄扣掉兩道 8px gap 是每格 109px ⇒ 2:3 的海報高 163px；
- * 桌機 4xl（896）剩 864，8 欄每格 101px。
- * ⚠️ **欄數是可以動的，但格子變窄時先撐不住的是無海報的文字卡不是海報**
- *   （海報只是變小）。而那種格子目前在 David 的資料上是 0 個（見下方
- *   `FilmPoster` 的註解），所以**光看這面牆看不出欄數的下限**。
- *   改欄數的人請先造一筆無海報的紀錄，在 375px 下看過它再送出。
- */
-const WALL_GRID = 'grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8'
-
-/**
  * 空狀態的淡化示意圖。
  *
  * ★★ **2026-09-20：這裡示意的是「牆」，不是出席圖。** 原本是 7×26 的出席格
@@ -259,10 +221,21 @@ const demoCells = Array.from({ length: 12 }, (_, i) => {
          換頁淡入整個不生效，而 `typecheck`／`lint`／`test`／`build` 四個全綠、
          SSR 產物也乾淨，只有 dev 會印一行 `[NUXT_E4004]`（踩雷 4ee9277）。
 
-      max-w-4xl 的理由 2026-09-20 換過：原本是「整年出席圖 53 欄 × 14px = 742px，
-      3xl 放不下」。出席圖搬走了，那個理由失效——留著 4xl 是為了**跟站上其他頁
-      同寬**（`/app/records`、`/u/` 都是這個容器），不是為了牆。
-      牆本身要不要更寬是一個還沒問過 David 的版面問題，不要順手改。
+      ⚠️ **`max-w-4xl` 的「值」沒換，但「理由」2026-09-20 換過了，兩件事要分開讀。**
+         · 舊理由：「整年出席圖 53 欄 × 14px = 742px，3xl 放不下」。
+           出席圖那一天隨七條 band 一起搬走了 ⇒ **這個理由確實已經失效**。
+         · 現在的理由：**必須跟 `/u/[username]` 一樣**。那一頁的海報牆是**同一支
+           元件**（`PosterWall.vue`），而它檔頭那張「每個斷點每張海報多寬」的
+           算式是以 `max-w-4xl` 的可用寬度算出來的——兩頁其中一頁改了寬度，
+           那張表就對另一頁說謊。
+           ⚠️ **不要寫成「跟站上其他頁對齊」**：站上根本沒有單一寬度
+           （2026-09-20 實測：`max-w-xl` 到 `max-w-6xl` 都有，
+             `/app/records` 就是 `max-w-6xl`）。同為 4xl 的是
+             `/u/[username]`、`search.vue`、`app/films/new.vue`。
+         ⇒ 「舊理由失效」**不等於**「可以放寬」。同一天真的試過放寬到 `max-w-6xl`
+           （為了讓海報大一點），**David 否決：「我改變主意了 海報牆不要加寬」**，
+           已整組回退。經過記在 `PosterWall.vue` 的 `WALL_GRID` 檔頭，
+           要重提請先問他。
     -->
     <div class="flex items-center justify-between gap-4">
       <h1 class="text-2xl font-bold tracking-tight">
@@ -275,13 +248,14 @@ const demoCells = Array.from({ length: 12 }, (_, i) => {
 
     <!--
       §9.4：載入態是實體區塊不是轉圈，否則內容出現時整頁往下推（CLS）。
-      骨架吃 `WALL_GRID`（跟真牆同一個字串）⇒ 欄數永遠對得起來。
+
+      ★ 骨架**走的是真牆同一支元件**（`loading` 開著、不給任何 slot）而不是在這裡
+        再排一次格線。牆的欄數以後改在 `PosterWall.vue` 一個地方改就好——
+        骨架與真牆的欄數對不起來會讓每次載入都跳一次版，而那種漂移沒有東西守得住。
     -->
     <div v-if="loading" class="mt-8 space-y-8">
       <USkeleton class="h-7 w-2/3 rounded-sm" />
-      <div :class="WALL_GRID">
-        <USkeleton v-for="i in 24" :key="i" class="aspect-[2/3] w-full rounded-[3px]" />
-      </div>
+      <PosterWall :records="[]" :total="0" loading />
     </div>
 
     <!--
@@ -329,80 +303,27 @@ const demoCells = Array.from({ length: 12 }, (_, i) => {
         ── 海報牆 ──（David 2026-09-20）
         「所有看過的電影海報組成的牆面，依照觀看時間新->舊，
           重覆看的就是會有多張海報」。
+
+        ★ 牆本體在 `app/components/PosterWall.vue`，`/u/[username]` 用的是同一支
+          ——同一面牆在兩頁各留一份會漂移，而漂移之後沒有人會發現（`backend.md §6e`）。
+        ★ `:total` 給的是 **RPC 算的權威總數**，跟 `:records`（useMyRecords 實際
+          拿回幾筆，上限 500）是**兩條獨立的路**。元件靠這兩個數字對帳，
+          牆被截斷時才說得出來。
+        ★ 三段文字走 slot 而不是寫在元件裡：這一頁是**本人視角**（整頁私密、
+          觀看者永遠是自己）所以講「你的紀錄」；`/u/` 是匿名視角的公開頁，
+          每一句都要講「公開的紀錄」。**兩頁的措辭刻意不同，不要互抄。**
       -->
-      <section>
-        <!--
-          ★ 這一句在說兩件牆自己說不出來的事：**排序**，以及**為什麼同一張海報
-            會出現兩次**。少了第二句，重複看過的片在牆上看起來就像 bug。
-        -->
-        <p class="text-sm text-muted">
+      <PosterWall :records="records" :total="totalRecords" :loading="recordsLoading">
+        <template #caption>
           依觀看時間排列，新的在前。同一部片看過幾次，牆上就有幾張。
-        </p>
-
-        <!--
-          ★ 紀錄還在飛的時候**不能把牆畫成空的**（踩雷 #169）：
-            `totalRecords` 來自統計那一支請求，`records` 是另一支平行的，
-            統計先到的時候頁首已經寫著「總共看了 174 場」而牆是空的。
-        -->
-        <div v-if="recordsLoading" :class="WALL_GRID" class="mt-3">
-          <USkeleton v-for="i in 24" :key="i" class="aspect-[2/3] w-full rounded-[3px]" />
-        </div>
-
-        <!--
-          ⚠️ 統計說有紀錄、紀錄那一支卻回了空陣列：那是壞掉，不是空狀態。
-             說出來，不要留一面沉默的空牆。
-        -->
-        <p v-else-if="!records.length" class="mt-3 text-muted">
+        </template>
+        <template #empty>
           讀不到你的紀錄。重新整理看看。
-        </p>
-
-        <ul v-else :class="WALL_GRID" class="mt-3">
-          <!--
-            ★★ `:key` 一定是 `r.id`（**紀錄**的 id）不是 `r.filmId`：
-              重複看過的片會共用同一個 filmId，拿它當 key 會讓 Vue 把多張海報
-              收成一張——牆上的格數就不等於紀錄數了，而畫面看起來完全正常。
-
-            ★ `variant` 用預設的 `card`（放得下全名）不是 `monogram`。
-              理由是尺寸：`monogram` 是為 48px 的容器寫的（`FilmPoster` 檔頭），
-              而這裡最窄的一格是 375px 下的 109px、桌機 101px，兩倍有餘。
-              ⚠️ **「109px 放得下中文片名」是推的不是量的**——這一格的實際
-                 換行結果要在瀏覽器上看過才算數。`card` 用 `line-clamp-5`
-                 收尾、不用 `break-all`，所以最壞情況是截斷不是直條擠壓。
-            ⚠️⚠️ **無海報那條路目前在 David 的資料上「一個樣本都沒有」，
-                 所以它是沒有被目視驗證過的。**
-                 2026-09-20 早上直查 DB 還是 168／174 有海報（6 格無海報）；
-                 當天協調者修掉兩個 TMDB 配對錯誤之後變成 **174／174**
-                 （走 `film_public.tmdb_poster_path`，也就是 `useMyRecords()`
-                 實際那條路；UGC 海報 0 筆）。
-                 ⇒ 「109px 的 `card` 版面長得好不好」**沒有辦法在這面牆上看到**，
-                   在有人記下一部配不到 TMDB 的片之前都不會有樣本。
-                 ⇒ 但這條路**隨時會回來**（新的 UGC 作品、配不到 TMDB 的片），
-                   而且 `DESIGN_SYSTEM §0`「無海報的卡片要好到使用者不會希望它
-                   變成海報」對它照樣成立。**不要**因為「現在看不到」就改成灰色
-                   佔位圖、把它濾掉、或把 `card` 換成 `monogram`——那三件事都是
-                   在賭一個你看不到的畫面。要動它請先造一筆無海報的紀錄來看。
-
-            ★ `size="w185"`：牆上一格最大 146px（sm 斷點），w185 綽綽有餘，
-              而這一頁一次要載 174 張。跟 `search.vue` 的格狀清單同一個選擇。
-              海報一律熱連結 `image.tmdb.org`（`FilmPoster` 已經做對了）——
-              **不建 proxy、不轉存**，那是 TMDB 的合規要求不是效能選擇。
-          -->
-          <li v-for="r in records" :key="r.id">
-            <FilmPoster
-              :title-zh="r.film?.titleZh"
-              :title-original="r.film?.titleOriginal"
-              :tmdb-poster-path="r.film?.tmdbPosterPath"
-              :ugc-poster-url="r.film?.ugcPosterUrl"
-              size="w185"
-            />
-          </li>
-        </ul>
-
-        <!-- 牆被 `useMyRecords()` 的 500 上限截斷了要看得見。判準見 script 的 `truncatedNote`。 -->
-        <p v-if="truncatedNote" class="mt-4 text-sm text-muted">
-          {{ truncatedNote }}
-        </p>
-      </section>
+        </template>
+        <template #truncated="{ shown, total }">
+          這面牆只放得下最近 {{ shown }} 筆，你總共有 {{ total }} 筆。
+        </template>
+      </PosterWall>
 
       <!--
         ── 每年花費 ──（David 2026-09-07 需求 6）

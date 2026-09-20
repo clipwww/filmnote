@@ -126,6 +126,30 @@ const countSegments = computed<StatSegment[]>(() => {
  * 174 筆全部平鋪會產生一個 17,000px 的頁面——功能對，但沒有人能用。
  * 依年份分組並漸進式載入：先給最近的一批，其餘按需展開。
  */
+/**
+ * ── 海報牆／圖表兩種視角（David 2026-09-20）──────────────────────────
+ *
+ * 逐字需求：「儀表板的海報牆效果很棒，我也想到公開分享頁的了，
+ * 用一個開關切換顯示海報牆」。協調者追問「開關要不要記住／別人打開你的連結
+ * 看到哪一種」，**David 裁決：用 query string**。
+ *
+ * ★★ 那個裁決決定了實作形狀，不只是換個存法：
+ *   ① **開關必須是真的連結**（`UButton :to` ⇒ `NuxtLink` ⇒ `<a>`），
+ *      不是 client-only 的 ref 切換。網址就是狀態 ⇒ 分享出去的連結自帶視角，
+ *      而這一頁是 SSR，**伺服器那一次算繪就要吐出正確的那一種**。
+ *   ② **只有恰好等於 `'wall'` 才是牆**。`?view=zzz`、`?view=` 空值、
+ *      甚至 `?view=wall&view=x`（那時 `route.query.view` 是**陣列**）
+ *      一律退回預設，不可以整頁壞掉。這個寫法天然滿足——嚴格比對字串字面。
+ *
+ * ★ 牆視角**恆為全期**：年表是唯一的年份入口，它不在牆視角裡就沒有入口。
+ *   所以牆吃的是 `cards`（全部）而不是 `filtered`（被 `selectedYear` 篩過）。
+ */
+const wallView = computed(() => route.query.view === 'wall')
+
+/** 切到牆／切回圖表。`undefined` 會被 vue-router 從 query string 裡拿掉。 */
+const toWall = computed(() => ({ query: { ...route.query, view: 'wall' } }))
+const toCharts = computed(() => ({ query: { ...route.query, view: undefined } }))
+
 const PAGE = 24
 const shown = ref(PAGE)
 watch([username, selectedYear], () => {
@@ -201,6 +225,30 @@ async function ensureAllRecords() {
  * `loadedAll` 之前用的是 `extraRecords` 是否有內容以外的旗標，現在兩者一定同時成立；
  * 保險起見這裡仍然對空陣列退回 `items`——寧可少列幾筆，也不要整份列表消失。
  */
+/**
+ * 牆視角進來時把 200 筆以外的紀錄補齊。
+ *
+ * ⚠️ **這一段對 David 不會執行**，而那正是它危險的地方：實測
+ *   `curl /api/u/clipwww` 回 `{limit:200, returned:174, total:174, hasMore:false}`
+ *   ⇒ SSR 那一次已經帶回全部 174 筆。>200 筆的使用者才走得到這裡
+ *   ——真實資料走不到的分支，弄壞了照樣全綠（踩雷 #175）。
+ *
+ * ★ `onMounted` 不是 `watch(..., { immediate: true })`：後者會在 setup 期間跑，
+ *   在**伺服器**上就變成一個沒有人 await 的 `$fetch`。牆在 SSR 那一次本來就
+ *   用得到的資料畫得出來（≤200 筆），補齊是 client 端的自癒。
+ * ★ `onMounted` 與 `watch` 不會在同一個 tick 裡各叫一次（watch 預設不 immediate），
+ *   所以踩不到 `ensureAllRecords()` 那條「同一個 tick 內連續呼叫」的順序反轉
+ *   （`BUILD_PLAN §7 #251`）。**不要把它改成 immediate。**
+ */
+onMounted(() => {
+  if (wallView.value)
+    ensureAllRecords()
+})
+watch(wallView, (on) => {
+  if (on)
+    ensureAllRecords()
+})
+
 const allRecords = computed(() =>
   (loadedAll.value && extraRecords.value.length ? extraRecords.value : items.value))
 
@@ -261,8 +309,32 @@ const cards = computed(() => allRecords.value.map(r => ({
     titleZh: r.film?.title_zh ?? null,
     titleOriginal: r.film?.title_original ?? null,
     tmdbPosterPath: r.film?.tmdb_poster_path ?? null,
+    /*
+     * ⚠️ **這一行 2026-09-20 補上，是一個既有漏洞，跟海報牆那一輪的需求無關。**
+     *   端點早就回了 `ugc_poster_url`（`[username].get.ts:153` 的
+     *   `{ ...f, ugc_poster_url }`），而 `TicketCard` 讀的正是
+     *   `record.film?.ugcPosterUrl`（它的 `hasPoster` 也吃這一欄）。
+     *   這裡沒接 ⇒ **只有 UGC 海報的片在 `/app` 是海報、在 `/u/` 是文字卡**，
+     *   正是 `backend.md §6e`「同一個東西兩頁兩種語意」。
+     * ⚠️ **修了但驗不到**：2026-09-20 實測 `curl /api/u/clipwww`，
+     *   `ugc_poster_url` 非 null 的筆數是 **0** ⇒ 真實資料上沒有樣本
+     *   （踩雷 #175 的形狀）。沒有為了驗它去造資料。
+     */
+    ugcPosterUrl: r.film?.ugc_poster_url ?? null,
   },
 })))
+
+/**
+ * 牆的**權威總數**，來自與 `cards` 不同的一條路（端點的 `page.total`，
+ * 算自 `user_year_counts` 這支 summary）。`PosterWall` 靠這兩個數字對帳，
+ * 牆被 200 筆上限截斷時才說得出來。
+ *
+ * ⚠️ **已知盲點**：端點在 summary 取不到時會把 `total` 標成 `null`
+ *   （它的註解：「寧可把 total 標成 null，讓呼叫端知道自己不知道」）。
+ *   那時這裡退回 `cards.length` ⇒ **不宣稱截斷**。方向是對的（不知道就不要亂講），
+ *   但代價是「total 未知 ＋ 真的超過 200 筆」會靜默少畫。已回報。
+ */
+const wallTotal = computed(() => data.value?.page?.total ?? cards.value.length)
 
 const filtered = computed(() =>
   selectedYear.value === null
@@ -689,315 +761,381 @@ const drawerRecords = computed(() => {
         §4.4：數字不做成 stat tile。「大數字 + 小標籤 + 一排補充數據」是儀表板的
         預設長相，也正是 §0 要避開的東西。排成一行有量詞的句子。
       -->
-      <StatLine v-if="stats" class="mt-8" :segments="countSegments" />
-
       <!--
-        票價一律在 client 端補：SSR 以匿名視角 render，作者本人的票價（以及
-        show_cost 開啟後的公開票價）由瀏覽器帶著自己的 session 去取。
-        這樣 SSR 產出的 HTML 與 __NUXT_DATA__ 裡永遠不會有金額。
+        ── 海報牆／圖表的開關（David 2026-09-20，裁決用 query string）──
+        ★ 用 `UButton :to`（⇒ `NuxtLink` ⇒ 真的 `<a>`）**不是 `@click` 切 ref**：
+          網址就是狀態，而這一頁是 SSR ⇒ 分享出去的連結自帶視角，
+          伺服器那一次就吐出正確的那一種。
+        ★ 兩態各自說**按下去會看到什麼**，不說「目前在哪」——後者在只有一個
+          按鈕的情況下讀起來是反的。
+        ⚠️ 不要在這裡加一行「這個網址會帶著這個視角」的說明：使用者分享的本來
+          就是他看到的那一頁，這件事不需要被解釋（協調者 2026-09-20 收回
+          簡報 §3.3 那句要求）。
       -->
-      <ClientOnly>
-        <UserSpendSummary :username="profile.username" />
-        <template #fallback>
-          <!-- 只佔位不畫框：畫一個框再換成沒有框的內容會像「載入完就壞掉」 -->
-          <div class="mt-6 h-14" />
-        </template>
-      </ClientOnly>
-
-      <div class="mt-8 space-y-4">
-        <!--
-          ── 年表。全站簽名，同時是檢視視角選擇器。 ──
-
-          ⚠️ 這一層 `<div>` 是 2026-09-14 加的，**它有功能、不是排版裝飾**：
-             `YearScopeBar` 會在原地留下一個 1px 的 sentinel（觀測點），而且它的
-             `<ClientOnly>` 在掛載前還會多印一個空的 `<span>`（Nuxt 的 `ClientOnly`
-             沒有 fallback slot 時印的就是 `fallbackTag` 的預設值）。而外面那個
-             `space-y-4` 在 Tailwind 4.3 編譯出來的是
-             `:where(& > :not(:last-child)) { margin-block-end: 16px }`——**每一個
-             非最後的子節點各吃一份 16px**。兩個節點直接放進去，年表與下一條 band
-             之間掛載前是 49px（16＋1＋16＋0＋16）、掛載後那個 `<span>` 被換成不佔位的
-             Teleport 而變 33px ⇒ **hydration 當下還會跳 16px**。
-             包一層之後 `space-y-4` 只看得到這個 wrapper，版面差異只剩那 1px。
-             ⇒ 不要為了「少一層 div」把它拆掉。`/app/index.vue` 是同一個寫法，
-               **那一頁一樣要包**：`ClientOnly` 的 `mounted` 一律從 `false` 起、
-               `onMounted` 才翻真（`nuxt/dist/app/components/client-only.js`，
-               沒有「非 hydration 就短路」那種分支）⇒ `ssr: false` 的 `/app`
-               第一個 render pass 同樣會印出那個 `<span>`，只是它只活一個 pass。
-
-          `v-if` 從 `ChartBand` 移到 wrapper 上：沒有年份可選時兩個都不該存在
-          （`YearScopeBar` 自己也擋 `years.length`，這裡是同一件事的外層）。
-        -->
-        <div v-if="stripRows.length">
-          <ChartBand title="年表">
-            <YearStrip :rows="stripRows" :selected="selectedYear" @update:selected="selectedYear = $event" />
-          </ChartBand>
-          <!--
-            ── 導覽列上的年份切換器（2026-09-14 David 第 2 點）──
-            它自己 Teleport 到 `#header-year-scope`（`layouts/default.vue`），
-            留在這裡的只有觀測用的 sentinel ⇒ **位置必須就是年表的正後方**：
-            切換器要在「年表捲出畫面」的那一刻才出現，年表還看得到時不需要它。
-
-            ★ 年份來源是 `stripRows`，**不是 `allStats.availableYears`**（刻意偏離）。
-              `stripRows = yearStripRows(daily, availableYears)`，也就是
-              availableYears **聯集**「daily 裡出現過但清單還沒更新的年份」
-              （見 `utils/stats.ts` 那一行註解）。年表自己畫的就是 `stripRows`
-              ——兩個切換器是同一件事的兩個入口，**提供的年份集合必須逐個相同**，
-              否則會出現「年表上有 2026、導覽列的選單裡沒有」。
-              順序也因此對齊（`yearStripRows()` 已經新到舊排好；
-              `YearScopeBar` 內部仍會自己排一次，不互相假設）。
-
-            ★ `@update:selected` 寫成跟年表**一模一樣的一行**：兩個入口共用
-              `selectedYear`，也就共用了下面那條「換年份關抽屜」的 watch。
-          -->
-          <YearScopeBar
-            :years="stripRows.map(r => r.year)"
-            :selected="selectedYear"
-            @update:selected="selectedYear = $event"
-          />
-        </div>
-
-        <template v-if="showCharts">
-          <!--
-            ⚠️ 三張 ECharts 一律包 `<ClientOnly>`，而且 `#fallback` 要給**固定高度**
-               的實體骨架（踩雷 #60／#61）：這一頁是 SSR，canvas 在 Node 裡畫不出來；
-               而 default slot 會從 server build 被 tree-shake，沒有骨架的話圖表出現時
-               會把整頁往下推（CLS）。
-            ⚠️ **骨架要比的是整個元件的高度，不是 canvas 的高度。** 三支都是
-               「圖 ＋ 底下一行圖例／提示」的結構，只對到 canvas 那一段就會差
-               24px（2026-09-14 月度趨勢真的這樣壞過一次，見該處骨架的註解）。
-          -->
-
-          <!-- ── 年度出席圖：全期下整條不出現（7×53 綁死在一個日曆年上）── -->
-          <ChartBand v-if="selectedYear !== null" title="出席">
-            <ClientOnly>
-              <AttendanceCalendar
-                :year="selectedYear"
-                :daily="stats?.daily ?? []"
-                @pick="pick({ kind: 'day', date: $event })"
-              />
-              <template #fallback>
-                <USkeleton class="h-[196px] w-full rounded-sm" />
-              </template>
-            </ClientOnly>
-          </ChartBand>
-
-          <!-- ── 時段熱點圖 ── -->
-          <ChartBand title="時段" :insight="hourInsight" :note="hourNote">
-            <ClientOnly>
-              <!--
-                ★ 一定要走 `pick()` 不是 `picked = $event`：`pick()` 會先
-                `await ensureAllRecords()` 補資料（踩雷 #169）。少了它抽屜開起來是空的，
-                而且下面整份列表會一起消失——typecheck / lint / test 全綠。
-                kind 由 HourHeatmap 決定（格子／星期總和／時段總和），這裡不要再包一層。
-              -->
-              <HourHeatmap :grid="grid" @pick="pick($event)" />
-              <template #fallback>
-                <!--
-                  骨架高度綁 `hourHeatmapHeight()`，跟圖表本身是同一支函式。
-                  以前這裡是硬寫的 `h-[392px]`，跟 HourHeatmap 的高度公式沒有任何連結，
-                  公式一改就靜靜 CLS 20px（沒有任何測試守得住一個 Tailwind 字面值）。
-
-                  ⚠️ **`hourHeatmapHeight()` 只算 canvas，不含 `HourHeatmap` 自己那句
-                     提示 `<p class="mt-2 text-xs">`**（2026-09-14 查證；那個 `<p>` 是
-                     既有的，這個缺口在這一輪之前就在）。所以下面那一行 `&nbsp;`
-                     **不是裝飾**——它把提示那一行的盒子照原樣鏡射一份
-                     （`mt-2` 8px ＋ `text-xs` 行高 16px ＝ 24px），少了它 hydration
-                     當下底下整批 band 會往下跳 24px。
-                  ⚠️ 用 `&nbsp;` 而**不是**重抄那句提示文字：決定高度的是行高與字級，
-                     文案改了這裡不必跟著改；抄一份文字反而會多一個會漂移的地方。
-                -->
-                <div>
-                  <USkeleton class="max-w-[420px] rounded-sm" :style="{ height: hourHeatmapHeight(grid) }" />
-                  <p class="mt-2 text-xs" aria-hidden="true">
-                    &nbsp;
-                  </p>
-                </div>
-              </template>
-            </ClientOnly>
-          </ChartBand>
-
-          <!-- ── 月度趨勢 ── -->
-          <ChartBand
-            title="每個月"
-            :insight="selectedYear === null
-              ? '每個月份跨年度的加總——看得出哪幾個月是旺季。'
-              : null"
-          >
-            <ClientOnly>
-              <!--
-                ★ 一定要走 `pickMonth()` 不是 `picked = …`：它會先
-                  `await ensureAllRecords()`（踩雷 #169），而且順便把「圖上那個月
-                  幾場」查出來烤進標題。`MonthlyTrend` 只 emit 月份（1..12），
-                  範圍（全期／某一年）由這一頁決定——它才知道 `selectedYear`。
-              -->
-              <MonthlyTrend
-                :monthly="(stats?.monthly ?? []).map(m => ({ ...m, spend: 0, spend_is_partial: false }))"
-                :average="showAverage ? monthlyBaseline : null"
-                :year="selectedYear"
-                @pick="pickMonth($event)"
-              />
-              <template #fallback>
-                <!--
-                  ⚠️ 骨架要涵蓋 `MonthlyTrend` 的**兩塊**：240px 的圖（該元件傳給
-                     `BaseChart` 的 `height`）＋ 它自己那句「點月份或線上的點」提示
-                     `<p class="mt-2 text-xs">`。那句提示是 2026-09-14 才加的，
-                     骨架一度還停在 240px ⇒ 這一頁是 SSR，hydration 當下底下整批
-                     band 會往下跳 24px（`mt-2` 8 ＋ `text-xs` 行高 16）。
-                     下面的 `&nbsp;` 就是那一行的鏡射（同熱點圖，理由見上一條）。
-                  ⚠️ 240 仍然是**抄來的字面值**——`MonthlyTrend` 沒有像熱點圖那樣的
-                     共用高度函式，那支改高度這裡要一起改，而且不會有東西變紅。
-                -->
-                <div>
-                  <USkeleton class="h-[240px] w-full rounded-sm" />
-                  <p class="mt-2 text-xs" aria-hidden="true">
-                    &nbsp;
-                  </p>
-                </div>
-              </template>
-            </ClientOnly>
-            <!-- 圖例自己用 HTML 畫：canvas 的圖例拿不到鍵盤與螢幕閱讀器 -->
-            <p class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
-              <span class="inline-flex items-center gap-1.5">
-                <ChartLegendSwatch kind="ink" />
-                {{ selectedYear === null ? '全部年度加總' : `${selectedYear} 年` }}
-              </span>
-              <span v-if="showAverage" class="inline-flex items-center gap-1.5">
-                <ChartLegendSwatch kind="baseline" />
-                {{ averageLegendLabel }}
-              </span>
-            </p>
-          </ChartBand>
-
-          <!--
-            ── 影城分布。台灣在地的差異化資訊，分享頁上最值得看的一條。 ──
-            ★ 每一列都點得開抽屜（2026-09-14 David 第 4／5 點）。`kind` 由呼叫端
-              指定：同一個 `DistributionBars` 服務三條長條，它自己不知道
-              自己畫的是場所、版本還是國別。
-          -->
-          <ChartBand title="去了哪裡" :insight="venueInsight">
-            <DistributionBars :items="venueItems" unit=" 場" @pick="pickDist('venue', $event)" />
-          </ChartBand>
-
-          <!-- ── 版本與國別 ── -->
-          <ChartBand title="看的是什麼">
-            <div class="grid gap-8 sm:grid-cols-2">
-              <div>
-                <h3 class="mb-3 text-sm font-medium text-muted">
-                  版本
-                </h3>
-                <DistributionBars :items="formatItems" unit=" 場" @pick="pickDist('format', $event)" />
-              </div>
-              <div>
-                <h3 class="mb-3 text-sm font-medium text-muted">
-                  國別
-                </h3>
-                <DistributionBars :items="countryItems" unit=" 場" @pick="pickDist('country', $event)" />
-              </div>
-            </div>
-          </ChartBand>
-
-          <!-- ── 多刷排行。語意隨檢視視角而變，所以圖說要講清楚範圍。 ── -->
-          <ChartBand
-            v-if="(stats?.repeats?.length ?? 0) > 0"
-            title="看了不只一次"
-            :insight="selectedYear === null
-              ? '這些年來看過兩次以上的作品。'
-              : `${selectedYear} 年內看過兩次以上的作品。`"
-          >
-            <!--
-              ★ **一定要走 `pick()` 不是 `picked = …`**：`pick()` 會先
-                `await ensureAllRecords()` 把 200 筆以外的紀錄補齊（踩雷 #169）。
-                直接指派在 David 的 174 筆上看起來完全正常，>200 筆的人抽屜會短於
-                排行上的數字，typecheck／lint／test 全綠、console 零錯誤。
-            -->
-            <RepeatList
-              :items="stats?.repeats ?? []"
-              @pick="pick({ kind: 'film', ...$event })"
-            />
-          </ChartBand>
-        </template>
-
-        <!--
-          ── 每年花費 ──（David 2026-09-06 裁決）
-          ★ 這條 band **對三種觀看者長得不一樣，而三種都必須是對的**：
-            本人看得到全部；`show_cost = true` 的路人看得到公開紀錄的票價；
-            其他人**一列都拿不到 ⇒ 整條 band 不存在**（`SCREENS §12-3`：
-            不是畫成 0、不是打馬賽克——否則 `總花費 ÷ 場次` 就能反推個別票價）。
-            判斷不在這裡做，由 RLS 做（`useUserSpend()` 的 `canSeeMoney`
-            數的是讀得到幾列票價）。
-
-          ★ **放在 band 堆疊的最後，而且刻意不給 `#fallback` 佔位。**
-            它是 client-only 而且可能根本不出現：給固定高度的骨架的話，
-            「拿不到金額」的觀看者會看到一塊先撐開再塌掉的空白——那不但是
-            版面跳動，還等於公告「這裡本來有東西」。排在最後 ⇒ 它晚出現時
-            只會往下推紀錄列表（那時還在視窗外），不會推到正在讀的東西。
-        -->
-        <ClientOnly>
-          <ChartBand
-            v-if="spend?.canSeeMoney"
-            title="每年花費"
-            :insight="spendInsight"
-          >
-            <SpendByYear :by-year="spend.byYear" :currency="spend.currency" :is-own="spend.isOwn" />
-          </ChartBand>
-        </ClientOnly>
+      <div class="mt-8 flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+        <StatLine v-if="stats" :segments="countSegments" />
+        <UButton
+          :to="wallView ? toCharts : toWall"
+          variant="soft"
+          color="neutral"
+          size="sm"
+          :icon="wallView ? 'i-lucide-bar-chart-3' : 'i-lucide-layout-grid'"
+        >
+          {{ wallView ? '看圖表與紀錄' : '看海報牆' }}
+        </UButton>
       </div>
 
-      <section class="mt-10">
-        <h2 class="text-lg font-semibold">
-          觀影紀錄<span v-if="selectedYear" class="ms-2 text-sm font-normal text-muted">{{ selectedYear }} 年</span>
-        </h2>
-        <p v-if="!items.length" class="mt-2 text-muted">
-          還沒有公開的觀影紀錄。
-        </p>
-        <template v-else>
-          <div v-for="g in grouped" :key="g.year" class="mt-6">
-            <h3 class="text-sm font-semibold text-muted tabular-nums">
-              {{ g.year }} 年
-            </h3>
-            <ul class="mt-2 space-y-2">
-              <li v-for="r in g.rows" :key="r.id">
-                <TicketCard :record="r" />
-              </li>
-            </ul>
-          </div>
-
-          <div v-if="hasMore" class="mt-6 flex justify-center">
-            <UButton variant="soft" color="neutral" @click="shown += PAGE">
-              再顯示 {{ Math.min(PAGE, filtered.length - shown) }} 筆（共 {{ filtered.length }} 筆）
-            </UButton>
-          </div>
-        </template>
-      </section>
-
       <!--
-        點圖表的一格 → 底部抽屜列出那一格的票根卡（§9.2，與 `/app` 同一個語彙）。
+        ── 海報牆視角（`?view=wall`）──（David 2026-09-20）
+        「儀表板的海報牆效果很棒，我也想到公開分享頁的了，用一個開關切換顯示海報牆」
 
-        ⚠️ 2026-09-14 起「一格」不只是出席圖與熱點圖了：月度趨勢的每個月、
-           以及三條分布長條的每一列（含展開出來的長尾）都走同一個抽屜。
-           標題由 `drawerTitle` 分派到 `utils/stats.ts` 的各支組字函式，
-           空狀態由 `drawerEmptyText` 分派——**九種 kind 各有各的說法**。
+        ★ 牆本體與 `/app` **是同一支元件**（`app/components/PosterWall.vue`）。
+          同一面牆在兩頁各留一份會漂移，而漂移之後沒有人會發現（`backend.md §6e`）。
+        ★ 吃 `cards`（全部）**不是 `filtered`**：牆視角恆為全期——年表是唯一的
+          年份入口，它不在這個視角裡就沒有入口（與 `/app` 一致）。
+        ★ `:total` 是端點的 `page.total`（算自 summary），跟 `cards`（這一頁實際
+          拿到幾筆，一次最多 200）是**兩條獨立的路**。元件靠這兩個數字對帳，
+          牆被 200 筆上限截斷時才說得出來。判準不寫死任何常數。
+        ★ **不給 `:loading`**：這一頁是 SSR，資料在 render 之前就到了，沒有
+          「還在飛」這回事。>200 筆時的補齊是掛載後的自癒（見 script 的 onMounted），
+          那段期間牆上已經有 200 格，把它換成骨架反而是退步。
+        ★ 三段文字走 slot：這一頁是**匿名視角的公開頁**，每一句都要講
+          「公開的紀錄」——`/app` 是本人視角講「你的紀錄」。
+          **兩頁的措辭刻意不同，不要互抄。**
+        ★ 格子**不可點**（David 2026-09-20 對「格子要不要可點」的答覆是「先不用」，
+          兩頁一致）。
       -->
-      <UDrawer v-model:open="drawerOpen" direction="bottom" :title="drawerTitle">
-        <template #body>
-          <div class="mx-auto max-w-3xl">
-            <p v-if="!drawerRecords.length" class="py-6 text-center text-muted">
-              {{ drawerEmptyText }}
-            </p>
-            <!--
-              ★ `show-year` 是必要的：抽屜的內容跨年份聚合，而標題不一定帶年——
-              出席圖點一格是「2024/03/15（週五）」有年，時段圖點一格是
-              「週三 14:00」，那一格的紀錄可能散在 2014–2026。
-              日期帶預設不顯示年份（依年份分組的列表由上下文提供），抽屜打破了那個前提。
-            -->
-            <ul v-else class="space-y-2 pb-4">
-              <li v-for="r in drawerRecords" :key="r.id">
-                <TicketCard :record="r" show-year />
-              </li>
-            </ul>
-          </div>
+      <PosterWall
+        v-if="wallView"
+        class="mt-8"
+        :records="cards"
+        :total="wallTotal"
+      >
+        <template #caption>
+          依觀看時間排列，新的在前。同一部片看過幾次，牆上就有幾張——只包含公開的紀錄。
         </template>
-      </UDrawer>
+        <template #empty>
+          還沒有公開的觀影紀錄。
+        </template>
+        <!--
+          ⚠️ slot 的參數改名成 `wallShown`／`wallTotalN`：這一頁自己有一個 `shown`
+             （下方紀錄列表的分頁計數）。同名會 shadow 掉它，而模板裡兩個 `shown`
+             指不同的東西是下一個人一定會讀錯的地方（`vue/no-template-shadow`）。
+        -->
+        <template #truncated="{ shown: wallShown, total: wallTotalN }">
+          這面牆只顯示了 {{ wallShown }} 筆，公開的紀錄共 {{ wallTotalN }} 筆。
+        </template>
+      </PosterWall>
+
+      <template v-else>
+        <!--
+          票價一律在 client 端補：SSR 以匿名視角 render，作者本人的票價（以及
+          show_cost 開啟後的公開票價）由瀏覽器帶著自己的 session 去取。
+          這樣 SSR 產出的 HTML 與 __NUXT_DATA__ 裡永遠不會有金額。
+        -->
+        <ClientOnly>
+          <UserSpendSummary :username="profile.username" />
+          <template #fallback>
+            <!-- 只佔位不畫框：畫一個框再換成沒有框的內容會像「載入完就壞掉」 -->
+            <div class="mt-6 h-14" />
+          </template>
+        </ClientOnly>
+
+        <div class="mt-8 space-y-4">
+          <!--
+            ── 年表。全站簽名，同時是檢視視角選擇器。 ──
+
+            ⚠️ 這一層 `<div>` 是 2026-09-14 加的，**它有功能、不是排版裝飾**：
+               `YearScopeBar` 會在原地留下一個 1px 的 sentinel（觀測點），而且它的
+               `<ClientOnly>` 在掛載前還會多印一個空的 `<span>`（Nuxt 的 `ClientOnly`
+               沒有 fallback slot 時印的就是 `fallbackTag` 的預設值）。而外面那個
+               `space-y-4` 在 Tailwind 4.3 編譯出來的是
+               `:where(& > :not(:last-child)) { margin-block-end: 16px }`——**每一個
+               非最後的子節點各吃一份 16px**。兩個節點直接放進去，年表與下一條 band
+               之間掛載前是 49px（16＋1＋16＋0＋16）、掛載後那個 `<span>` 被換成不佔位的
+               Teleport 而變 33px ⇒ **hydration 當下還會跳 16px**。
+               包一層之後 `space-y-4` 只看得到這個 wrapper，版面差異只剩那 1px。
+               ⇒ 不要為了「少一層 div」把它拆掉。`/app/index.vue` 是同一個寫法，
+                 **那一頁一樣要包**：`ClientOnly` 的 `mounted` 一律從 `false` 起、
+                 `onMounted` 才翻真（`nuxt/dist/app/components/client-only.js`，
+                 沒有「非 hydration 就短路」那種分支）⇒ `ssr: false` 的 `/app`
+                 第一個 render pass 同樣會印出那個 `<span>`，只是它只活一個 pass。
+
+            `v-if` 從 `ChartBand` 移到 wrapper 上：沒有年份可選時兩個都不該存在
+            （`YearScopeBar` 自己也擋 `years.length`，這裡是同一件事的外層）。
+          -->
+          <div v-if="stripRows.length">
+            <ChartBand title="年表">
+              <YearStrip :rows="stripRows" :selected="selectedYear" @update:selected="selectedYear = $event" />
+            </ChartBand>
+            <!--
+              ── 導覽列上的年份切換器（2026-09-14 David 第 2 點）──
+              它自己 Teleport 到 `#header-year-scope`（`layouts/default.vue`），
+              留在這裡的只有觀測用的 sentinel ⇒ **位置必須就是年表的正後方**：
+              切換器要在「年表捲出畫面」的那一刻才出現，年表還看得到時不需要它。
+
+              ★ 年份來源是 `stripRows`，**不是 `allStats.availableYears`**（刻意偏離）。
+                `stripRows = yearStripRows(daily, availableYears)`，也就是
+                availableYears **聯集**「daily 裡出現過但清單還沒更新的年份」
+                （見 `utils/stats.ts` 那一行註解）。年表自己畫的就是 `stripRows`
+                ——兩個切換器是同一件事的兩個入口，**提供的年份集合必須逐個相同**，
+                否則會出現「年表上有 2026、導覽列的選單裡沒有」。
+                順序也因此對齊（`yearStripRows()` 已經新到舊排好；
+                `YearScopeBar` 內部仍會自己排一次，不互相假設）。
+
+              ★ `@update:selected` 寫成跟年表**一模一樣的一行**：兩個入口共用
+                `selectedYear`，也就共用了下面那條「換年份關抽屜」的 watch。
+            -->
+            <YearScopeBar
+              :years="stripRows.map(r => r.year)"
+              :selected="selectedYear"
+              @update:selected="selectedYear = $event"
+            />
+          </div>
+
+          <template v-if="showCharts">
+            <!--
+              ⚠️ 三張 ECharts 一律包 `<ClientOnly>`，而且 `#fallback` 要給**固定高度**
+                 的實體骨架（踩雷 #60／#61）：這一頁是 SSR，canvas 在 Node 裡畫不出來；
+                 而 default slot 會從 server build 被 tree-shake，沒有骨架的話圖表出現時
+                 會把整頁往下推（CLS）。
+              ⚠️ **骨架要比的是整個元件的高度，不是 canvas 的高度。** 三支都是
+                 「圖 ＋ 底下一行圖例／提示」的結構，只對到 canvas 那一段就會差
+                 24px（2026-09-14 月度趨勢真的這樣壞過一次，見該處骨架的註解）。
+            -->
+
+            <!-- ── 年度出席圖：全期下整條不出現（7×53 綁死在一個日曆年上）── -->
+            <ChartBand v-if="selectedYear !== null" title="出席">
+              <ClientOnly>
+                <AttendanceCalendar
+                  :year="selectedYear"
+                  :daily="stats?.daily ?? []"
+                  @pick="pick({ kind: 'day', date: $event })"
+                />
+                <template #fallback>
+                  <USkeleton class="h-[196px] w-full rounded-sm" />
+                </template>
+              </ClientOnly>
+            </ChartBand>
+
+            <!-- ── 時段熱點圖 ── -->
+            <ChartBand title="時段" :insight="hourInsight" :note="hourNote">
+              <ClientOnly>
+                <!--
+                  ★ 一定要走 `pick()` 不是 `picked = $event`：`pick()` 會先
+                  `await ensureAllRecords()` 補資料（踩雷 #169）。少了它抽屜開起來是空的，
+                  而且下面整份列表會一起消失——typecheck / lint / test 全綠。
+                  kind 由 HourHeatmap 決定（格子／星期總和／時段總和），這裡不要再包一層。
+                -->
+                <HourHeatmap :grid="grid" @pick="pick($event)" />
+                <template #fallback>
+                  <!--
+                    骨架高度綁 `hourHeatmapHeight()`，跟圖表本身是同一支函式。
+                    以前這裡是硬寫的 `h-[392px]`，跟 HourHeatmap 的高度公式沒有任何連結，
+                    公式一改就靜靜 CLS 20px（沒有任何測試守得住一個 Tailwind 字面值）。
+
+                    ⚠️ **`hourHeatmapHeight()` 只算 canvas，不含 `HourHeatmap` 自己那句
+                       提示 `<p class="mt-2 text-xs">`**（2026-09-14 查證；那個 `<p>` 是
+                       既有的，這個缺口在這一輪之前就在）。所以下面那一行 `&nbsp;`
+                       **不是裝飾**——它把提示那一行的盒子照原樣鏡射一份
+                       （`mt-2` 8px ＋ `text-xs` 行高 16px ＝ 24px），少了它 hydration
+                       當下底下整批 band 會往下跳 24px。
+                    ⚠️ 用 `&nbsp;` 而**不是**重抄那句提示文字：決定高度的是行高與字級，
+                       文案改了這裡不必跟著改；抄一份文字反而會多一個會漂移的地方。
+                  -->
+                  <div>
+                    <USkeleton class="max-w-[420px] rounded-sm" :style="{ height: hourHeatmapHeight(grid) }" />
+                    <p class="mt-2 text-xs" aria-hidden="true">
+                      &nbsp;
+                    </p>
+                  </div>
+                </template>
+              </ClientOnly>
+            </ChartBand>
+
+            <!-- ── 月度趨勢 ── -->
+            <ChartBand
+              title="每個月"
+              :insight="selectedYear === null
+                ? '每個月份跨年度的加總——看得出哪幾個月是旺季。'
+                : null"
+            >
+              <ClientOnly>
+                <!--
+                  ★ 一定要走 `pickMonth()` 不是 `picked = …`：它會先
+                    `await ensureAllRecords()`（踩雷 #169），而且順便把「圖上那個月
+                    幾場」查出來烤進標題。`MonthlyTrend` 只 emit 月份（1..12），
+                    範圍（全期／某一年）由這一頁決定——它才知道 `selectedYear`。
+                -->
+                <MonthlyTrend
+                  :monthly="(stats?.monthly ?? []).map(m => ({ ...m, spend: 0, spend_is_partial: false }))"
+                  :average="showAverage ? monthlyBaseline : null"
+                  :year="selectedYear"
+                  @pick="pickMonth($event)"
+                />
+                <template #fallback>
+                  <!--
+                    ⚠️ 骨架要涵蓋 `MonthlyTrend` 的**兩塊**：240px 的圖（該元件傳給
+                       `BaseChart` 的 `height`）＋ 它自己那句「點月份或線上的點」提示
+                       `<p class="mt-2 text-xs">`。那句提示是 2026-09-14 才加的，
+                       骨架一度還停在 240px ⇒ 這一頁是 SSR，hydration 當下底下整批
+                       band 會往下跳 24px（`mt-2` 8 ＋ `text-xs` 行高 16）。
+                       下面的 `&nbsp;` 就是那一行的鏡射（同熱點圖，理由見上一條）。
+                    ⚠️ 240 仍然是**抄來的字面值**——`MonthlyTrend` 沒有像熱點圖那樣的
+                       共用高度函式，那支改高度這裡要一起改，而且不會有東西變紅。
+                  -->
+                  <div>
+                    <USkeleton class="h-[240px] w-full rounded-sm" />
+                    <p class="mt-2 text-xs" aria-hidden="true">
+                      &nbsp;
+                    </p>
+                  </div>
+                </template>
+              </ClientOnly>
+              <!-- 圖例自己用 HTML 畫：canvas 的圖例拿不到鍵盤與螢幕閱讀器 -->
+              <p class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
+                <span class="inline-flex items-center gap-1.5">
+                  <ChartLegendSwatch kind="ink" />
+                  {{ selectedYear === null ? '全部年度加總' : `${selectedYear} 年` }}
+                </span>
+                <span v-if="showAverage" class="inline-flex items-center gap-1.5">
+                  <ChartLegendSwatch kind="baseline" />
+                  {{ averageLegendLabel }}
+                </span>
+              </p>
+            </ChartBand>
+
+            <!--
+              ── 影城分布。台灣在地的差異化資訊，分享頁上最值得看的一條。 ──
+              ★ 每一列都點得開抽屜（2026-09-14 David 第 4／5 點）。`kind` 由呼叫端
+                指定：同一個 `DistributionBars` 服務三條長條，它自己不知道
+                自己畫的是場所、版本還是國別。
+            -->
+            <ChartBand title="去了哪裡" :insight="venueInsight">
+              <DistributionBars :items="venueItems" unit=" 場" @pick="pickDist('venue', $event)" />
+            </ChartBand>
+
+            <!-- ── 版本與國別 ── -->
+            <ChartBand title="看的是什麼">
+              <div class="grid gap-8 sm:grid-cols-2">
+                <div>
+                  <h3 class="mb-3 text-sm font-medium text-muted">
+                    版本
+                  </h3>
+                  <DistributionBars :items="formatItems" unit=" 場" @pick="pickDist('format', $event)" />
+                </div>
+                <div>
+                  <h3 class="mb-3 text-sm font-medium text-muted">
+                    國別
+                  </h3>
+                  <DistributionBars :items="countryItems" unit=" 場" @pick="pickDist('country', $event)" />
+                </div>
+              </div>
+            </ChartBand>
+
+            <!-- ── 多刷排行。語意隨檢視視角而變，所以圖說要講清楚範圍。 ── -->
+            <ChartBand
+              v-if="(stats?.repeats?.length ?? 0) > 0"
+              title="看了不只一次"
+              :insight="selectedYear === null
+                ? '這些年來看過兩次以上的作品。'
+                : `${selectedYear} 年內看過兩次以上的作品。`"
+            >
+              <!--
+                ★ **一定要走 `pick()` 不是 `picked = …`**：`pick()` 會先
+                  `await ensureAllRecords()` 把 200 筆以外的紀錄補齊（踩雷 #169）。
+                  直接指派在 David 的 174 筆上看起來完全正常，>200 筆的人抽屜會短於
+                  排行上的數字，typecheck／lint／test 全綠、console 零錯誤。
+              -->
+              <RepeatList
+                :items="stats?.repeats ?? []"
+                @pick="pick({ kind: 'film', ...$event })"
+              />
+            </ChartBand>
+          </template>
+
+          <!--
+            ── 每年花費 ──（David 2026-09-06 裁決）
+            ★ 這條 band **對三種觀看者長得不一樣，而三種都必須是對的**：
+              本人看得到全部；`show_cost = true` 的路人看得到公開紀錄的票價；
+              其他人**一列都拿不到 ⇒ 整條 band 不存在**（`SCREENS §12-3`：
+              不是畫成 0、不是打馬賽克——否則 `總花費 ÷ 場次` 就能反推個別票價）。
+              判斷不在這裡做，由 RLS 做（`useUserSpend()` 的 `canSeeMoney`
+              數的是讀得到幾列票價）。
+
+            ★ **放在 band 堆疊的最後，而且刻意不給 `#fallback` 佔位。**
+              它是 client-only 而且可能根本不出現：給固定高度的骨架的話，
+              「拿不到金額」的觀看者會看到一塊先撐開再塌掉的空白——那不但是
+              版面跳動，還等於公告「這裡本來有東西」。排在最後 ⇒ 它晚出現時
+              只會往下推紀錄列表（那時還在視窗外），不會推到正在讀的東西。
+          -->
+          <ClientOnly>
+            <ChartBand
+              v-if="spend?.canSeeMoney"
+              title="每年花費"
+              :insight="spendInsight"
+            >
+              <SpendByYear :by-year="spend.byYear" :currency="spend.currency" :is-own="spend.isOwn" />
+            </ChartBand>
+          </ClientOnly>
+        </div>
+
+        <section class="mt-10">
+          <h2 class="text-lg font-semibold">
+            觀影紀錄<span v-if="selectedYear" class="ms-2 text-sm font-normal text-muted">{{ selectedYear }} 年</span>
+          </h2>
+          <p v-if="!items.length" class="mt-2 text-muted">
+            還沒有公開的觀影紀錄。
+          </p>
+          <template v-else>
+            <div v-for="g in grouped" :key="g.year" class="mt-6">
+              <h3 class="text-sm font-semibold text-muted tabular-nums">
+                {{ g.year }} 年
+              </h3>
+              <ul class="mt-2 space-y-2">
+                <li v-for="r in g.rows" :key="r.id">
+                  <TicketCard :record="r" />
+                </li>
+              </ul>
+            </div>
+
+            <div v-if="hasMore" class="mt-6 flex justify-center">
+              <UButton variant="soft" color="neutral" @click="shown += PAGE">
+                再顯示 {{ Math.min(PAGE, filtered.length - shown) }} 筆（共 {{ filtered.length }} 筆）
+              </UButton>
+            </div>
+          </template>
+        </section>
+
+        <!--
+          點圖表的一格 → 底部抽屜列出那一格的票根卡（§9.2，與 `/app` 同一個語彙）。
+
+          ⚠️ 2026-09-14 起「一格」不只是出席圖與熱點圖了：月度趨勢的每個月、
+             以及三條分布長條的每一列（含展開出來的長尾）都走同一個抽屜。
+             標題由 `drawerTitle` 分派到 `utils/stats.ts` 的各支組字函式，
+             空狀態由 `drawerEmptyText` 分派——**九種 kind 各有各的說法**。
+        -->
+        <UDrawer v-model:open="drawerOpen" direction="bottom" :title="drawerTitle">
+          <template #body>
+            <div class="mx-auto max-w-3xl">
+              <p v-if="!drawerRecords.length" class="py-6 text-center text-muted">
+                {{ drawerEmptyText }}
+              </p>
+              <!--
+                ★ `show-year` 是必要的：抽屜的內容跨年份聚合，而標題不一定帶年——
+                出席圖點一格是「2024/03/15（週五）」有年，時段圖點一格是
+                「週三 14:00」，那一格的紀錄可能散在 2014–2026。
+                日期帶預設不顯示年份（依年份分組的列表由上下文提供），抽屜打破了那個前提。
+              -->
+              <ul v-else class="space-y-2 pb-4">
+                <li v-for="r in drawerRecords" :key="r.id">
+                  <TicketCard :record="r" show-year />
+                </li>
+              </ul>
+            </div>
+          </template>
+        </UDrawer>
+      </template>
     </template>
   </div>
 </template>
