@@ -1,18 +1,9 @@
 import type { H3Event } from 'h3'
 
 /**
- * 極簡的滑動視窗速率限制。
- *
- * ⚠️ **這是行程內記憶體，不是分散式的。** 在 Vercel 上每個 serverless 實例各有
- * 一份 Map，所以真實的上限是「每實例 N 次」而不是「全站 N 次」，冷啟動也會把
- * 計數歸零。它擋得住手滑連按與最粗糙的腳本，擋不住有意的分散式濫發。
- *
- * BUILD_PLAN §6.2 要求「Turnstile 或 rate limit」，這裡先做後者：Turnstile 需要
- * 一組站台金鑰，屬部署階段的事。**上線前應補上 Turnstile**，這支則保留為第二層。
- *
- * 為什麼還是要有它：`anon` 可以 INSERT `takedown_notice` 是 §90-4 的法定義務
- * （必須讓未登入的著作權人也能提通知），而資料庫層對此完全沒有防護——那張表
- * 是全站唯一對匿名開放寫入的地方。
+ * 極簡滑動視窗限流。⚠️ 行程內記憶體、非分散式：Vercel 每個實例各一份 Map ⇒ 實際
+ * 是「每實例 N 次」，冷啟動歸零，擋不住有意的分散式濫發。**上線前補 Turnstile**（§6.2）。
+ * 仍需要它：`takedown_notice` 是全站唯一對 anon 開放寫入的表（§90-4 的法定義務）。
  */
 
 interface Bucket {
@@ -34,10 +25,8 @@ export interface RateLimitOptions {
 }
 
 /**
- * 取呼叫端 IP。Vercel 會帶 `x-forwarded-for`，本機開發則兩者皆無。
- *
- * ★ 取不到 IP 時回傳固定字串而不是放行：那會讓所有取不到 IP 的請求**共用**
- *   同一個桶子，也就是更嚴格而不是更寬鬆。放行才是危險的預設值。
+ * 取呼叫端 IP。★ 取不到時回固定字串而不是放行：那讓這些請求**共用**同一個桶子，
+ * 也就是更嚴格而不是更寬鬆。放行才是危險的預設值。
  */
 function clientKey(event: H3Event): string {
   return getRequestIP(event, { xForwardedFor: true }) ?? 'unknown'

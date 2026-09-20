@@ -3,9 +3,7 @@ import { Buffer } from 'node:buffer'
 import { timingSafeEqual } from 'node:crypto'
 import process from 'node:process'
 
-/**
- * 以固定時間比較兩個字串。長度不同直接回 false（長度本身不是秘密）。
- */
+/** 固定時間比較。長度不同直接回 false（長度本身不是秘密）。 */
 function safeEqual(a: string, b: string): boolean {
   const left = Buffer.from(a)
   const right = Buffer.from(b)
@@ -13,18 +11,9 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 /**
- * cron 路由的呼叫者驗證。不通過就 throw，通過則什麼都不回。
- *
- * ★ 授權一律走 `Authorization: Bearer <secret>` header，這是 Vercel Cron 唯一
- *   會自動帶上的憑證形式（設了專案環境變數 `CRON_SECRET` 之後）。不接受
- *   query string 帶 secret——那會被記進所有存取紀錄。
- *
- * ★ 兩個環境變數都接受，且兩邊都不必知道對方存在：
- *     - `CRON_SECRET`：Vercel 的約定名稱，設了它 Vercel 才會帶 header
- *     - `NUXT_CRON_SECRET`：本專案 `.env` / runtimeConfig 的名稱（本機測試用）
- *   只認一個的話，正式環境會出現「排程有觸發但每次都 401」這種安靜的失敗。
- *
- * ★ 一個都沒設時回 503 而不是放行。「沒設密鑰 ⇒ 端點裸奔」是最糟的預設值。
+ * cron 路由的呼叫者驗證。只收 `Authorization: Bearer`（query string 會被記進存取紀錄）。
+ * `CRON_SECRET`（Vercel 設了才會帶 header）與 `NUXT_CRON_SECRET`（本機）兩個都接受：
+ * 只認一個會變成「排程有觸發但每次 401」的安靜失敗。★ 一個都沒設回 503，不是放行。
  */
 export function assertCronCaller(event: H3Event): void {
   const accepted = [
