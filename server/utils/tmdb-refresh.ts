@@ -10,21 +10,15 @@ import { failurePatch, outcomeForError, snapshotFromDetail } from './tmdb-snapsh
 export type { TmdbRefreshOptions }
 
 /**
- * TMDB 快照的批次刷新。
- *
- * 為什麼不掛 pg_cron：Supabase 免費專案閒置會暫停，cron 不跑而**沒有任何人
- * 會知道**（0001 §5 的註解）。所以排程放在 Vercel Cron，由 HTTP 觸發。
- *
- * 為什麼合規不靠這支跑得成功：`film_public` 以 `expires_at > now()` 逐列把關，
- * 刷新一直失敗的話過期欄位自動變 NULL（退回文字卡片）。這支的職責是「讓內容
- * 保持新鮮」，不是「維持合規」——後者是讀取端的結構性保證。
+ * TMDB 快照的批次刷新。排程走 Vercel Cron 而不是 pg_cron：Supabase 免費專案閒置會
+ * 暫停，cron 不跑而沒有任何人會知道（0001 §5）。
+ * ★ 合規不靠這支跑得成功：`film_public` 以 `expires_at > now()` 逐列把關，刷新一直
+ *   失敗時過期欄位自動變 NULL（退回文字卡片）。這支只負責新鮮度。
  */
 
 /**
- * 累計被 429 節流這麼多次就收工。
- *
- * 被節流時繼續灌請求只會延長懲罰，而且會把整批列的 attempts 一起推高
- * （＝一次上游抽風換來 2,400 列的指數退避）。停下來讓下一輪再試比較便宜。
+ * 累計被 429 節流這麼多次就收工。繼續灌只會延長懲罰，還會把整批列的 attempts
+ * 一起推高（一次上游抽風換來 2,400 列的指數退避）。
  */
 const THROTTLE_ABORT_AT = 10
 
@@ -54,12 +48,9 @@ interface DueRow {
 }
 
 /**
- * 取出到期的列。
- *
- * `tmdb_refresh_due` 是 `security_invoker` view 且只 grant 給 service_role，
- * 所以這裡拿到 0 列有兩種完全不同的意思：真的沒到期，或是**client 不是
- * service_role**。後者才是危險的那個——它不會報錯。因此 `due` 一併回報，
- * 呼叫者看到 `due: 0` 時可以自己去 SQL 對一次。
+ * 取出到期的列。⚠️ `tmdb_refresh_due` 只 grant 給 service_role，所以拿到 0 列有兩種
+ * 意思：真的沒到期，或**client 不是 service_role**（後者不會報錯）。
+ * 因此 `due` 一併回報，看到 `due: 0` 時可以自己去 SQL 對一次。
  */
 async function claimDue(db: SupabaseClient<Database>, limit: number): Promise<{ rows: DueRow[], due: number }> {
   const { data, error, count } = await db

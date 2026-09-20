@@ -1,17 +1,8 @@
 /**
- * `public.user_year_stats(p_username, p_year)` 的回傳形狀。
- *
- * 產生器把這支 RPC 的回傳標成 `Json`（它宣告 `returns jsonb`），型別資訊
- * 因此得手寫。之所以回 jsonb 而不是 `returns table`：這份統計是異質的——
- * 每日次數、星期×時段矩陣、各種分布，塞不進一張平表；而拆成七支 RPC 會讓
- * 一個統計頁打七次往返。
- *
- * ⚠️ 契約變更請同步 `supabase/migrations/0003_user_year_stats.sql`。
- *
- * ⚠️ **這份資料不得進入任何可快取的輸出。** `totals.spend` 受呼叫者的 RLS
- * 影響——同一個 URL 對不同人是不同的數字。放進 SSR 快取或 CDN，第一個造訪
- * 者（可能是本人）的票價就會被送給後面所有人。統計一律以呼叫者自己的
- * session 即時查詢。
+ * `public.user_year_stats(p_username, p_year)` 的回傳形狀（RPC 宣告 `returns jsonb`，
+ * 產生器只標得出 `Json`，所以手寫）。⚠️ 契約變更請同步 `0003_user_year_stats.sql`。
+ * ⚠️ **不得進入任何可快取的輸出**：`totals.spend` 隨呼叫者的 RLS 而異，同一個 URL
+ * 對不同人是不同的數字，放進 SSR 快取等於把本人的票價送給後面所有人。
  */
 
 /** ISO 星期：1 = 週一 … 7 = 週日。 */
@@ -24,18 +15,12 @@ export interface UserYearStatsTotals {
   films: number
   /** 總票數。 */
   tickets: number
-  /**
-   * 已知票價加總。**只涵蓋呼叫者看得到的票價**——
-   * 未登入者看別人的頁面時，除非對方開啟票價公開，否則這裡是 0。
-   */
+  /** 已知票價加總，**只涵蓋呼叫者看得到的**：對方沒開票價公開時匿名者看到 0。 */
   spend: number
   spend_currency: 'TWD'
   /**
-   * `spend` 是否不完整（= `spend_unknown_records > 0`）。
-   *
-   * 為 true 時**不可**把 `spend` 當成總花費呈現。措辭要看 `is_own`：
-   * · `is_own = false` → 「部分票價未公開」
-   * · `is_own = true`  → 「N 筆未記錄票價」（自己的資料沒有被隱藏的問題）
+   * `spend` 是否不完整（= `spend_unknown_records > 0`）。為 true 時不可當成總花費呈現，
+   * 措辭看 `is_own`：false →「部分票價未公開」、true →「N 筆未記錄票價」。
    */
   spend_is_partial: boolean
   /** 有票價可計的場次數。 */

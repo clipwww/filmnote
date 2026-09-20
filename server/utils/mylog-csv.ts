@@ -3,37 +3,20 @@ import { Buffer } from 'node:buffer'
 import { parseRawWallClock, toTaipeiWallClock } from '#pipeline/import/mylog'
 
 /**
- * 舊 log 專案匯出的 CSV → `MyLogItem[]`。
- *
- * 既有的 CLI 匯入（`scripts/import-mylog.ts`）吃的是上游 API 的 **JSON**。
- * `/app/import` 需要的是使用者上傳 CSV，而這兩條路徑必須產出**同樣的東西**——
- * 尤其是 `id`，它是 `viewing_record.import_key`（唯一鍵），決定重跑會不會重複匯入。
- *
- * ─────────────────────────────────────────────────────────────────────────────
- * ★ 欄位順序不是猜的。從 DB 裡 174 筆真的 `import_key` base64 解碼回來實測：
- *
- *   2016/05/17 (週二) 19:20,少女與戰車劇場版,日本,4DX,信義威秀,500,20,1,0,520
- *   2014/03/01 (週六) 14:00,KANO,台灣,2D,信義威秀,300,20,1,0,320,<備註>
- *
- *   date, title, area, version, theater, price, fee, tickets, discount, cost[, memo]
- *
- *   欄數分布：10 欄 107 筆、11 欄 66 筆、**13 欄 1 筆**。
- *   （範例中的備註內容已代換——那是 David 的私人筆記，不進版控；形狀保留。）
- *
- * ★ 那 1 筆 13 欄的正是踩雷 #67 的形狀，而且比 #67 描述的更糟——備註裡同時有
- *   逗號**和換行**：
- *
- *   …,350,<備註第一段> | ⏎<第二段裡有「JPY 1,600」這種逗號> | <第三段>
- *
- *   所以這裡**絕不用 `columns: true` 之類的具名模式**，一律陣列模式 + 欄數檢查
- *   （#67 的正解），而且多出來的欄位只在**確定是備註溢位**時才收攏。
- *
- * ★ 怎麼分辨「備註裡有逗號」與「片名裡有逗號」：memo 是最後一欄，片名是第 2 欄。
- *   若第 6–10 欄（price/fee/tickets/discount/cost）全部是數字，多出來的逗號就
- *   只可能在它後面 ⇒ 安全地收攏成 memo。任何一欄不是數字，代表逗號出現在前面、
- *   整列位移了 ⇒ **不猜，列進 issues 交給人看**。
- *   猜錯的樣子是「把票價 240 寫成片名的一部分」，而且不會有任何錯誤訊息。
+ * 舊 log 專案匯出的 CSV → `MyLogItem[]`。CLI 匯入吃的是上游 JSON，這裡吃 CSV，
+ * 兩條路徑必須產出**同樣的 `id`**——它是 `viewing_record.import_key`（唯一鍵），
+ * 決定重跑會不會重複匯入。
  */
+// 欄位：date, title, area, version, theater, price, fee, tickets, discount, cost[, memo]
+// 實測 174 筆的欄數分布：10 欄 107 筆、11 欄 66 筆、**13 欄 1 筆**。
+//
+// ★ 那 1 筆 13 欄是踩雷 #67 的形狀且更糟（備註裡同時有逗號**和換行**）⇒ 絕不用
+//   `columns: true` 之類的具名模式，一律陣列模式 + 欄數檢查，多的欄位只在確定是
+//   備註溢位時才收攏。
+//
+// ★ 分辨「備註裡有逗號」與「片名裡有逗號」：memo 是最後一欄、片名是第 2 欄，
+//   若第 6–10 欄全是數字，多出來的逗號只可能在它後面 ⇒ 安全收攏成 memo；
+//   任何一欄不是數字代表整列位移了 ⇒ **不猜，列進 issues**（猜錯是把票價寫進片名）。
 
 /** 欄位順序（實測 174 筆）。index 即欄位位置。 */
 const COLUMNS = [
@@ -68,10 +51,8 @@ export interface MyLogCsvResult {
 }
 
 /**
- * RFC 4180 的最小可用實作：雙引號包住的欄位可含逗號、換行與 `""` 轉義。
- *
- * 不用現成套件是因為這裡需要**原樣的欄位陣列**（含備註裡的換行），而多數
- * 套件的預設值會替我們做決定（trim、具名欄位、跳過空列），那些決定正是 #67 的來源。
+ * RFC 4180 的最小可用實作。不用現成套件是因為這裡需要**原樣的欄位陣列**（含備註裡
+ * 的換行），而多數套件的預設值會替我們做決定（trim、具名欄位、跳過空列）——#67 的來源。
  */
 function tokenize(text: string): string[][] {
   const records: string[][] = []
@@ -156,14 +137,9 @@ function taipeiOffsetMs(instant: number): number {
 
 /**
  * `YYYY-MM-DD` + `HH:MM`（台北牆上時間）→ ISO UTC。
- *
- * ★ 用 Intl 量出偏移再修正，不硬寫 +8：台灣在 1979 年以前實施過日光節約時間，
- *   硬寫偏移量在資料回溯到更早年份時會**靜默地**錯一小時
- *   （`toTaipeiWallClock` 的註解已經為了同一個理由用 Intl）。
- *
- * ★ 收斂後**再驗一次**：把算出來的瞬間丟回 `toTaipeiWallClock()`，拿不回原本的
- *   牆上時間就回 null。DST 換日那一小時本來就可能不存在或出現兩次，那時候
- *   安靜地回一個差一小時的瞬間，比回 null 危險得多。
+ * ★ 用 Intl 量偏移不硬寫 +8：台灣 1979 年以前實施過日光節約時間，硬寫會靜默錯一小時。
+ * ★ 收斂後再丟回 `toTaipeiWallClock()` 驗一次，拿不回原值就回 null——DST 換日那一小時
+ *   可能不存在或出現兩次，安靜地回一個差一小時的瞬間比回 null 危險。
  */
 export function taipeiWallClockToIso(watchedOn: string, watchedTime: string): string | null {
   let instant = Date.parse(`${watchedOn}T${watchedTime}:00Z`)
@@ -190,32 +166,22 @@ function toNumber(raw: string): number | null {
 }
 
 /**
- * `id`（＝ `viewing_record.import_key`）＝ 原始列以逗號 join 後的 base64。
- *
- * ★ 必須與上游一致，否則同一筆紀錄從 JSON 匯入與從 CSV 匯入會產生**兩個不同的
- *   import_key**，於是重跑匯入不再冪等，而是憑空多出一份。實測：DB 裡的
- *   import_key 解碼回來就是「欄位以逗號 join」的樣子（備註裡的逗號原樣保留，
- *   沒有引號），所以 join 是還原它的正確方式。
+ * `id`（＝ `import_key`）＝ 原始列以逗號 join 後的 base64。★ 必須與上游一致，否則
+ * 同一筆從 JSON 與從 CSV 匯入會產生兩個不同的 import_key ⇒ 重跑不再冪等而是多一份。
+ * 實測 DB 裡的 import_key 解碼回來就是「欄位以逗號 join」（備註的逗號原樣、沒有引號）。
  */
 function encodeImportKey(fields: string[]): string {
   return Buffer.from(fields.join(','), 'utf8').toString('base64')
 }
 
 /**
- * ★★ 完全相同的原始列會出現不只一次，那時上游會加 `#1` / `#2` 後綴。
- *
- * 這條規則**推不出來，只能從真資料量**。實測 DB 裡 175 個 import_key：
- *   · 165 個是唯一的原始列 ⇒ **沒有後綴**
- *   · 5 組各出現兩次 ⇒ 兩筆分別是 `#1` 與 `#2`（第一筆**也有**後綴）
- * 五組全部一致，沒有例外。
- *
- * 為什麼非做不可：`viewing_record` 有 `unique (user_id, import_key)`。不補後綴的話
- * 那五組會各自撞成一筆——`on conflict do update` 之下**不會報錯**，只是同一天同一場
- * 的兩筆紀錄變成一筆，總場次少 5。少掉的東西不會有任何訊息。
- *
- * ⚠️ 這也表示 `#N` 是**位置相關**的：同一份 CSV 重跑會得到同樣的結果（順序固定），
- *   但若使用者手動調換了那兩列的順序，兩筆的後綴會對調。內容相同，所以沒有實害。
+ * ★★ 完全相同的原始列會重複出現，上游會加 `#1` / `#2` 後綴。這條規則推不出來，
+ * 只能從真資料量：實測 175 個 import_key，165 個唯一（無後綴）、5 組各兩次
+ * （兩筆分別 `#1`/`#2`，第一筆**也有**後綴），五組全部一致。
  */
+// 非做不可的理由：`unique (user_id, import_key)` 之下不補後綴會讓那五組各撞成一筆，
+// 而 `on conflict do update` **不會報錯**，只是總場次安靜地少 5。
+// ⚠️ `#N` 是位置相關的：使用者手動調換那兩列的順序，兩筆後綴會對調（內容相同，無實害）。
 function applyDuplicateSuffixes(items: MyLogItem[]): void {
   const count = new Map<string, number>()
   for (const it of items)

@@ -1,23 +1,16 @@
 /**
- * TMDB 明細 → `film_tmdb_snapshot` 一列的純轉換，以及失敗退避的計算。
- *
- * 刻意與 `tmdb-refresh.ts` 分家：這一支不碰 Supabase、不碰 `useRuntimeConfig()`，
- * 因此可以被 `tests/**` 直接匯入而不需要 Nuxt 環境。快照映射裡真正會出錯的是
- * 「TMDB 的空值長什麼樣子」（見下方三個註解），那正是值得被單元測試釘住的部分。
+ * TMDB 明細 → `film_tmdb_snapshot` 一列的純轉換，以及失敗退避的計算。與
+ * `tmdb-refresh.ts` 分家是為了能被 `tests/**` 直接匯入（不碰 Supabase 與 runtimeConfig）：
+ * 真正會出錯的是「TMDB 的空值長什麼樣子」，那才是值得被斷言釘住的部分。
  */
 
 import type { TmdbMovieDetail } from '#pipeline/types'
 import { taiwanReleaseDate } from '#pipeline/tmdb/client'
 
 /**
- * TMDB 明細中「快照表要存、但比對器用不到」的欄位。
- *
- * `#pipeline/types` 的 `TmdbMovieDetail` 只宣告比對器用得到的欄位（那是刻意的
- * 最小介面）。快照表另外有 `backdrop_path` 與 `genre_ids` 兩欄，這裡以擴充型別
- * 補上，而不是去改 `src/**`——那不在本 session 的檔案分工內。
- *
- * ★ `genres`（明細）而非 `genre_ids`（搜尋結果）：同一份資料在 TMDB 的兩個
- *   端點是不同形狀的，取明細時只有 `genres: [{id, name}]`。
+ * 快照表要存、但比對器用不到的欄位（`TmdbMovieDetail` 是刻意的最小介面，這裡擴充）。
+ * ★ 用 `genres`（明細）而非 `genre_ids`（搜尋結果）：同一份資料在 TMDB 的兩個端點
+ *   形狀不同，取明細時只有 `genres: [{id, name}]`。
  */
 export interface TmdbDetailForSnapshot extends TmdbMovieDetail {
   backdrop_path?: string | null
@@ -37,9 +30,8 @@ export interface TmdbSnapshotPatch {
   tw_release_date: string | null
   genre_ids: number[] | null
   /**
-   * ★ 宣告成索引簽章而非 `TmdbDetailForSnapshot`：`database.types` 的 `Json`
-   *   要求 `{ [key: string]: Json | undefined }`，而一個具名 interface 沒有索引
-   *   簽章就不滿足它（TS 對 interface 不做隱含索引推斷，type alias 才會）。
+   * ★ 索引簽章而非 `TmdbDetailForSnapshot`：`Json` 要求 `{ [key: string]: … }`，
+   *   而具名 interface 沒有索引簽章就不滿足它（type alias 才有隱含推斷），
    *   直接放 interface 會讓 `.update()` 整個參數型別不相容。
    */
   payload: { [key: string]: unknown }
@@ -71,10 +63,8 @@ function textOrNull(value: string | null | undefined): string | null {
 }
 
 /**
- * TMDB 的 `runtime` 有兩種假值要分開處理：
- *   - `0` 代表「不知道」，不是真的 0 分鐘（匯入時實測，見 scripts/import-mylog.ts）
- *   - 超出 1–1200 的值會直接違反 check constraint ⇒ 整批 update 失敗
- * 兩者都收斂成 null，讓一部片長異常的片不至於拖垮一整批刷新。
+ * TMDB 的 `runtime` 兩種假值都收斂成 null，免得一部片拖垮整批刷新：
+ * `0` 是「不知道」不是 0 分鐘（匯入時實測），超出 1–1200 會違反 check constraint。
  */
 export function snapshotRuntime(runtime: number | null | undefined): number | null {
   if (typeof runtime !== 'number' || !Number.isFinite(runtime))
@@ -93,11 +83,9 @@ export function snapshotDate(value: string | null | undefined): string | null {
 }
 
 /**
- * 明細 → 快照列。
- *
- * ★ `title_zh` 寫進**快照表**，不代表會蓋掉 `film.title_zh`：套用是
- *   `apply_tmdb_snapshot()` 的職責，而它只在 `title_zh_source = 'tmdb'`
- *   時才覆寫。政府核准的中文片名因此在結構上不可能被 TMDB 蓋掉。
+ * 明細 → 快照列。★ `title_zh` 寫進快照表不代表會蓋掉 `film.title_zh`：套用是
+ * `apply_tmdb_snapshot()` 的事，而它只在 `title_zh_source = 'tmdb'` 時覆寫 ⇒
+ * 政府核准的中文片名在結構上不可能被 TMDB 蓋掉。
  */
 export function snapshotFromDetail(
   detail: TmdbDetailForSnapshot,
@@ -128,22 +116,15 @@ export function snapshotFromDetail(
 /** 退避上限 3 天：再久就等於這一列被靜默放棄。 */
 const BACKOFF_CAP_MINUTES = 60 * 24 * 3
 
-/**
- * 失敗退避：1 小時起跳，逐次加倍，上限 3 天。
- *
- * `attempts` 傳入的是「這次失敗後」的累計次數（≥ 1）。
- */
+/** 失敗退避：1 小時起跳逐次加倍，上限 3 天。`attempts` 是「這次失敗後」的累計（≥ 1）。 */
 export function backoffMinutes(attempts: number): number {
   const steps = Math.max(0, Math.min(Math.floor(attempts) - 1, 12))
   return Math.min(60 * 2 ** steps, BACKOFF_CAP_MINUTES)
 }
 
 /**
- * 失敗時寫回的欄位。
- *
- * ★ 刻意**不動 `expires_at`**。已有的快取內容繼續用它原本的到期日，
- *   排程一直失敗的話會自然到期 → 讀取端 view 把欄位變 NULL。
- *   合規因此不依賴「刷新一定會成功」（BUILD_PLAN §5 Step 9 的第一條驗收）。
+ * 失敗時寫回的欄位。★ 刻意**不動 `expires_at`**：既有快取沿用原到期日，一直失敗
+ * 就自然到期 → 讀取端 view 把欄位變 NULL ⇒ 合規不依賴「刷新一定會成功」（§5 Step 9）。
  */
 export function failurePatch(previousAttempts: number, message: string, now: Date = new Date()): {
   state: 'failed'
@@ -162,9 +143,8 @@ export function failurePatch(previousAttempts: number, message: string, now: Dat
 }
 
 /**
- * 這兩個狀態碼代表「設定錯了」，不是「這一列有問題」。
- * 繼續跑會讓每一列都失敗一次並累加 attempts，把整個佇列推進退避——
- * 一個打錯的 API key 換來三天沒有海報。
+ * 這兩個狀態碼是「設定錯了」不是「這一列有問題」。繼續跑會讓每一列都失敗一次並
+ * 累加 attempts，把整個佇列推進退避——一個打錯的 API key 換來三天沒有海報。
  */
 const FATAL_STATUS = new Set([401, 403])
 
@@ -175,15 +155,9 @@ export type FailureOutcome
     | { kind: 'failed', patch: ReturnType<typeof failurePatch> }
 
 /**
- * 把一個 TMDB 錯誤翻成該寫回去的東西。
- *
- * 抽成純函式的理由：**429 是驗收條件之一，卻沒辦法叫 TMDB 真的回 429**。
- * Step 9 的 2,483 次實測請求裡節流 0 次，所以那條路徑在真實資料上永遠測不到。
- * 決策邏輯獨立出來之後，429 / 500 / 網路中斷 / 404 四種收尾至少能被單元測試釘住，
- * 而不是靠讀程式碼相信它。
- *
- * `status` 為 `undefined` 或 0 代表網路層失敗（`TmdbClient` 用 0 表示），
- * 與 5xx 同等對待：可重試 ⇒ 退避，不動 `expires_at`。
+ * 把一個 TMDB 錯誤翻成該寫回去的東西。抽成純函式是因為**沒辦法叫 TMDB 真的回 429**
+ * （Step 9 的 2,483 次實測請求裡節流 0 次）⇒ 四種收尾只能靠單元測試釘住。
+ * `status` 為 undefined 或 0 是網路層失敗，與 5xx 同等：可重試 ⇒ 退避、不動 `expires_at`。
  */
 export function outcomeForError(
   status: number | undefined,
@@ -199,11 +173,9 @@ export function outcomeForError(
 }
 
 /**
- * TMDB 說這個 id 不存在時寫回的欄位。
- *
- * `expires_at` 拉到現在 ⇒ 讀取端 view 立刻把 TMDB 欄位變 NULL，
- * 實際的欄位清空交給 `purge_expired_tmdb_cache()`（它會保留 `state='gone'`）。
- * 清空邏輯只留一個擁有者，避免兩處各自定義「什麼算清乾淨」。
+ * TMDB 說這個 id 不存在時寫回的欄位。`expires_at` 拉到現在 ⇒ 讀取端 view 立刻把
+ * TMDB 欄位變 NULL；實際清空交給 `purge_expired_tmdb_cache()`（保留 `state='gone'`），
+ * 清空邏輯只留一個擁有者，免得兩處各自定義「什麼算清乾淨」。
  */
 export function gonePatch(message: string, now: Date = new Date()): {
   state: 'gone'
