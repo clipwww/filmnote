@@ -107,6 +107,42 @@ function hasExactSignal(signals: MatchSignal[]): boolean {
 }
 
 /**
+ * 平手時偏好「有內容的條目」。
+ *
+ * ── 為什麼需要這條（2026-09-20 實測）────────────────────────────────────
+ * TMDB 上存在**空殼條目**：有標題，但沒有上映日、片長 0、沒有簡介、常常沒有海報。
+ * 它們在片名上可以是一字不差的精確吻合，於是拿到跟真片一樣的分數。
+ *
+ * 實例一（David 看了 5 次的片）：核准資料是 `你的名字。` ／ 原文 `YOUR NAME.`
+ *   · 553301「Your Name」空殼 → `original-exact` 5 分
+ *   · 372058「你的名字」真片   → `zh-exact` 5 分
+ *   兩者皆 5 分。`ingest-rating.ts` 是先搜原文片名再搜中文片名、以 Map 合併，
+ *   所以空殼**先進候選集**；舊的 `reduce` 用嚴格大於，平手保留先出現的 ⇒ 空殼贏。
+ *   ⚠️ 真片拿不到 `year-near`：它是 2016 年的片，而那筆核准是 113 年的**重映**。
+ *
+ * 實例二：`潛艦危機倒數` ／ `U235`，1391860 空殼 5 分 vs 554022（Torpedo, 2019）
+ *   `zh-exact` 5 分，同樣平手、同樣空殼贏。
+ *
+ * ── ★ 為什麼是平手比較，不是加分 ──────────────────────────────────────
+ * 「有上映日就加 0.5 分」會把**每一個**有上映日的候選整體抬升，於是原本低於
+ * `SCORE_THRESHOLD` 的配對可能被推過門檻 ⇒ 產生全新的、沒有人審視過的配對。
+ * 做成平手比較則分數完全不變 ⇒ 門檻判定完全不變 ⇒ **能改變的結果只有平手那些**。
+ * 實測全片庫 2,764 部裡，勝出者沒有上映日的只有 3 部（見 `tests/matcher.test.ts`），
+ * 所以這個改動的影響範圍是封閉且已知的。
+ *
+ * 判準只用 `release_date`，不用 `poster_path`：海報會因地區與時間變動，
+ * 而「有沒有上映日」是條目建檔完整度的穩定代理。實測第三部（`亞洲`／`Asia`）
+ * 的空殼**有海報卻沒有上映日**——用海報當判準那一部會判錯。
+ */
+function preferPopulated(a: ScoredCandidate, b: ScoredCandidate): ScoredCandidate {
+  const aHas = !!a.candidate.release_date
+  const bHas = !!b.candidate.release_date
+  if (aHas === bHas)
+    return a // 兩者都有或都沒有 ⇒ 維持原行為（保留先出現的）
+  return aHas ? a : b
+}
+
+/**
  * 自候選集中挑出最佳配對。
  *
  * `runtimeOf` 讓呼叫端決定片長從哪裡來——搜尋結果本身不含 runtime，
@@ -122,7 +158,13 @@ export function matchCertificate(
 
   const best = candidates
     .map(candidate => scoreCandidate(certificate, candidate))
-    .reduce((a, b) => (b.score > a.score ? b : a))
+    .reduce((a, b) => {
+      if (b.score > a.score)
+        return b
+      if (b.score < a.score)
+        return a
+      return preferPopulated(a, b)
+    })
 
   if (best.score < SCORE_THRESHOLD)
     return { matched: false, reason: 'score-too-low', score: best.score }
