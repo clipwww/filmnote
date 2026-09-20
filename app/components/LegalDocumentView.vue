@@ -3,21 +3,19 @@ import type { LegalDocKind } from '~/composables/useLegalDocument'
 import { effectiveDateText, useLegalDocument } from '~/composables/useLegalDocument'
 
 /**
- * 三份條款頁共用的版面（`SCREENS §15.1`）。`/legal/dmca` **不走這裡**——
- * 那是表單不是文件，`legal_doc_kind` 這個 enum 裡根本沒有 dmca。
- *
+ * 三份條款頁共用的版面（`SCREENS §15.1`）。`/legal/dmca` **不走這裡**——那是表單不是文件，
+ * `legal_doc_kind` 這個 enum 裡根本沒有 dmca。
  * 版面：標題 → 版本與生效日 → 目錄（桌機左側 sticky／手機收合）→ 34em 內文。
- *
- * ── 版本與生效日為什麼是硬要件 ────────────────────────────────────────
- * `legal_acceptance` 綁的是 `document_id`，使用者同意的是**某一版**。
- * 畫面上看不到版本，那筆同意紀錄對使用者就是不可查證的（§15.1）。
- * 歷史版本也要查得到——`unique (kind, version)`、舊版留著，就是為了舉證。
- *
- * ── 目錄為什麼手機預設收合 ────────────────────────────────────────────
- * 法律文件的閱讀行為是掃讀與跳讀，不是從頭讀到尾；但在 375px 上把十條目錄
- * 攤開，等於在正文前面墊了一整屏。用原生 `<details>` 而不是元件：法遵頁的 HTML
- * 是伺服器送出來的，**目錄在 JS 到位之前就要能展開**——這一頁對「不得置於任何牆後」
- * 的承諾不該建立在「使用者的 JS 有跑起來」之上。
+ */
+/*
+ * 版本與生效日是硬要件：`legal_acceptance` 綁的是 `document_id`，使用者同意的是**某一版**，
+ * 畫面上看不到版本，那筆同意紀錄對使用者就是不可查證的。歷史版本也要查得到——
+ * `unique (kind, version)`、舊版留著，就是為了舉證。
+ */
+/*
+ * 目錄手機預設收合：法律文件是掃讀與跳讀，但在 375px 攤開十條等於在正文前墊一整屏。
+ * 用原生 `<details>` 不用元件——法遵頁的 HTML 是伺服器送的，**目錄在 JS 到位之前就要能展開**：
+ * 「不得置於任何牆後」的承諾不該建立在「使用者的 JS 有跑起來」之上。
  */
 const props = defineProps<{ kind: LegalDocKind }>()
 
@@ -40,11 +38,9 @@ function view(id: number | null) {
         </h1>
 
         <!--
-          分隔符組在字串裡：相鄰節點之間的半形空白會被
-          `white-space: normal` 的摺疊規則吃掉。
-          用全形空白 U+3000（寫成 `\u3000` 跳脫字元，跟 `HourHeatmap.vue`
-          等處一致），**不用中點**——DS 行 824：中點串是 Letterboxd 的簽名，
-          這個產品刻意不長那樣（DS 行 49 把它列在「避開」那一欄）。
+          分隔符組在字串裡：相鄰節點之間的半形空白會被 `white-space: normal` 的摺疊規則吃掉。
+          用全形空白 U+3000（寫成跳脫字元，跟 `HourHeatmap.vue` 等處一致），**不用中點**
+          ——中點串是 Letterboxd 的簽名，這個產品刻意不長那樣（DS 把它列在「避開」那一欄）。
         -->
         <p class="mt-1.5 text-[13px] text-muted">
           <span class="tabular-nums">{{ shown.version }}</span>
@@ -121,15 +117,14 @@ function view(id: number | null) {
         </details>
 
         <!--
-          桌機：左側 sticky。`md:top-18` = 18 × 0.25rem = 4.5rem = **72px**
-          （導覽列 56px + `border-b` 1px + 15px 呼吸）。
-          導覽列現在也是 sticky（`app/layouts/default.vue`），這個偏移必須跟著它走：
-          舊值 `md:top-4`（16px）會讓目錄上緣 41px 藏在導覽列後面。
-          ⚠️ 改 layout 那邊的 `h-14` 就要回來改這一行。
-          ⚠️ 用間距刻度而不是任意值方括號寫法：`md:top-18` 綁在 `--spacing` 上
-          （實測 Tailwind 4.3.3 生成 `top: calc(var(--spacing) * 18)`，而專案沒有覆寫
-          `--spacing`，production CSS 裡是 `.25rem` ⇒ 4.5rem = 72px），
-          跟 `app/` 其他地方一致（template 的 class 屬性裡零個任意值 calc）。
+          桌機左側 sticky。`md:top-18` = 4.5rem = **72px**（導覽列 56 ＋ border 1 ＋ 15 呼吸）。
+          導覽列現在也是 sticky，這個偏移必須跟著它走：舊值 `md:top-4`（16px）會讓目錄上緣 41px
+          藏在導覽列後面。⚠️ 改 layout 的 `h-14` 就要回來改這一行。
+        -->
+        <!--
+          ⚠️ 用間距刻度而不是任意值方括號：`md:top-18` 綁在 `--spacing` 上（實測 Tailwind 4.3.3 生成
+             `calc(var(--spacing) * 18)`，專案沒覆寫 `--spacing`，production CSS 是 `.25rem` ⇒ 72px），
+             跟 `app/` 其他地方一致（template 的 class 屬性裡零個任意值 calc）。
         -->
         <nav class="hidden self-start md:sticky md:top-18 md:grid md:grid-cols-[1.5rem_minmax(0,1fr)] md:gap-x-1 md:gap-y-2 text-[13px]">
           <template v-for="entry in parsed.toc" :key="entry.id">
@@ -166,11 +161,12 @@ function view(id: number | null) {
 
 <style scoped>
 /*
-  深連結落地時要看得出「是這一條」。條號可深連結是 §15.1 的硬要件
-  （侵權通知、客服回覆、admin 備註都會指向特定一條），而跳過去之後
-  沒有任何視覺回饋的話，讀的人要自己數標題。
+  深連結落地時要看得出「是這一條」。條號可深連結是 §15.1 的硬要件（侵權通知、客服回覆、
+  admin 備註都會指向特定一條），跳過去之後沒有視覺回饋的話讀的人要自己數標題。
   用 `:target` 而不是 JS 的 scroll spy：它在靜態檔上、在 JS 到位之前就成立。
-  ⚠️ `::deep` 是必要的——標題在 LegalProse 裡，scoped 樣式到不了。
+*/
+/*
+  ⚠️ `::deep` 是必要的——標題在 `LegalProse` 裡，scoped 樣式到不了。
 */
 :deep(h2:target),
 :deep(h3:target) {

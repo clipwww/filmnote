@@ -6,29 +6,18 @@ import AdminShell from './-AdminShell.vue'
 import StaffGate from './-StaffGate.vue'
 
 /**
- * `/admin/films` —— UGC 作品審核（US-19）＋ 重複作品合併（US-20）。
- * `SCREENS §14` ①②、視覺稿 `docs/design/mockups/admin.html`。
- *
- * ── 端點都已經在了，這一頁只是介面 ──────────────────────────
- * `POST /api/admin/films/[id]/approve`（`approve_film` RPC）
- * `POST /api/admin/films/merge`（`merge_films` RPC）
- * 審核佇列**不需要端點**：staff 靠 `film_read` policy 的 `is_staff()` 分支
- * 直接查 PostgREST（BUILD_PLAN §5 Step 7 第 3 點）。
- *
- * ── 佇列一律查 `film_review_queue` view（0011）───────────────
- * ⚠️ 不要自己在前端組 `review_state = 'pending'`。實測（2026-09-06）：
- *    DB 裡 pending 有 19 列，而其中 **16 列的 `merged_into_film_id` 不是 null**
- *    ——那是舊 log 匯入時建的 UGC 佔位，人工對照表比對到正片之後被
- *    `merge_films` 併掉了，但 `review_state` 留在 `pending`（`merge_films`
- *    不改它，也**不該**改：「被合併」是另一個維度的狀態）。
- *    那 16 部全是片庫裡已經有正確版本的片名，**按下「通過」會把重複作品
- *    放進公共片庫，而合併正是為了消除它們**。
- *
- * ── 審核不搬檔案 ──────────────────────────────────────────────
- * 單一 private bucket + RLS 讀取把關。`approve_film()` 一改狀態，
- * `ugc_poster_read` policy 的判定結果就變了，海報同時從「只有作者與 staff
- * 讀得到」變成「所有人讀得到」。**檔案從頭到尾沒有移動過**，所以駁回是
- * 真的可逆（backend 交接筆記 §4）。
+ * `/admin/films` —— UGC 作品審核（US-19）＋ 重複作品合併（US-20）。端點都已經在了，
+ * 這一頁只是介面；審核佇列**不需要端點**（staff 靠 `film_read` 的 `is_staff()` 分支直接查）。
+ */
+/*
+ * ⚠️ 佇列一律查 `film_review_queue` view，不要自己在前端組 `review_state = 'pending'`。
+ * 實測 2026-09-06：pending 有 19 列，其中 **16 列的 `merged_into_film_id` 不是 null**
+ * ——那些是舊 log 的 UGC 佔位，已經被 `merge_films` 併掉（它不改也不該改 review_state）。
+ * 那 16 部全是片庫裡已有正確版本的片名，**按下「通過」會把重複作品放進公共片庫**。
+ */
+/*
+ * 審核不搬檔案：單一 private bucket ＋ RLS 讀取把關，`approve_film()` 一改狀態
+ * `ugc_poster_read` 的判定就變了。**檔案從頭到尾沒有移動過**，所以駁回是真的可逆。
  */
 definePageMeta({ layout: 'default' })
 useSeoMeta({ title: '作品審核', robots: 'noindex, nofollow' })
@@ -83,10 +72,9 @@ interface CertRow {
 // ─────────────────────────────────────────────────────────────────────────────
 const { data: queue, status: queueStatus, refresh: refreshQueue } = useAsyncData('admin-film-queue', async () => {
   const { data, error } = await supabase
-    // ★ 一律查 `film_review_queue`（0011），不要自己在前端組 review_state 條件。
-    //   與 0002 的 `venue_option` 同一個模式：「什麼叫待審」只能有一個定義。
-    //   少任何一個條件的症狀都很具體——少了 merged 就是整排按得下去的殭屍
-    //   （實測 16 列），少了 origin='ugc' 就會撈到政府資料。
+    // ★ 一律查 `film_review_queue`（0011），不要自己在前端組 review_state 條件——
+    //   「什麼叫待審」只能有一個定義。少任何一個條件的症狀都很具體：少了 merged 就是
+    //   整排按得下去的殭屍（實測 16 列），少了 origin='ugc' 就會撈到政府資料。
     .from('film_review_queue')
     .select('id,title_zh,title_original,created_at,created_by')
     // 先進先出。審核是佇列不是收件匣，最舊的那一筆等最久。
@@ -174,34 +162,21 @@ watch(selectedId, async (id) => {
 // 「片庫裡有沒有像的？」—— 系統先查好，不要叫人自己去搜
 // ─────────────────────────────────────────────────────────────────────────────
 /**
- * 視覺稿把這件事講得很重：**審核的實際工作有一半是判斷「這是不是重複」，
- * 讓人自己去搜等於把系統該做的事推給人。查不到就明說查不到，不要留白。**
- *
- * 作法是把片名切成幾段當 needle 去比 `search_text`（那是
- * `lower(title_zh || ' ' || title_original)` 的 generated column，trgm 索引就建在它上面）。
- *
- * ⚠️ 這是**提示**不是判定。它不會、也不該自動合併任何東西——「林口威秀」
- *    配到「樹林秀泰影城」那個教訓（BUILD_PLAN §5 Step 10 ④）在片名上一樣成立：
- *    **錯配比不配更糟，因為不配看得見、錯配看不見。**
- *
- * ⚠️ **這裡有兩個一開始寫錯、而且是實測才看出來的地方**（2026-09-06）：
- *
- * ① **拉丁字母的字不可以切片。** 原本對長度 > 4 的字取 `slice(0,3)` 與
- *    `slice(-3)`，那對中文成立（「青凪…劇場版」的頭尾都是有意義的詞），
- *    對英文則產生 `min` / `zza` / `fat` 這種**幾乎命中所有片名**的碎片。
- *    ⇒ 拉丁字只用**整個字**、而且長度要 ≥ 4；切片只對 CJK 做。
- *
- * ② **`limit()` 沒有排序等於隨機取樣。** 原本是 `.or(...).limit(8)`，
- *    Postgres 回哪 8 列完全看它高興 ⇒ **真正相近的那一部可能整個被擠掉**。
- *    實測：查「zzadmin 沙丘 2」時列出了《哈利波特》《魔戒二部曲》，
- *    而片庫裡真的有的《沙丘：第二部》**一次都沒出現過**。
- *
- * 這兩個加起來的後果不是「提示不準」而已——每一列旁邊都有一顆
- * 「合併到這一部…」，而合併是不可逆的。**一個會亂建議的提示，比沒有提示危險。**
- *
- * 現在的作法：撈寬一點（40 列）回來，在前端按**命中的 needle 總長度**排序，
- * 並要求至少 4 分才顯示（一個 2 字中文詞 + 另一個，或一個 4 字以上的英文字）。
- * 沒有東西達標就老實說查不到——視覺稿要的就是這個：「查不到就明說查不到」。
+ * **審核的實際工作有一半是判斷「這是不是重複」，讓人自己去搜等於把系統該做的事推給人。**
+ * 作法是把片名切成幾段當 needle 去比 `search_text`（trgm 索引就建在它上面）。
+ * ⚠️ 這是**提示不是判定**，它不會也不該自動合併——錯配比不配更糟（不配看得見、錯配看不見）。
+ */
+/*
+ * ⚠️ 兩個一開始寫錯、實測才看出來的地方（2026-09-06）：
+ * ① **拉丁字母的字不可以切片**——對長度 > 4 的字取頭尾三碼，對中文成立，對英文會產生
+ *    `min`／`zza`／`fat` 這種幾乎命中所有片名的碎片。⇒ 拉丁只用整個字且長度 ≥ 4。
+ * ② **`limit()` 沒有排序等於隨機取樣**——實測查「zzadmin 沙丘 2」列出了《哈利波特》
+ *    《魔戒二部曲》，而片庫裡真的有的《沙丘：第二部》一次都沒出現過。
+ */
+/*
+ * 兩個加起來的後果不只是「提示不準」：每一列旁邊都有一顆「合併到這一部…」，而合併不可逆。
+ * **一個會亂建議的提示，比沒有提示危險。** 現在是撈 40 列回來、按命中的 needle 總長度排序、
+ * 至少 4 分才顯示，沒有東西達標就老實說查不到。
  */
 interface Needle {
   text: string
@@ -286,13 +261,9 @@ async function approve(id: string) {
 }
 
 /**
- * 退回是破壞性動作，走 `UModal` 二次確認（`DS §10`）。
- *
- * **理由是必填的，而且是資料庫在擋**（`approve_film()` 沒收到 note 就丟 23514，
- * 端點翻成 422）。這裡的 `disabled` 只是不要讓人白按一次——真正的把關在下面，
- * 前端不重寫一份判斷（兩份一定會漂移）。
- * 理由存進 `film.review_note`，**作者讀得到**（`film_read` 讓作者讀自己的作品），
- * 所以它是寫給對方看的，不是內部備註。
+ * 退回是破壞性動作，走 `UModal` 二次確認（`DS §10`）。**理由是必填的而且是資料庫在擋**
+ * （`approve_film()` 沒收到 note 就丟 23514），這裡的 `disabled` 只是不要讓人白按一次
+ * ——前端不重寫一份判斷（兩份一定會漂移）。理由存進 `review_note`，**作者讀得到**。
  */
 const rejectOpen = ref(false)
 const rejectNote = ref('')
@@ -327,16 +298,10 @@ function errText(e: unknown): string {
 // 合併（US-20）
 // ─────────────────────────────────────────────────────────────────────────────
 /**
- * 「把右邊合併到左邊，左邊是保留的那一部。」
- *
- * ⚠️ **`merge_films()` 會把 `viewing_record.film_id` 改指到勝方，不是「一列都不動」。**
- *    BUILD_PLAN §5 Step 7 第 4 點與 `0001` §4 的註解都寫著「viewing_record 一列
- *    都不動」，那是舊設計的殘留而且**實作是對的**：所有公開讀取路徑
- *    （`record_read` / `record_is_public` / `viewing_record_public`）都直接 join
- *    `film_id` 並要求 `merged_into_film_id is null`，紀錄若還指著敗方就會整批從
- *    公開頁消失。使用者真正在乎的不變量是「一筆紀錄都不會不見」，由
- *    `film_merge_log.moved_records` 記下來——端點會把那個數字回給我們，
- *    所以合併成功的 toast 說得出「搬了幾筆」，而不是只有一句 ok。
+ * 「把右邊合併到左邊，左邊是保留的那一部。」⚠️ **`merge_films()` 會把
+ * `viewing_record.film_id` 改指到勝方，不是「一列都不動」**——文件裡那句是舊設計的殘留，
+ * 而實作是對的：公開讀取路徑都要求 `merged_into_film_id is null`，紀錄若還指著敗方就會
+ * 整批從公開頁消失。真正的不變量是「一筆紀錄都不會不見」，由 `moved_records` 記下來。
  */
 const mergeOpen = ref(false)
 const { term: filmTerm, items: filmItems, loading: filmLoading, queried: filmQueried } = useFilmSearch()

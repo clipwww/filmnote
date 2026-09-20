@@ -19,10 +19,8 @@ const { save: saveDraft, take: takeDraft, clear: clearDraft } = useRecordDraft()
 const { term: filmTerm, items: filmItems, loading: filmLoading, queried: filmQueried } = useFilmSearch()
 
 /**
- * 「今天」是使用者所在地的今天。
- *
- * watched_on 存的是台北牆上時間的日期（schema 用 date + time 刻意避開時區），
- * 所以取本地日期即可——**不要**經過 toISOString()，那會轉成 UTC，
+ * 「今天」是使用者所在地的今天。`watched_on` 存的是台北牆上時間的日期（schema 用 date + time
+ * 刻意避開時區）⇒ 取本地日期即可，**不要**經過 `toISOString()`：那會轉成 UTC，
  * 台灣時間早上 8 點前記的紀錄會被記成前一天。
  */
 function todayLocal(): string {
@@ -64,11 +62,10 @@ onMounted(async () => {
   state.venueId = readLastVenue() ?? undefined // US-6：記住上次選的影城
 
   /**
-   * 從 `/app/films/new` 回來時把草稿接回去（`SCREENS §11`）。
-   * 「找不到片」這條路不該懲罰已經填完日期、影城、票價的人——而那正是
-   * 硬約束 (1) 最不能壞的一條路。take 是**取走**：接回來之後草稿就該消失，
-   * 否則下次乾淨地開新表單會冒出上次的殘骸。
-   */
+     * 從 `/app/films/new` 回來時把草稿接回去（`SCREENS §11`）。「找不到片」這條路不該懲罰
+     * 已經填完日期、影城、票價的人。take 是**取走**：接回來之後草稿就該消失，
+     * 否則下次乾淨地開新表單會冒出上次的殘骸。
+     */
   const draft = takeDraft()
   if (draft) {
     for (const [k, v] of Object.entries(draft)) {
@@ -180,10 +177,9 @@ async function onSubmit(event: FormSubmitEvent<RecordForm>) {
             {{ filmLabel(item) }}
           </template>
           <!--
-            空狀態一律用 filmQueried（items 對應的查詢字串）而不是 filmTerm，
-            否則在 debounce 與查詢往返的幾百毫秒內，會拿剛打的字配上一次的空結果，
-            使用者在字還沒查之前就先看到「找不到」。注音組字中間態由 reka-ui 的
-            ListboxFilter 擋掉，filmTerm 本來就收不到（見 useFilmSearch 檔頭）。
+            空狀態一律用 `filmQueried`（items 對應的查詢字串）而不是 `filmTerm`，否則在 debounce 與
+            查詢往返的幾百毫秒內，會拿剛打的字配上一次的空結果，使用者在字還沒查之前就先看到「找不到」。
+            注音組字中間態由 reka-ui 的 ListboxFilter 擋掉，`filmTerm` 本來就收不到。
           -->
           <template #empty>
             <div class="px-2 py-3 text-sm">
@@ -224,24 +220,19 @@ async function onSubmit(event: FormSubmitEvent<RecordForm>) {
           size="lg"
         >
           <!--
-            ★ 2026-09-07：這裡原本是 `{{ name }}` + `<span>· {{ city }}</span>`，
-              而 `venue.name` 有 3 列是空字串（政府 CSV 的事業名稱欄本來就空），
-              於是整列被算繪成只剩「· 台北市」——看起來像選單裡混進了行政區名。
-              **症狀在算繪層，病灶在資料層**：用 `where name ~ '(市|縣)$'` 去 DB
-              裡找是找不到的（實測 0 列）。見 BUILD_PLAN §7。
-
-            分隔改成開眼式括號串，不用中點（DESIGN_SYSTEM §49／§824：`A · B · C`
-            是 Letterboxd 的簽名）。形狀與 `app/utils/ticket.ts` 的 `venueSegment()`
-            一致：名稱 + **半形**空白 + 括號。
-
-            ⚠️ 名字與括號之間的半形空白寫在 span 自己的文字節點裡。Vue 的
-               whitespace: 'condense' 會把「含換行的純空白節點」整個刪掉，
-               靠版面縮排是留不住那個空格的。
-            ⚠️ 這裡**不做** `name || company_name` 的 fallback：`venue_option`
-               根本沒有 company_name 欄（要加就得改 view + 重跑 `pnpm db:types`），
-               而且同一個病灶有七個消費面，補在這裡只補得到一個、髒資料還留在
-               DB 裡繼續繁殖。上游 fallback 在 `src/gov/cinema.ts`，人工正名在
-               `supabase/migrations/0015_venue_blank_name.sql`。
+            ★ 原本是 `{{ name }}` + `<span>· {{ city }}</span>`，而 `venue.name` 有 3 列是空字串
+              ⇒ 整列被算繪成只剩「· 台北市」，看起來像選單裡混進了行政區名。
+              **症狀在算繪層、病灶在資料層**：用 `where name ~ '(市|縣)$'` 去 DB 找是找不到的（實測 0 列）。
+          -->
+          <!--
+            分隔改成開眼式括號串不用中點（`A · B · C` 是 Letterboxd 的簽名），形狀同 `venueSegment()`。
+            ⚠️ 名字與括號之間的半形空白寫在 span 自己的文字節點裡：whitespace 'condense' 會把「含換行的
+               純空白節點」整個刪掉，靠版面縮排留不住那個空格。
+          -->
+          <!--
+            ⚠️ 這裡**不做** `name || company_name` 的 fallback：`venue_option` 根本沒有那一欄，而且同一個
+               病灶有七個消費面，補在這裡只補得到一個、髒資料還留在 DB 裡繼續繁殖。
+               上游 fallback 在 `src/gov/cinema.ts`，人工正名在 `0015_venue_blank_name.sql`。
           -->
           <template #item-label="{ item }">
             <span>{{ (item as VenueOption).name }}</span>
