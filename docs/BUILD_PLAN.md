@@ -2496,6 +2496,10 @@ TMDB 上四話各自獨立、沒有連映版條目，而一筆 `viewing_record` 
 
 | 256 | **★ `herdr agent prompt` 的失敗回報不可靠：同一個非零結果對應「真的沒送到」與「送到了」兩種相反事實。** 它在對方 `working` 時會等回合結束才送，等不到就回 `timeout`／非零。2026-09-20 實測兩次：① 送「改變主意」時對方正跑一個 14 分鐘的回合，60 秒逾時 ⇒ **真的沒送出**（輸入框空的、transcript 無痕跡），而它還在照舊指令做事；② 送放行訊息時對方剛好在 idle 邊緣，指令回「失敗」但**其實送到了**。⇒ **一律驗效果不驗回聲**：看檔案有沒有變、行為有沒有改（①輪詢 `max-w-4xl` 是否回退、②輪詢註解行數是否繼續下降）。⚠️ 送「我改變主意了」這類訊息尤其怕——延遲一分鐘就是多做一分鐘白工 ⇒ 先輪詢到非 working 再送。⚠️ 另外 Claude Code 跑在 alternate screen，捲出去的列不進 herdr 的 scrollback，**`agent read` 搜不到自己送出的字不能當成沒送到** | 2026-09-20 實測（兩次，結論相反）|
 
+| 257 | **vitest 解析不到 `#supabase/server`**（Nuxt 模組建出來的別名），靜態與動態 import 都在 `vite:import-analysis` 失敗，訊息是 `Missing "#supabase/server" specifier in "filmnote" package`。⇒ 授權決策要測得動，就必須抽成**注入 probe 的純函式**，端點只負責接線。`server/utils/{admin-auth,import-auth}.ts` 都是這個形狀 | 2026-09-20 整理註解時補記 |
+| 258 | **踩雷 #13（`serverSupabaseUser()` 回的是 JWT claims，`user.id` 是 undefined 而 typecheck 不會說話）不只咬過一次**：`/app/import` 的匯入對帳、以及 `counter-notice.post.ts` 的 §90-9 回復通知流程都中過（2026-09-08 修）。⇒ 看到 `user.id` 一律當錯字 | 2026-09-08 實測，2026-09-20 補記 |
+| 259 | **踩雷 #118 的參數實測值**（副檔名黏在 router param 上）：`GET /api/og/u/clipwww.png` → `params = { "username.png": "clipwww.png" }`；`GET /api/og/u/clipwww` → `{ "username.png": "clipwww" }`。**鍵名恆為 `username.png`，值才隨網址變** ⇒ 一律從 `event.path` 取最後一段（`server/utils/og-route.ts`），不要依賴那個沒有文件保證的鍵名 | 2026-09-06 dev 實測，2026-09-20 補記 |
+
 ### 踩雷 #79 詳述：為什麼 #1 的理由涵蓋不到這個情況
 
 #1 說的是「`/u/**` 不可快取，因為 **RLS 依觀看者而異**，同一個 URL 會 render 出不同 HTML」。那個理由把問題定位在**資料層**：頁面自己去查了會因人而異的東西。照這個理由推論，只要一條路由的 SSR 只讀公開資料，它就可以安全地快取——`/film/**` 正是照這個推論被設計成 ISR 的。
