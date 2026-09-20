@@ -1,51 +1,22 @@
 <script setup lang="ts">
 /**
- * 「每年花費」（David 2026-09-06 裁決：`/u/` 要做金額相關的圖表）。
- *
- * ── ★★ 「時有時無」是要設計的東西，不是要迴避的東西 ──────────────────────
- * 這條 band 對三種觀看者長得不一樣，而三種都必須是對的：
- *
- * | 觀看者 | 看得到什麼 |
- * |---|---|
- * | 本人 | 全部。缺的幾筆是**自己沒記** |
- * | 路人 ＋ `show_cost = true` | 公開紀錄的票價。缺的幾筆是**沒公開** |
- * | 路人 ＋ `show_cost = false` | **一列都拿不到 ⇒ 整條 band 不存在** |
- *
- * 第三種**不是畫成 0、不是打馬賽克、不留佔位**（`SCREENS §12-3`／`§12-4`）：
- * 畫成 0 的話 `總花費 ÷ 場次` 就能反推個別票價，隱私是假的；留一個
- * 「NT$ ———」的佔位則等於公告「這裡有一個價格」，反而洩漏了「這個人有記帳」。
- * 判斷不由這個元件做，由 RLS 做——`useUserSpend()` 的 `canSeeMoney`
- * 數的是**讀得到幾列票價**。
- *
- * ── ★ `spend_is_partial` 一定要看得出來，而且是逐年的 ────────────────────
- * 「使用者看到一張『每年花費』而不知道那是部分資料，比沒有這張圖更糟
- * ——那會讓他以為朋友一年只花了那麼多。」（David）
- *
- * 所以做了兩層，缺一不可：
- * ① **數字本身**寫「NT$3,120 以上」。中文裡不需要圖例就讀得懂，而且它跟著
- *    數字走——使用者截圖只截到一列時，那個但書仍然在。
- * ② **長條的右緣是虛線開口**，形狀也在說「還沒完」。單靠色差不行
- *    （`DS §1.3`：墨階相鄰階的對比低於 WCAG 1.4.11 的 3:1），
- *    而單靠底下一行小字會被跳過。
- *
- * ⚠️ 旗標是**逐年**的。全期那個 `spend_is_partial` 只要任何一年有未公開票價
- * 就是 true，標上去會讓每一年都掛著同一個但書——那等於沒有標。
- *
- * ── 為什麼不用圖表庫 ──────────────────────────────────────────────────────
- * 同 `DistributionBars` 與 `YearStrip`（`SCREENS §9b.4`）：名稱一行、條一行的
- * HTML 排版，375px 自動換行、螢幕閱讀器讀得到數字、鍵盤可達、零 canvas。
- * 而且「虛線開口」用 CSS 一行就有，canvas 要自己畫。
+ * 「每年花費」。⚠️ 三種觀看者長得不一樣而三種都必須對：本人看全部、`show_cost` 的路人看
+ * 公開紀錄的票價、其他人**一列都拿不到 ⇒ 整條不存在**（`SCREENS §12-3/§12-4`：畫成 0 就能用
+ * 總額÷場次反推、留佔位等於公告「這裡有一個價格」）。判斷由 RLS 做不由這個元件做。
+ */
+/*
+ * ★ `spend_is_partial` 要看得出來而且是**逐年**的（全期那個只要任一年不完整就是 true，
+ *   標上去等於沒標）。兩層缺一不可：① 數字寫「NT$3,120 以上」——中文不需圖例，而且它跟著
+ *   數字走，截圖只截一列時但書仍在；② 長條右緣是虛線開口（單靠色差低於 WCAG 3:1，`DS §1.3`）。
+ */
+/*
+ * 不用圖表庫（同 `DistributionBars`／`YearStrip`，`SCREENS §9b.4`）：HTML 排版在 375px 自動
+ * 換行、螢幕閱讀器讀得到數字、鍵盤可達、零 canvas，而「虛線開口」CSS 一行就有。
  */
 /**
- * ── 每一列是三段：`{金額} / {場數} 場 / {票數} 張` ──────────────────────────
- * David 2026-09-07 逐字指定的格式（分隔用斜線，不是站內慣例的全形空白；
- * 理由與先例見 `spendCountsText()` 的檔頭）。
- *
- * ⚠️ **場數與張數永遠是完整的，不可以跟著 `isPartial` 變灰。**
- * 不完整的只有金額——`spend_is_partial` 說的是「有幾筆票價讀不到」，
- * 場次與張數一筆都沒少。把兩個完整的數字染上「不完整」的視覺訊號，
- * 是這張圖最不能犯的那類錯的另一個版本（把「沒公開」講成「沒花錢」的鏡像）。
- * 所以 `text-highlighted / text-muted` 的條件式**只掛在金額那一段**。
+ * 每一列三段 `{金額} / {場數} 場 / {票數} 張`（2026-09-07 指定，分隔用斜線不是全形空白）。
+ * ⚠️ **場數與張數永遠完整，不可以跟著 `isPartial` 變灰**——不完整的只有金額。把兩個完整的
+ * 數字染上「不完整」的訊號，是「把沒公開講成沒花錢」的鏡像。條件式只掛在金額那一段。
  */
 const props = defineProps<{
   byYear: { year: number, spend: number, records: number, tickets: number, isPartial: boolean }[]
@@ -53,27 +24,16 @@ const props = defineProps<{
   /** 缺的那幾筆對本人是「沒記」、對路人是「沒公開」，文案不可共用。 */
   isOwn: boolean
   /**
-   * 「只有你看得到這些數字。」那一句要不要出現。預設出現。
-   *
-   * 那句是為 `/u/` 寫的——那一頁的問題是「我分享出去別人看到什麼」，所以
-   * 需要一句話回答。`/app` 整頁都是本人私密的儀表板，同一句話在那裡沒有
-   * 回答任何問題，只是雜訊（而且在不 partial 時會憑空多長出一整個 `<p>`）。
-   * ⇒ `/app` 傳 `:privacy-note="false"`。
-   */
+     * 「只有你看得到這些數字。」要不要出現，預設出現。那句是為 `/u/` 寫的（回答「我分享出去
+     * 別人看到什麼」）；`/app` 整頁私密，同一句在那裡不回答任何問題 ⇒ 傳 `:privacy-note="false"`。
+     */
   privacyNote?: boolean
 }>()
 
 /**
- * ⚠️ **有紀錄的年份一列都不能少。**
- *
- * 第一版寫 `filter(y => y.spend > 0 || y.isPartial)`，理由是「金額 0 的年份
- * 只會是一排空條」。實測抓到那是錯的：David 的 **2015 年 2 場、票價都記了、
- * 合計 NT$0**（兌換票），那一列直接從圖上消失——**年表上有那一年、
- * 花費圖上沒有**，而畫面看起來完全正常。
- * `SCREENS §12.1` 講的就是這件事：**NT$0 不等於隱藏。**
- *
- * 現在只濾掉「那一年根本沒有紀錄」的列（`records === 0`）；
- * 金額為 0 的年份照列，數字寫「免費」（見 `spendText()`）。
+ * ⚠️ **有紀錄的年份一列都不能少。** 第一版寫 `filter(y => y.spend > 0 || y.isPartial)`，實測抓到
+ * 那是錯的：David **2015 年 2 場、票價都記了、合計 NT$0**（兌換票），那一列直接從圖上消失
+ * ——年表有那一年、花費圖沒有（`SCREENS §12.1`：NT$0 不等於隱藏）。只濾 `records === 0`。
  */
 const rows = computed(() => props.byYear.filter(y => y.records > 0))
 
@@ -81,10 +41,9 @@ const max = computed(() => Math.max(1, ...rows.value.map(y => y.spend)))
 const anyPartial = computed(() => rows.value.some(y => y.isPartial))
 
 /**
- * ⚠️ 顏色不可以在 JS 裡用 `useColorMode()` 挑再寫進 inline style（踩雷 #88／#168）。
- * 這個元件目前只在 `<ClientOnly>` 裡出現，所以現在不會炸——但 `DistributionBars`
- * 當初也是「只在 `ssr: false` 的 `/app` 上」，搬一次就炸了。
- * 亮暗兩組值都印成 custom property，由 Nuxt UI 註冊的 `dark:` variant 挑。
+ * ⚠️ 顏色不可在 JS 裡用 `useColorMode()` 挑再寫進 inline style（#88／#168）。現在只在
+ * `<ClientOnly>` 裡所以不會炸，但 `DistributionBars` 當初也是「只在 `ssr: false` 的 `/app`」，
+ * 搬一次就炸了。亮暗兩組都印成 custom property，由 `dark:` variant 挑。
  */
 const BAR_VARS = {
   '--spend-fill-l': CHART.light.heat[4],
@@ -94,16 +53,9 @@ const BAR_VARS = {
 }
 
 /**
- * 底下那一句小字。
- *
- * ⚠️ **在 JS 端組好整串再插值**，不要在模板裡把兩句話拆成相鄰的元素——
- * Vue 的 whitespace `condense` 在元素↔元素之間會把換行空白整個吃掉
- *（踩雷 #92），兩句話會黏成「…不是全部。只有你看得到這些數字。」以外的形狀。
- *
- * 三種結果：
- * - 有 partial ⇒ 先解釋「以上」是什麼意思（本人是「沒記」、路人是「沒公開」，
- *   文案不可共用），本人再視 `privacyNote` 接上隱私那一句。
- * - 沒有 partial ⇒ 只剩隱私那一句；`/app` 關掉之後整個 `<p>` 不存在。
+ * 底下那一句小字。⚠️ **在 JS 端組好整串再插值**，不要在模板裡拆成相鄰元素——Vue 的 whitespace
+ * `condense` 會把元素↔元素之間的換行空白整個吃掉（#92），兩句話會黏成別的形狀。
+ * 有 partial 時先解釋「以上」（本人是「沒記」、路人是「沒公開」，文案不可共用），再接隱私那句。
  */
 const footnote = computed<string | null>(() => {
   const privacy = props.isOwn && props.privacyNote !== false ? '只有你看得到這些數字。' : ''
@@ -116,10 +68,8 @@ const footnote = computed<string | null>(() => {
 })
 
 function width(spend: number): string {
-  // ⚠️ **真正的 0 要畫成 0**，不能吃到下面那個下限。實測 2015 年合計 NT$0
-  //    （兌換票）被 `Math.max(2, …)` 撐出一小段條，等於在暗示「有花錢」，
-  //    而右邊的字寫著「免費」——圖與字互相矛盾。意義由「免費」那兩個字負責，
-  //    條就該是空的。
+  // ⚠️ **真正的 0 要畫成 0**，不能吃到下面那個下限：實測 2015 年合計 NT$0（兌換票）被
+  //    `Math.max(2, …)` 撐出一小段條，等於暗示「有花錢」，而右邊的字寫著「免費」。
   if (spend === 0)
     return '0%'
   // 其餘至少 2%：金額很小的年份也要看得到自己有一條，否則會被讀成「那年沒去」
@@ -134,16 +84,13 @@ function width(spend: number): string {
         <div class="flex items-baseline justify-between gap-3">
           <span class="shrink-0 text-sm tabular-nums text-toned">{{ y.year }}</span>
           <!--
-            ★ 分隔的斜線是**兩個 span 之間的純文字節點**，`whitespace-nowrap` 只掛在
-              兩個原子片段上。這不是排版潔癖：**nowrap 內部的空白不產生斷行點**，
-              把「 / 」寫進後面那個 nowrap span 裡的話整個右側會變成一段不可斷的文字
-              ——外層是 flex、沒有 overflow-hidden ⇒ 375px 放不下時直接橫向溢出。
-            ★ 反過來也不行：斷點**絕不可落在數字與量詞之間**（「27」與「張」分家），
-              那是 `utils/ticket.ts` 檔頭記過的「影城 數位」那個病。所以
-              「NT$7,236 以上」與「21 場 / 27 張」各自 nowrap，換行只可能落在中間那個斜線。
-            ⚠️ 整串寫在同一行是刻意的：元素↔元素之間換行會被 Vue 的 whitespace
-              'condense' 整個吃掉（踩雷 #92），分隔空白必須待在文字節點裡。
-            ⚠️ 顏色的條件式只掛在金額那一段——場數與張數永遠是完整的（見 props 的檔頭）。
+            ★ 分隔的斜線是**兩個 span 之間的純文字節點**，`whitespace-nowrap` 只掛在兩個原子片段上：
+              **nowrap 內部的空白不產生斷行點** ⇒ 把「 / 」寫進 nowrap span 裡，375px 會直接橫向溢出。
+            ★ 反過來也不行——斷點絕不可落在數字與量詞之間（`utils/ticket.ts` 記過的「影城 數位」病）。
+          -->
+          <!--
+            ⚠️ 整串寫在同一行是刻意的：元素↔元素之間的換行會被 whitespace 'condense' 吃掉（#92）。
+            ⚠️ 顏色的條件式只掛在金額那一段——場數與張數永遠是完整的。
           -->
           <span class="min-w-0 text-right text-sm text-muted tabular-nums"><span class="whitespace-nowrap" :class="y.isPartial ? 'text-muted' : 'text-highlighted'">{{ spendText(y.spend, currency, y.isPartial) }}</span> / <span class="whitespace-nowrap">{{ spendCountsText(y.records, y.tickets) }}</span></span>
         </div>
@@ -163,11 +110,8 @@ function width(spend: number): string {
     </ul>
 
     <!--
-      逐年的記號負責「哪一年不完整」，這一句負責「不完整是什麼意思」。
-      兩者都要：只有記號的話沒有人知道「以上」在講什麼；只有這一句的話
-      使用者不知道是哪幾年。
-      ⚠️ 整串在 script 端組好（見 `footnote`），不要拆回相鄰的 `<template>`
-        ——踩雷 #92：元素↔元素之間的換行空白會被 condense 整個吃掉。
+      逐年的記號負責「哪一年不完整」，這一句負責「不完整是什麼意思」，兩者都要。
+      ⚠️ 整串在 script 端組好（見 `footnote`），不要拆回相鄰的 `<template>`（#92）。
     -->
     <p v-if="footnote" class="mt-3 text-sm text-muted">
       {{ footnote }}
