@@ -705,3 +705,158 @@ MAPPA／TITAN 升格、`/app` 改成海報牆、David 的七則裁決寫進規�
 ⚠️ 六個測試檔用 `readFileSync` 讀原始碼做斷言，而 `§7 #166` 記過「字串比對的斷言
 會被註解餵飽」⇒ 刪註解讓它變紅有兩種解釋，而且長得一樣。**變紅要停下來分辨，
 不可以改測試讓它綠。**（這一輪沒有撞到，但下一輪處理 `src/**` 時仍然可能。）
+
+---
+
+# 第五棒（2026-09-21）
+
+> 上面四棒仍然有效。這一棒**只做了派工前置就停**——David 在派工前叫停，理由是
+> 5 小時額度已經用掉快一半（**F6 那條「額度比 context 先到」被他自己用上了**）。
+> ⇒ **兩條線的簡報寫好了、驗過了、進版控了，但沒有任何子 session 被啟動。**
+
+## G1. 這一輪要派的兩條線（簡報都在 repo 裡，不在暫存區）
+
+David 2026-09-21 給了六條需求：TMDB 直接匯入 ＋ 個人紀錄管理五項改造。
+
+| 線 | 號段 | 簡報 | 範圍 |
+|---|---|---|---|
+| **tmdb-import** | `#310–#329` | `docs/handoff/tmdb-import.md` | TMDB 直接匯入新上映作品 |
+| **records-ui** | `#330–#349` | `docs/handoff/records-ui.md` | `/app/records` 六項（Drawer 編輯、改作品、關鍵字搜尋、年份篩選＋頁碼分頁、取消風琴）|
+
+號段配發在 `836a378`。⚠️ **`records` 的 `#185–#204` 已收線，所以新線叫 `records-ui`
+並拿新號段**——§7 的規則是寧可跳號不要混用。
+
+**為什麼是兩條線不是六條**：五項 records 改造全部落在同一組檔案
+（`index.vue`／`new.vue`／`edit.vue`／`useRecord*`），並行只會互相覆寫。
+**為什麼不開第三條**：F6 那條「開第三條線之前先看兩條線的剩餘額度」。
+
+### 足跡交集是空集合（查過）
+兩條線在「會被寫入的檔」上**沒有任何共同檔案**。`package.json` 這個唯一的共用寫入
+已經由主 session 在派工前處理掉了（`3bb2231` 先把 `tmdb:new-releases` 加好，
+從此對兩條線唯讀）。`.omc/project-memory.json` 也先提交了（`415f1a1`），
+讓「commit 前 `git status --short` 出現足跡外的檔就停下來」那條規則有乾淨的基準。
+
+## G2. ★★ §8.3 的裁決框漏了一半，而漏的那一半比寫出來的那一半更致命
+
+裁決框（`§8.3` 第 1 則）要求 TMDB 匯入的列 `title_zh_source='tmdb'`，
+並要在 `seed_films()` 的 UPDATE 分支加一條「政府片名進來時翻回 gov」。
+
+**實查之後有三件它沒講的事：**
+
+1. **`seed_films()` 的 INSERT 欄位清單裡根本沒有 `title_zh_source`**
+   （`0001_init.sql:604-605`）⇒ 它落回欄位預設值 **`'gov'`**（`:252`）。
+   照現狀丟 `source='tmdb'` 進去，結果是 `origin='tmdb'` 但 `title_zh_source='gov'`
+   ——**與裁決相反**，而且更糟：群眾翻譯的片名從此被標記成「官方核准的」，
+   UPDATE 分支那條 `case when title_zh_source = 'gov'` 變成**一直放行**。
+   正確寫法的先例在 `scripts/import-mylog.ts:222-227`。
+2. **那個 `case` 是 source-blind 的**：它檢查**那一列**的 `title_zh_source`，
+   **不是進來的 `rec` 的來源**。INSERT 分支讀了 `rec->>'source'`，UPDATE 分支沒讀。
+   ⇒ TMDB 資料走 UPDATE 時會把官方片名蓋掉，而 `title_zh_source` 還留著 `'gov'`。
+   **裁決框只寫了「gov 進來翻回 gov」，沒寫「tmdb 進來不可以碰 gov 的片名」。**
+3. **`review_state='approved'` 不是選擇而是唯一合法值**：表級 CHECK
+   `film_ugc_review`（`0001_init.sql:274`）是 `check (origin = 'ugc' or review_state = 'approved')`
+   ⇒ 裁決的這一半**早就成立**，不用做。
+
+⚠️ **`origin='tmdb'` 分不出「TMDB 直接匯入」與「政府片配對成功」**：
+`src/pipeline/consolidate.ts:82` 寫 `source: outcome.matched ? 'tmdb' : 'gov'`
+⇒ 任何「只對 TMDB 直接匯入的片生效」的條件**都不能只看 `origin`**。
+
+⚠️ **新 migration 不可以用 `create or replace` 抄函式體**：`0010:41-45` 記著
+`0009` 就是這樣**靜默回退了 `0006` 的修正**，而靜態檢查全綠。
+必須沿用 `pg_get_functiondef` + `replace` + `execute`。
+而 `replace` 沒命中時 PostgreSQL **不報錯**，它安靜地把原樣寫回去
+⇒ migration 成功、改動沒發生 ⇒ **要把命中次數印出來當斷言**（`#254` 那一條）。
+
+## G3. 我犯的錯
+
+### G3.1 我的冒煙斷言用 `origin` 當條件，會漏掉大部分它宣稱要守的列
+第一版寫「匯入前後 `origin='gov' and title_zh_source='gov'` 的列，`title_zh` 零差異」。
+但 G2 那條說明了政府片配對成功之後 `origin` 就已經是 `'tmdb'`
+⇒ 加上 `origin` 條件會把**大部分要守的列排除掉**，而它看起來完全合理。
+**這就是 F5.4 的同一個形狀**（斷言量錯了東西），而且是我在寫「怎麼避免 F5.4」的
+同一份簡報裡犯的。⇒ 條件只能看 `title_zh_source`。
+
+### G3.2 我斷言一條既有測試「抓不到」，而它其實抓得到
+我寫「`0012:321` 的冒煙測試抓不到重跑 seed 的洗掉——它是在修正的當下斷言」。
+**錯的。** `0012:321-346` **會真的重跑 `seed_films()`**，admin 片名被洗掉就 raise，
+還附了一組對照組（`:337-346`）。
+⇒ 那組測試正好就是這次改動最好的雙向自測。
+**教訓跟 `#260` 同族：我在宣稱一個檢查沒有鑑別力之前，沒有先讀它。**
+
+### G3.3 三處 F5.1——我自己劃的「不可碰目錄」蓋住了我自己派的工
+① `app/**` 整個劃掉，但卡點 #4 把「在後台加觸發入口」列成開放選項，
+而既有面板就在 `app/pages/admin/-TmdbMaintenance.vue`；
+② 同一個封鎖蓋住 `app/types/database.types.ts`；
+③ `BUILD_PLAN.md` 寫「只讀」，同一節又要求「回去更正 §8.3 的狀態」。
+⇒ 全部改成**明文條件例外**，並加一句「**deny 優先於 glob**」。
+⚠️ **F5.1 的教訓我讀了、寫進簡報了、然後又犯了三次。**
+光知道「寫不可碰目錄前先 grep」不夠——**要真的把兩張清單並排對撞一次**，
+那是一個動作，不是一個提醒。
+
+### G3.4 我把 brief-review 跟 recon 並行發，結果它審的是舊一版
+顧問建議等 recon 落地再審。我為了省 wall-clock 並行發
+⇒ recon 找到的那些我已經自己修掉了，而 review 還在審修之前的版本。
+**並行省下的時間，被「要逐條分辨哪些已經修掉」吃回去。**
+
+### G3.5 agent 數量我沒有設上限，而且回報給 David 的數字是錯的
+recon 6 個（769k tokens、31 分）。brief-review 我告訴 David「6 lens ＋ 8 覆核 = 14」，
+但覆核數是**去重後的發現數**、我沒設 cap ⇒ 實際去重成 13 條 ⇒ 19 個 agent。
+**總共 25 個，我報 20。**
+⇒ 我的 workflow 腳本自己就違反了 `workflow-authoring` 的「no silent caps」。
+**recon 那 6 個明確值得**（G2 三條與 G3.1／G3.2 全是它找到的）；
+**review 那 19 個偏多**——兩份文件配 6 個 lens 太寬，砍成 3 個
+（自相矛盾／需求覆蓋／事實查核）就夠。
+
+## G4. 派工程序（還沒執行，額度停在這裡）
+
+`herdr` 0.8.2、`HERDR_ENV=1`。主 session 在 `w4:p7`，已經 split 出兩個空 shell：
+
+| pane | 給誰 | 幾何 |
+|---|---|---|
+| `w4:pG` | tmdb-import | 122×30 |
+| `w4:pH` | records-ui | 122×30 |
+
+⚠️ **pane id 會變**（關掉就不回收），下一棒先 `herdr pane list --workspace "$HERDR_WORKSPACE_ID"`
+確認，不要照抄上面那兩個。建立方式是
+`herdr pane split --current --direction right --cwd "$PWD" --no-focus`
+然後把右邊那個再 `--direction down`（245 寬的 pane 連切兩次右會變成 61 寬，太窄）。
+
+啟動與派工（**prompt 只送一行，內容全部走檔案**）：
+```bash
+herdr agent start tmdb-import --kind claude --pane <id>
+herdr agent prompt tmdb-import "讀 docs/handoff/tmdb-import.md，然後開始。" --wait --timeout 120000
+```
+
+⚠️ **驗效果不驗回聲**（`#256`）：`herdr agent prompt` 的非零回報對應
+「真的沒送到」與「其實送到了」**兩種相反事實**。送完之後看**檔案有沒有變**，
+不要看指令回什麼、也不要用 `agent read` 搜自己送出的字
+——Claude Code 跑在 alternate screen，捲出去的列不進 scrollback。
+⚠️ 送「我改變主意了」這類訊息尤其怕：先輪詢到非 `working` 再送。
+
+## G5. 給下一棒的
+
+### 已完成
+兩份簡報（`docs/handoff/{tmdb-import,records-ui}.md`）寫好、對抗審過、進版控。
+號段配發、`package.json` 的 script 先加好、`.omc` 快取先提交、panes 備好。
+
+### 沒開工
+**兩條線都沒啟動。** 簡報是完整的，下一棒可以直接照 G4 派工。
+
+### ⚠️ 仍然欠 David（這一輪新增三件，都寫在簡報 §8）
+1. **TMDB 這一輪要不要真的把 migration 套上線、真的跑一次匯入。**
+   正式站與本機是同一顆 Supabase ⇒ migration 就是直接動線上資料（F1）。
+   簡報的硬停點是「建好 ＋ dry-run 數字 ⇒ 停 ⇒ 等放行」。
+2. **一次匯入幾部。** dry-run 說候選新增 81 部（`--pages 3`），片庫會多 3%，
+   而且其中有「沒在台灣上映過」的作品——那是 David 已知並接受的代價，
+   但「一次放多少」他沒說。
+3. **`title_zh_source='ugc'` 的列要不要也被 gov 翻轉。** §8.3 只裁決了 `'tmdb'`。
+
+### 跨五棒仍然欠的（第四棒 F6 那兩件，狀態不變）
+法遵證據保留期限、三振者能否重新註冊。**2026-09-20 擱置，那是擱置不是解決。**
+
+### ⚠️ 額度：這一棒是「前置就吃掉一半」的實例
+25 個 agent 的偵查與審查（其中 recon 6 個是值得的）＋ 主 session 自己的讀檔，
+在**還沒派出任何一條線**之前就用掉 5 小時窗口的一半。
+⇒ **偵查與審查的成本要算進派工預算**，不是派工之後才開始計。
+第四棒說「額度比 context 先到」，這一棒的版本是：
+**光是把簡報寫對，就可能比執行還貴。**
