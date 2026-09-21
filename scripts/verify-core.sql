@@ -223,6 +223,136 @@ begin
     end if;
   end if;
 
+  -- C2b–C2f〔0019〕同一條價值主張，**另一條寫入路徑**。
+  --    C2 守的是 apply_tmdb_snapshot()（快取刷新）那一側；但 §8.3 的「TMDB 直接匯入
+  --    新片」走的是 seed_films()，而 C2 的取樣條件 `title_zh_source = 'gov'`
+  --    **選不到新匯入的片** ⇒ 那條路徑原本沒有守門員。
+  --    斷言一律寫成**全表資料述詞**（「不存在符合 X 的列」），不是 David-scoped 計數
+  --    ——後者在別人有合法資料時會變成假紅燈（§7 F5.2）。
+  --
+  -- ⚠️ 0019 未套用時整段略過（notice，**不計入 fails**）：這些驗的是 0019 的行為，
+  --    對著未套用的 seed_films() 它們本來就該紅，而那種紅燈會擋住另一條線的 verify:all。
+  declare
+    v_patched boolean; v_gov uuid; v_tid integer; v_before text;
+    v_new uuid; v_dup uuid; v_n_before integer; v_n_after integer; v_c integer;
+  begin
+    select coalesce(pg_get_functiondef(p.oid) like '%titleZhSource%', false) into v_patched
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public' and p.proname = 'seed_films';
+
+    if not coalesce(v_patched, false) then
+      raise notice 'C2b–C2f 略過：0019 未套用（seed_films 還不認得 titleZhSource）';
+    else
+      -- 近似 normalizeTitle。⚠️ 只折疊大小寫與標點，**吃不到版本標註與 NFKC 全形折疊**
+      -- ⇒ 它抓得到的碰撞是真的，抓不到的那一半由 `classifyReleases()` 的 ② 與
+      --   `tests/tmdb-classify.test.ts` 守。兩邊守的東西不同，不要當成同一道（§7 #233）。
+      execute $fn$create or replace function pg_temp.zz_c2_norm(t text) returns text
+        language sql immutable as $body$
+          select regexp_replace(lower(coalesce(t,'')),
+            '[[:space:]\-–—_:：,，.。!！?？''"“”‘’()（）\[\]【】《》~～、/|]+', '', 'g')
+        $body$
+      $fn$;
+
+      create temp table zz_c2_before on commit drop as
+        select id, title_zh, title_zh_source::text as src from public.film;
+      select count(*) into v_n_before from public.film
+       where origin = 'gov' and tmdb_id is null and merged_into_film_id is null;
+
+      -- 取一部**真實的**政府片名作品當樣本，餵它一個 TMDB 送來的片名。
+      select f.id, f.tmdb_id into v_gov from public.film f
+       where f.title_zh_source = 'gov' and f.tmdb_id is not null
+         and f.title_zh <> '' and f.merged_into_film_id is null
+       order by f.id limit 1;
+
+      if v_gov is null then
+        fails := fails || 'C2b 無法驗證：找不到 title_zh_source=gov 且有 tmdb_id 的樣本'::text;
+      else
+        select tmdb_id, title_zh into v_tid, v_before from public.film where id = v_gov;
+
+        -- ── 模擬一次 TMDB 直接匯入：一筆打在既有的政府列上、一筆是全新的 ──
+        perform public.seed_films(jsonb_build_array(
+          jsonb_build_object('id', 'tmdb:' || v_tid, 'tmdbId', v_tid,
+            'titleZh', '__TMDB想蓋掉的名字__', 'titleZhSource', 'tmdb', 'source', 'tmdb'),
+          jsonb_build_object('id', 'tmdb:999900021', 'tmdbId', 999900021,
+            'titleZh', 'zzC2新匯入作品', 'titleZhSource', 'tmdb', 'source', 'tmdb')));
+
+        -- C2b 全表述詞：title_zh_source='gov' 的列，title_zh 零差異。
+        --     ⚠️ 條件只看 title_zh_source，**不可以加 origin='gov'**——政府片配對成功後
+        --     origin 就已經是 'tmdb'（活體 2,480 列），加了會漏掉絕大部分要守的列。
+        select count(*) into v_c
+          from zz_c2_before b join public.film f on f.id = b.id
+         where b.src = 'gov' and f.title_zh is distinct from b.title_zh;
+        if v_c <> 0 then
+          fails := fails || format('C2b ★ TMDB 匯入改動了 %s 列 title_zh_source=gov 的片名'
+            '（SPEC 第一條價值主張，而且不會有任何錯誤訊息）', v_c);
+        end if;
+
+        -- C2c 全表述詞：不存在 title_zh_source='admin' 卻被這次匯入改過 title_zh 的列。
+        --     0012 的人工修正一旦被洗掉，下一個維護者不會把兩件事連起來。
+        select count(*) into v_c
+          from zz_c2_before b join public.film f on f.id = b.id
+         where b.src = 'admin' and f.title_zh is distinct from b.title_zh;
+        if v_c <> 0 then
+          fails := fails || format('C2c ★ TMDB 匯入洗掉了 %s 列 admin 人工修正的片名', v_c);
+        end if;
+
+        -- C2d 新匯入的列必須是 title_zh_source='tmdb'（不是落回預設值 'gov'）。
+        --     落回 'gov' 的話，群眾翻譯的片名從此被標記成官方核准的（§8.3 的裁決反了）。
+        select id into v_new from public.film where tmdb_id = 999900021;
+        if v_new is null then
+          fails := fails || 'C2d ★ 新匯入的作品根本沒有被建出來'::text;
+        elsif (select title_zh_source::text from public.film where id = v_new) <> 'tmdb'
+           or (select origin::text from public.film where id = v_new) <> 'tmdb' then
+          fails := fails || format('C2d ★ 新匯入的列是 origin=%s／title_zh_source=%s，不是 tmdb/tmdb',
+            (select origin::text from public.film where id = v_new),
+            (select title_zh_source::text from public.film where id = v_new));
+        end if;
+
+        -- C2e 匯入不得讓「origin='gov' 且沒有 tmdb_id」那一群變多，且全片庫不得出現
+        --     「一部有 tmdb_id、一部沒有，片名卻一樣」的配對——那就是 §2.2 的重複作品。
+        select count(*) into v_n_after from public.film
+         where origin = 'gov' and tmdb_id is null and merged_into_film_id is null;
+        if v_n_after <> v_n_before then
+          fails := fails || format('C2e 匯入後 origin=gov 且無 tmdb_id 的列數 %s → %s',
+            v_n_before, v_n_after);
+        end if;
+        select count(*) into v_c
+          from public.film a join public.film b on b.id <> a.id
+         where a.merged_into_film_id is null and b.merged_into_film_id is null
+           and a.tmdb_id is null and b.tmdb_id is not null
+           and pg_temp.zz_c2_norm(a.title_zh) <> ''
+           and pg_temp.zz_c2_norm(a.title_zh) = pg_temp.zz_c2_norm(b.title_zh);
+        if v_c <> 0 then
+          fails := fails || format('C2e ★ 片庫出現 %s 組重複作品（同片名，一部有 tmdb_id 一部沒有）', v_c);
+        end if;
+
+        -- C2f〔反向對照 ①〕同一列、同一支函式，**政府**片名必須照樣寫得進去。
+        --     少了這一組，C2b 在「整條更新路徑被關掉」時也是綠的（那正是 F5.4 那一類）。
+        perform public.seed_films(jsonb_build_array(jsonb_build_object(
+          'id', 'tmdb:' || v_tid, 'tmdbId', v_tid, 'titleZh', '__政府改名了__')));
+        if (select title_zh from public.film where id = v_gov) <> '__政府改名了__' then
+          fails := fails || format('C2f ★ 反向對照——政府片名竟然寫不進去（實得 %s），'
+            'C2b 的綠燈是假的', (select title_zh from public.film where id = v_gov));
+        end if;
+
+        -- C2f〔反向對照 ②〕故意造一組重複作品，C2e 的那條述詞必須抓得到。
+        --     沒有這一步，C2e 在「查詢寫錯、永遠 0 列」時也是綠的（比照 A2b 的做法）。
+        insert into public.film (title_zh, origin, review_state, visibility)
+        values ('zzC2新匯入作品', 'gov', 'approved', 'public') returning id into v_dup;
+        select count(*) into v_c
+          from public.film a join public.film b on b.id <> a.id
+         where a.merged_into_film_id is null and b.merged_into_film_id is null
+           and a.tmdb_id is null and b.tmdb_id is not null
+           and pg_temp.zz_c2_norm(a.title_zh) <> ''
+           and pg_temp.zz_c2_norm(a.title_zh) = pg_temp.zz_c2_norm(b.title_zh);
+        if v_c = 0 then
+          fails := fails || 'C2e/f ★ 故意造出來的重複作品沒有被抓到——C2e 那條述詞沒有鑑別力'::text;
+        end if;
+        delete from public.film where id = v_dup;
+      end if;
+    end if;
+  end;
+
   -- ===========================================================================
   -- D. 資料完整性
   -- ===========================================================================
