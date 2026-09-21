@@ -35,7 +35,13 @@
   ✅ 主 session 用全 repo grep 覆核過（`grep -rn 'records/' app server tests scripts`）：
   **`index.vue` 以外沒有任何地方連向 `edit`**，所以「兩處」是查過的、不是抽樣的。
 
-⚠️ **但 `/app/records/new` 有六處外部入口**，不要把它跟 edit 搞混：
+- `edit.vue` 目前**沒有**風琴，欄位本來就直接顯示。但它**漏了「版本」欄位**：
+  `state.formatCode` 有載入、`toRecordRow` 有送出，**template 裡沒有對應的 `USelectMenu`**
+  ⇒ 版本現在改不了（值會原樣存回，不會被清掉）。
+  ⇒ 重建表單時**順手補上**。**那是補回一個本來就該在的欄位，不是第七條需求**，
+  不要因此擴大範圍。
+
+⚠️ **`/app/records/new` 另外有六處外部入口**，不要把它跟 edit 搞混：
 `AppNav.vue:95`、`app/pages/app/import.vue:828`、`app/pages/app/films/new.vue:77` 與 `:162`、
 `app/pages/app/index.vue:123` 與 `:148`。
 其中 `films/new.vue:162` 的 `navigateTo('/app/records/new')` 是
@@ -43,9 +49,6 @@
 （草稿在 `useRecordDraft`，理由寫在 `useRecordDraft.ts:4` 與 `films/new.vue:157`）。
 ⇒ **這就是為什麼 `new.vue` 這一輪只改風琴那一處**（§1 第 5 條）：
 把它改成 Drawer 會打斷那條交棒，而那不在 David 的六條裡。
-- `edit.vue` 目前**沒有**風琴，欄位本來就直接顯示。但它**漏了「版本」欄位**：
-  `state.formatCode` 有載入、`toRecordRow` 有送出，**template 裡沒有對應的 `USelectMenu`**
-  ⇒ 版本現在改不了（值會原樣存回，不會被清掉）。改寫成 Drawer 時把它補上。
 
 ### 2.2 年份現在是 tab，「全部」已經存在，只是不是預設
 - `index.vue:36` `years`、`:37` `selectedYear = ref<string|null>(null)`、
@@ -201,7 +204,32 @@ select pg_get_functiondef(p.oid) from pg_proc p
 ⚠️ 驗備註與長文要**先切到 2024**（長備註 8 顆都在那年，2026 只有 8 筆且一顆都沒有）
 ——否則會得到「做了但沒生效」的假結論。
 
-### 5.6 ★ 每一支你寫的檢查器，先餵已知答案雙向自測（踩雷 #254／#260）
+### 5.6 ★★ 先讀 `BUILD_PLAN §7.6`「檢查機制本身會失效」整節（#230–#244）
+那一節收的就是「斷言存在、名字也對，但**它守的不是它宣稱要守的東西**」那一類，
+而**你這一輪要寫的每一條驗收都在它的射程內**。不要只讀我下面挑的幾條，整節讀。
+
+與你直接相關的五條：
+
+- **#242** `document.elementFromPoint()` 對**視窗外**的座標回 `null`，而 `null` 會讓
+  「這個點上是不是我要的元素」一律判成 false ⇒ **「被別的東西蓋住」與「根本不在視窗裡」
+  回傳同一個答案。** 這一條就是量 `/app/records` 備註鈕時撞到的（鈕在 y=1014、視窗高 900）。
+  ⇒ 你要逐一點過頁碼、搜尋框、年份選單、Drawer（§5.5）**一定會用到這個探針**，
+  先把元素捲進視窗再量，並且分開回報「不可點」與「不在視窗裡」。
+- **#238** `watch` 收合狀態時不可以看 `items.length`——**全期 15 家與 2016 年 7 家都是 6 列**，
+  長度一模一樣。⇒ 你改分頁時若用長度變化當訊號，會在「筆數剛好相同」的篩選組合上靜默失效。
+- **#234** 只驗長度的斷言擋不住「累加漏了」——JS 陣列會自己長。⇒ 頁碼分頁的斷言不要只驗
+  `visible.length === PAGE`，要驗**內容**（第 2 頁的第一筆是不是全集的第 25 筆）。
+- **#239** 時區相關的斷言，**在台灣的機器上測不出時區錯誤**。實測把 `timeZone: 'Asia/Taipei'`
+  拿掉，`TZ=Asia/Taipei` 下 14 條測試全綠、`TZ=America/New_York` 下才紅 2 條。
+  ⇒ 搜尋若碰到日期字串，斷言要跑 `TZ=America/New_York` 一次。
+- **#236** 有四種 UI 量測**不開瀏覽器也做得到**（`@vue/compiler-dom` + `@vue/server-renderer`
+  算出使用者看到的字面字串等）。⚠️ 那一條的前提寫得很清楚：**多條線共用一顆 Chrome，
+  誰開誰污染** ⇒ 能靜態量的就靜態量，把 Chrome 留給真的只能點的那些。
+
+⚠️ **另外：`grep -r` 在這個 shell 看不到 `.env`**（踩雷 #240，實測 `grep -rn` 回 4 個檔、
+`.env` 不在裡面）⇒ 任何拿 `grep -r` 證明 `.env` 狀態的斷言都是假的。
+
+### 5.7 ★ 每一支你寫的檢查器，先餵已知答案雙向自測（踩雷 #254／#260）
 未改動 → 綠、故意改一行 → 紅。兩個方向都要跑過才可以引用它的輸出。
 ⚠️ `#254`：macOS 的 **BSD `sed` 不支援 `\b`**，上一輪「故意弄壞」根本沒改到檔、測試照樣綠，
 差一點被讀成「這條斷言是假的」。每個弄壞法都要附一個「改完之後確實變成什麼樣」的數字。
@@ -221,7 +249,7 @@ app/composables/useRecordOptions.ts
 app/schemas/record.ts                     ← 若改作品需要新欄位
 app/components/**                         ← 要抽 Drawer 內容成元件的話
 docs/handoff/records-ui.md                ← 這份，收工時你自己更新
-docs/BUILD_PLAN.md                        ← 只准動 §7 你的 #330–#349 那幾條
+docs/BUILD_PLAN.md                        ← 只讀。新踩雷交給主 session 合併（§7 第 2 點）
 ```
 
 ### 6.2 要讀、但**不要寫**
@@ -262,7 +290,10 @@ docs/BUILD_PLAN.md                        ← 只准動 §7 你的 #330–#349 �
 
 ### 收工前
 1. 把「量過的數字」與「改了 X 會壞 Y」寫進 `docs/handoff/records-ui.md`。
-2. 新踩雷寫進 `BUILD_PLAN §7`，**用你自己的 #330–#349**。
+2. ⚠️ **新踩雷先寫在這份交接的最後一節，用你的 #330–#349 編號，但不要自己動
+   `docs/BUILD_PLAN.md`。** 兩條線同時往 §7 的同一張表尾端加列**一定會 git 衝突**
+   （§7.6 的表尾是兩邊都要加的地方）。⇒ **由主 session 合併**。
+   號段是你的、編號由你決定，只是**落點由主 session 放**。
 3. `records.md §2`／`§5` 裡被你推翻或做掉的條目，**回去更正那一份**
    （上一棒就是這樣處理 `coverWithinKnown` 那句錯的）。
 
