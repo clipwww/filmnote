@@ -600,10 +600,22 @@ async function confirmRemove() {
          一半（§3 的硬條件正是「375 要填得完、下拉打開時不被鍵盤蓋掉」），側滑是滿版高度、
          內容自己捲，沒有這個互動。`/u/` 那個 `UDrawer` 是唯讀清單，不是同一種東西。
     -->
+    <!--
+      ⚠️ 寬度：主題預設是 `max-w-md`（448px），David 2026-09-21 要求「寬一點」⇒ 改成
+         `max-w-2xl`（672px）。算得出來的理由：body 是 `sm:p-6`（左右各 24）、表單裡兩組
+         `grid-cols-2` 是 `gap-4`（16）⇒ 每一欄 448 時只有 (448−48−16)/2 = **192px**，
+         而 `<input type="date">` 連日期選擇器圖示的固有寬度就逼近這個數字（會被擠到截斷）；
+         672 時是 (672−48−16)/2 = **304px**，兩欄才真的放得下。
+      ⚠️ **只覆寫 `max-w-*`，不要碰 `w-full`**：`side=right` + `inset=false` 的主題組出來的是
+         `w-full inset-y-0 right-0` ＋ `max-w-md`（查過 `ui.DNq7CNkE.mjs` 的 compoundVariants）
+         ⇒ 375 下是 `w-full` 在決定寬度、`max-w` 根本不生效。動 `w-full` 才會破壞
+         「375 維持滿版」那條硬條件；只換上限不會。
+    -->
     <USlideover
       :open="!!editingRecord"
       title="編輯紀錄"
       :description="editingRecord ? watchedAtText(editingRecord.watchedOn, editingRecord.watchedTime) : ''"
+      :ui="{ content: 'max-w-2xl' }"
       @update:open="(v: boolean) => { if (!v) closeEditor() }"
     >
       <template #body>

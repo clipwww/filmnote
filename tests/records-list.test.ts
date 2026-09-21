@@ -173,6 +173,15 @@ describe('/app/records 編輯抽屜', () => {
     expect(src).toMatch(/typeof route\.query\.edit === 'string'/)
   })
 
+  it('★ 抽屜寬度覆寫的是 max-w，不是 w-full（375 滿版的硬條件）', () => {
+    // 主題 side=right/inset=false 組出來的是 `w-full inset-y-0 right-0` ＋ `max-w-md`
+    // ⇒ 375 下是 `w-full` 在決定寬度。動到 w-full 才會破壞「375 維持滿版」；只換上限不會。
+    expect(src).toMatch(/:ui="\{ content: 'max-w-2xl' \}"/)
+    // 抽屜的 :ui 裡不可以出現 w-\d 或 w-full 之類的寬度指定
+    const ui = /<USlideover[\s\S]*?>/.exec(src)?.[0] ?? ''
+    expect(ui).not.toMatch(/w-full|w-\[/)
+  })
+
   it('舊的 `/edit` 路徑還活著，而且是 replace 轉址', () => {
     // 深連結不要死；replace 是為了不讓「上一頁」在轉址頁與抽屜之間彈來彈去。
     expect(redirect).toMatch(/path:\s*'\/app\/records'/)
