@@ -858,6 +858,30 @@ herdr agent prompt tmdb-import "讀 docs/handoff/tmdb-import.md，然後開始�
 ——Claude Code 跑在 alternate screen，捲出去的列不進 scrollback。
 ⚠️ 送「我改變主意了」這類訊息尤其怕：先輪詢到非 `working` 再送。
 
+### G4.1 ★ `herdr agent prompt --wait` 的第三種說謊法：JSON 報錯、exit code 報成功
+2026-09-21 實測，`#256` 那一族的新變體。派 `tmdb-import` 時用了
+`--wait --timeout 150000`，結果：
+
+| 訊號 | 說的是 |
+|---|---|
+| stdout 的 JSON | `{"error":{"code":"timeout","message":"timed out waiting for agent status"}}` |
+| exit code | **0**（成功）|
+| 實際狀態 | `working`，而且**訊息早就送到了** |
+
+⇒ **exit code 與 payload 互相矛盾，而兩個都不是真相。**
+`herdr` 的 CLI 慣例是「server 錯誤走 stderr JSON ＋ exit 1」，這一次沒有照那個慣例。
+
+**可靠的判準只有一個：`herdr agent list` 看 `agent_status` 與 `state_change_seq` 有沒有動，
+以及終端標題有沒有變成從你的 prompt 長出來的東西**
+（這次兩條線分別變成「TMDB import 功能」與「Records UI 四項改進」⇒ 它們確實讀到了）。
+⇒ 派工**不要用 `--wait`**：它會在 Bash 工具的 120 秒逾時前把整個呼叫卡住，
+而它回什麼都不能信。**送出去，然後自己輪詢狀態與檔案。**
+
+⚠️ 另一個實測數字：子 session 的狀態列會印額度
+（`⏱ 69% 5h→3h22m 📅 95% 7d→1h22m`）⇒ **`herdr agent read <name> --source visible`
+是主 session 唯一看得到真實剩餘額度的方法**，比問使用者準。
+`--source visible` 在 alternate screen 下是有效的（`recent` 才會漏，見 `#256` 末段）。
+
 ## G5. 給下一棒的
 
 ### 已完成
