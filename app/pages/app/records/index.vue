@@ -3,6 +3,7 @@ import type { TableColumn } from '@nuxt/ui'
 import type { MyRecord } from '~/composables/useMyRecords'
 import type { Database } from '~/types/database.types'
 import { watchedAtText } from '~/utils/format-datetime'
+import { matchesQuery, pageSlice } from '~/utils/record-list'
 import { costText, venueSegment } from '~/utils/ticket'
 
 /**
@@ -21,8 +22,15 @@ import { costText, venueSegment } from '~/utils/ticket'
  * 算術），那是明知的取捨——不要因為備註欄變窄就以為那個問題被處理過了。
  */
 /*
- * 篩選維度從真實資料長出來：年份／影城／版本／有無票價。前三個的選項取自**當年**的紀錄
- * （取全部會出現一堆選了就 0 筆的選項）；第四個是因為 174 筆裡有 5 筆沒有金額。
+ * 2026-09-21 年份從 tab 列變成篩選器之一、**預設「所有年份」**（David 的原話：「年份變成
+ * 篩選選項之一，預設全部」）。⚠️ 連帶代價：影城／版本的選項改由**全部年份**長出來——
+ * 實測（`db:sql` 查活體）全期 174 筆有 15 家影城、6 種版本，舊預設的 2026 年 8 筆只有
+ * 3 家、2 種 ⇒ 兩個選單第一次打開會從 4／3 項變成 16／7 項（都含「所有…」那一項）。
+ * 那是這一改的已知代價、不是 bug；要不要為此限制選項是 David 的事，不要自己改回去。
+ */
+/*
+ * 篩選維度：年份／影城／版本／有無票價，外加關鍵字搜尋（作品名／影城／影廳／備註四欄）。
+ * 「有無票價」那一維是因為 174 筆裡有 5 筆沒有金額。
  * ⚠️ 不用 `UTable` 的 `virtualize`：它要容器有確定高度（#54），而這裡的容器隨內容長。
  */
 useSeoMeta({ title: '個人紀錄管理' })
@@ -33,20 +41,32 @@ const toast = useToast()
 const { records, status, refresh } = useMyRecords()
 
 /* ── 篩選 ─────────────────────────────────────────────────────────────── */
-const years = computed(() => [...new Set(records.value.map(r => r.year))])
-const selectedYear = ref<string | null>(null)
-/** null 代表「還沒選過」⇒ 用最近的一年；'' 代表使用者選了「全部」。 */
-const activeYear = computed(() => selectedYear.value ?? years.value[0] ?? '')
-
-const byYear = computed(() =>
-  activeYear.value ? records.value.filter(r => r.year === activeYear.value) : records.value)
-
 const ALL = '__all__'
+/** 年份現在跟另外三個篩選器同型（`ALL` = 所有年份），**預設就是 `ALL`**。 */
+const year = ref(ALL)
 const venue = ref(ALL)
 const format = ref(ALL)
 const cost = ref(ALL)
+const q = ref('')
 
-/** 選項只從當年的紀錄長出來：選了就 0 筆的選項比沒有選項更難用。 */
+/**
+ * 年份選項**新到舊**。`records` 已按 `watched_on` 新到舊排序、`Set` 保留插入序
+ * ⇒ 這裡刻意**不走下面的 `options()`**：那一支會 `.sort()` 成升冪，年份會變成舊的在最上面。
+ */
+const years = computed(() => [...new Set(records.value.map(r => r.year))])
+const yearOptions = computed(() => [
+  { label: `所有年份（${records.value.length}）`, value: ALL },
+  ...years.value.map(y => ({ label: y, value: y })),
+])
+
+const byYear = computed(() =>
+  year.value === ALL ? records.value : records.value.filter(r => r.year === year.value))
+
+/**
+ * 選項只從**目前年份範圍內**的紀錄長出來：選了就 0 筆的選項比沒有選項更難用。
+ * ⚠️ 預設變成「所有年份」之後，這一支第一次算出來的是全期的 16／7 項（見檔頭的實測數字），
+ * 不再是當年的 4／3 項。選了某一年才會收斂回那一年。
+ */
 function options(values: (string | null | undefined)[], allLabel: string) {
   const seen = [...new Set(values.map(v => v?.trim()).filter((v): v is string => !!v))].sort()
   return [{ label: allLabel, value: ALL }, ...seen.map(v => ({ label: v, value: v }))]
@@ -59,16 +79,16 @@ const costOptions = [
   { label: '沒填票價', value: 'none' },
 ]
 
-/** 分批載入的一批。單一年份大多在 30 筆以內，攤開也不會變成一萬 px 的頁面。 */
-const PAGE = 24
-const shown = ref(PAGE)
+/** 一頁的筆數。預設「所有年份」之後全集是 174 筆 ⇒ 不分頁會是一張八千 px 高的表。 */
+const PER_PAGE = 24
 
 // 換年份時把其餘篩選重設：留著一個當年不存在的影城，畫面會是空的而且看不出原因。
-watch(activeYear, () => {
+// ⚠️ 預設改成「所有年份」之後這條**行為沒變、但更容易遇到**（以前開頁就已經在某一年，
+//    現在使用者的第一次選年份一定會走到這裡，把他剛設好的影城／版本清掉）。
+watch(year, () => {
   venue.value = ALL
   format.value = ALL
   cost.value = ALL
-  shown.value = PAGE
 })
 
 const filtered = computed(() => byYear.value.filter((r) => {
@@ -80,21 +100,46 @@ const filtered = computed(() => byYear.value.filter((r) => {
     return false
   if (cost.value === 'none' && r.cost !== null && r.cost !== undefined)
     return false
-  return true
+  // 搜尋與三個篩選器是**疊加**不是取代：比對規則見 `~/utils/record-list`。
+  // 不加 debounce——資料早就全在客端（174 筆），逐字元重算量不出延遲。
+  return matchesQuery(r, q.value)
 }))
 
-const hasNarrowed = computed(() => venue.value !== ALL || format.value !== ALL || cost.value !== ALL)
+const hasNarrowed = computed(() =>
+  year.value !== ALL || venue.value !== ALL || format.value !== ALL || cost.value !== ALL || !!q.value.trim())
 function clearFilters() {
+  year.value = ALL
   venue.value = ALL
   format.value = ALL
   cost.value = ALL
+  q.value = ''
 }
 
-watch(filtered, () => {
-  shown.value = PAGE
+/* ── 頁碼分頁 ─────────────────────────────────────────────────────────────
+ * 全集早就在客端（`useMyRecords` 一次取完），所以換頁**不重新請求**、也不動 DB。
+ */
+const page = ref(1)
+const pageCount = computed(() => Math.max(1, Math.ceil(filtered.value.length / PER_PAGE)))
+
+/**
+ * ⚠️ 監看的是**篩選與搜尋的輸入值**，不是 `filtered`。
+ * 改成監看 `filtered` 會壞掉的地方：`refresh()`（存檔、刪除之後都會呼叫）會換掉
+ * `filtered` 的 identity ⇒ 每一次存檔都把使用者踢回第 1 頁。
+ */
+watch([year, venue, format, cost, q], () => {
+  page.value = 1
 })
-const visible = computed(() => filtered.value.slice(0, shown.value))
-const hasMore = computed(() => filtered.value.length > shown.value)
+
+/**
+ * 刪掉最後一頁唯一那筆之後 `page` 會落在範圍外 ⇒ 表會是空的而且畫面上沒有任何解釋。
+ * ⚠️ 這裡是**夾回最後一頁不是跳回第 1 頁**：跳回第 1 頁就是上面那條 watch 明文要避免的事。
+ */
+watch(pageCount, (n) => {
+  if (page.value > n)
+    page.value = n
+})
+
+const visible = computed(() => pageSlice(filtered.value, page.value, PER_PAGE))
 
 /* ── 備註（短的印在格子裡，長的點開對話框）──
  * ⚠️ 備註是自由文字：實測 174 筆裡 73 筆有備註、平均 14.3 字、最長 67 字、**5 筆含換行**、
@@ -243,32 +288,33 @@ async function confirmRemove() {
     </p>
 
     <template v-else>
-      <!-- 年份切換。捲軸自己橫向捲，頁面 body 永遠不橫向捲（§10 品質底線）。 -->
-      <div class="mt-6 -mx-4 overflow-x-auto px-4">
-        <div class="flex w-max gap-1.5">
-          <UButton
-            v-for="y in years"
-            :key="y"
-            :variant="activeYear === y ? 'solid' : 'ghost'"
-            :color="activeYear === y ? 'primary' : 'neutral'"
-            size="sm"
-            class="tabular-nums"
-            @click="selectedYear = y"
-          >
-            {{ y }}
-          </UButton>
-          <UButton
-            :variant="activeYear === '' ? 'solid' : 'ghost'"
-            :color="activeYear === '' ? 'primary' : 'neutral'"
-            size="sm"
-            @click="selectedYear = ''"
-          >
-            全部（{{ records.length }}）
-          </UButton>
-        </div>
-      </div>
-
-      <div class="mt-3 flex flex-wrap items-center gap-2">
+      <!--
+        年份 2026-09-21 從 tab 列變成這一排裡的一個 `USelect`（David：「年份變成篩選選項之一，
+        預設全部」）。⚠️ 搜尋框吃整行（`w-full` + `sm:w-72`）：375 下四個選單已經佔滿兩行，
+        搜尋框再擠進去會變成一個放不下一個詞的框。
+      -->
+      <div class="mt-6 flex flex-wrap items-center gap-2">
+        <UInput
+          v-model="q"
+          icon="i-lucide-search"
+          placeholder="搜尋作品、影城、影廳、備註"
+          size="sm"
+          class="w-full sm:w-72"
+        >
+          <!-- 清空鈕是 `<button>` 不是 icon：`<UInput>` 的 icon 點不到也 tab 不到。 -->
+          <template v-if="q" #trailing>
+            <UButton
+              variant="link"
+              color="neutral"
+              size="sm"
+              icon="i-lucide-x"
+              aria-label="清掉搜尋字"
+              class="p-0"
+              @click="q = ''"
+            />
+          </template>
+        </UInput>
+        <USelect v-model="year" :items="yearOptions" size="sm" class="min-w-32 tabular-nums" />
         <USelect v-model="venue" :items="venueOptions" size="sm" class="min-w-40 max-w-64" />
         <USelect v-model="format" :items="formatOptions" size="sm" class="min-w-28" />
         <USelect v-model="cost" :items="costOptions" size="sm" class="min-w-28" />
@@ -439,18 +485,31 @@ async function confirmRemove() {
         </template>
       </UTable>
 
-      <!-- 篩到 0 筆時要說得出「放寬哪一個」，不然使用者只看到一張空表（DS §8）。 -->
+      <!--
+        篩到 0 筆時要說得出「放寬哪一個」，不然使用者只看到一張空表（DS §8）。
+        ⚠️ 這裡不必再分「沒篩選也 0 筆」那一支：`records.length === 0` 上面已經擋掉，
+           而年份現在是篩選器之一 ⇒ 走到這裡 `hasNarrowed` 必定為真。
+      -->
       <p v-if="!filtered.length" class="mt-4 text-sm text-muted">
-        {{ hasNarrowed ? '這幾個篩選條件下沒有紀錄。' : `${activeYear || '全部'} 沒有紀錄。` }}
-        <UButton v-if="hasNarrowed" variant="link" color="primary" size="sm" class="p-0" @click="clearFilters">
+        這幾個條件下沒有紀錄。
+        <UButton variant="link" color="primary" size="sm" class="p-0" @click="clearFilters">
           清掉篩選
         </UButton>
       </p>
 
-      <div v-if="hasMore" class="mt-4 flex justify-center">
-        <UButton variant="soft" color="neutral" @click="shown += PAGE">
-          {{ `再顯示 ${Math.min(PAGE, filtered.length - shown)} 筆（共 ${filtered.length} 筆）` }}
-        </UButton>
+      <!--
+        頁碼分頁取代「再顯示 24 筆」。⚠️ **不要傳 `:to`**：傳了整組頁碼會變成路由連結，
+        每次換頁都推一筆 history，而這一頁的狀態還沒進 URL ⇒ 上一頁會回到一張重設過的表。
+        ⚠️ `sibling-count` 從預設 2 調到 1：375 下 `2` 會讓中段頁碼排到 11 顆、橫向溢出。
+      -->
+      <div v-if="pageCount > 1" class="mt-4 flex justify-center">
+        <UPagination
+          v-model:page="page"
+          :total="filtered.length"
+          :items-per-page="PER_PAGE"
+          :sibling-count="1"
+          size="sm"
+        />
       </div>
     </template>
 
