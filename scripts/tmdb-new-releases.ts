@@ -5,20 +5,17 @@
  *   需要一條這裡沒有的改動（政府片名日後進來時要能覆蓋 TMDB 片名，`BUILD_PLAN §8.3`）
  *   ⇒ 在那之前寫入是危險的，所以這支連 service key 都不用。
  */
-// ★ 三分類不是「新／舊」兩分類：實測 2026-09-20 片庫有 **267 部 `origin='gov'` 的作品
-//   沒有 tmdb_id**（比對器沒配到，例如《間諜家家酒》片商用英文片名登記）⇒ 盲目新增時，
-//   那 267 部裡只要有一部也出現在上映清單裡就會變成重複作品。
-//   ① 已收錄 ② 疑似已存在（片名對得上一部沒有 tmdb_id 的既有作品 ⇒ 該補 id **不是新增**）
-//   ③ 候選新增。
-// ⚠️ ② 只是**線索不是判定**：片名比對用 `normalizeTitle()`，但刻意不跑 `scoreCandidate()`
-//    （那需要片長而清單端點不給）。這支的職責是把可疑的攤出來給人看，不是替人決定。
+// ★ 三分類（① 已收錄 ② 疑似已存在 ③ 候選新增）的判斷在 `src/tmdb/classify.ts`，
+//   與真正的匯入 `scripts/tmdb-import-new-releases.ts` 共用同一份——分成兩份的話，
+//   「看到的數字」與「寫下去的東西」會分岔。為什麼是三類寫在那個檔的檔頭。
 // ⚠️ 清單端點的 `release_date` 是 TMDB 的主要上映日不一定是台灣的 ⇒ **不要把它印成
 //    「台灣上映日」**；台灣上映日要一部一次 `detail()`，這支不做。
 
+import type { KnownFilm } from '#pipeline/tmdb/classify'
 import type { TmdbSearchResult } from '#pipeline/types'
 import process from 'node:process'
 import { Client, types as pgTypes } from 'pg'
-import { normalizeTitle } from '#pipeline/normalize/title'
+import { classifyReleases } from '#pipeline/tmdb/classify'
 import { TmdbClient } from '#pipeline/tmdb/client'
 
 // ⚠️ 踩雷 #253：node-postgres 預設把 date/timestamp 解析成 JS Date，印出來會位移一天。
@@ -32,14 +29,6 @@ function arg(name: string, fallback: number): number {
   const i = args.indexOf(`--${name}`)
   const n = Number(args[i + 1])
   return i >= 0 && Number.isFinite(n) ? n : fallback
-}
-
-interface KnownFilm {
-  id: string
-  tmdb_id: number | null
-  title_zh: string
-  title_original: string
-  origin: string
 }
 
 async function loadLibrary(): Promise<KnownFilm[]> {
@@ -81,40 +70,7 @@ async function main() {
     releases.set(r.id, r)
 
   const library = await loadLibrary()
-  const byTmdbId = new Set(library.map(f => f.tmdb_id).filter((v): v is number => v !== null))
-
-  // 沒有 tmdb_id 的既有作品，以正規化片名建索引——那是「會被重複新增」的那一群。
-  const orphansByTitle = new Map<string, KnownFilm[]>()
-  for (const f of library) {
-    if (f.tmdb_id !== null)
-      continue
-    for (const t of [f.title_zh, f.title_original]) {
-      const k = normalizeTitle(t)
-      if (!k)
-        continue
-      orphansByTitle.set(k, [...(orphansByTitle.get(k) ?? []), f])
-    }
-  }
-
-  const known: TmdbSearchResult[] = []
-  const suspected: { r: TmdbSearchResult, hits: KnownFilm[] }[] = []
-  const fresh: TmdbSearchResult[] = []
-
-  for (const r of releases.values()) {
-    if (byTmdbId.has(r.id)) {
-      known.push(r)
-      continue
-    }
-    const hits = [
-      ...(orphansByTitle.get(normalizeTitle(r.title)) ?? []),
-      ...(orphansByTitle.get(normalizeTitle(r.original_title)) ?? []),
-    ]
-    const uniq = [...new Map(hits.map(h => [h.id, h])).values()]
-    if (uniq.length)
-      suspected.push({ r, hits: uniq })
-    else
-      fresh.push(r)
-  }
+  const { known, suspected, fresh } = classifyReleases(releases.values(), library)
 
   console.log('── 來源 ──')
   console.log(`  now_playing ${nowPlaying.length} 筆／upcoming ${upcoming.length} 筆`)
@@ -124,7 +80,7 @@ async function main() {
   console.log(`\n── ① 已收錄（tmdb_id 已存在）：${known.length} 部 ──`)
 
   console.log(`\n── ② ⚠️ 疑似已存在、應該補 id 而不是新增：${suspected.length} 部 ──`)
-  for (const { r, hits } of suspected) {
+  for (const { release: r, hits } of suspected) {
     console.log(`  TMDB ${r.id}  ${r.title} / ${r.original_title}`)
     for (const h of hits)
       console.log(`      ↳ 片庫既有 ${h.id}（origin=${h.origin}）${h.title_zh} / ${h.title_original}`)

@@ -22,6 +22,13 @@ interface FilmRow {
   firstSeenRocYear: number
   certificateIds: string[]
   source: string
+  /**
+   * 這筆**片名**是誰的。缺席 = 政府管線（seed_films() 落回 'gov'，維持現行行為）。
+   * ⚠️ 不可以拿上面的 `source` 當這件事的判準：那一欄的語意是「比對器有沒有配到 TMDB」
+   * （consolidate.ts:82），政府片名只要配對成功它就是 'tmdb' ⇒ 混用會靜默關掉
+   * 政府片名的整條更新路徑。契約另一半在 supabase/migrations/0019。
+   */
+  titleZhSource?: 'gov' | 'tmdb'
 }
 
 interface CertificateRow {
