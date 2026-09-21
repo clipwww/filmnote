@@ -241,50 +241,46 @@ async function onSubmit(event: FormSubmitEvent<RecordForm>) {
         </USelectMenu>
       </UFormField>
 
-      <UCollapsible>
-        <UButton variant="ghost" color="neutral" trailing-icon="i-lucide-chevron-down" block>
-          其他細節（選填）
-        </UButton>
-        <template #content>
-          <div class="space-y-5 pt-4">
-            <div class="grid grid-cols-2 gap-4">
-              <UFormField label="票數" name="ticketCount">
-                <UInputNumber v-model="state.ticketCount" :min="1" :max="99" class="w-full" />
-              </UFormField>
-              <UFormField label="票價" name="cost" hint="留空＝沒記錄；0＝招待票">
-                <template #default>
-                  <UInputNumber v-model="state.cost" :min="0" class="w-full" />
-                </template>
-              </UFormField>
-            </div>
-            <div class="grid grid-cols-2 gap-4">
-              <UFormField label="影廳" name="hallLabel">
-                <UInput v-model="state.hallLabel" placeholder="如 IMAX 廳" class="w-full" />
-              </UFormField>
-              <UFormField label="版本" name="formatCode">
-                <USelectMenu
-                  v-model="state.formatCode"
-                  :items="formats"
-                  value-key="code"
-                  label-key="label"
-                  placeholder="數位／IMAX…"
-                  class="w-full"
-                />
-              </UFormField>
-            </div>
-            <UFormField label="備註" name="memo">
-              <UTextarea v-model="state.memo" :rows="3" :maxlength="2000" class="w-full" />
-            </UFormField>
-            <UFormField>
-              <USwitch
-                v-model="state.isPublic"
-                label="公開這筆紀錄"
-                :description="state.isPublic ? '會出現在你的個人頁' : '只有你看得到'"
-              />
-            </UFormField>
-          </div>
-        </template>
-      </UCollapsible>
+      <!--
+        其他細節**直接顯示不收進風琴**（David 2026-09-21）：這六項是「記完之後要回來對帳」
+        的欄位（票價、票數、影廳、版本），收起來等於每次都要多點一下才知道自己填了沒。
+        ⚠️ 外層的 `space-y-5` 由 `UForm` 提供，攤平後不要再自己補 `pt-4`（那是補風琴按鈕高度的）。
+      -->
+      <div class="grid grid-cols-2 gap-4">
+        <UFormField label="票數" name="ticketCount">
+          <UInputNumber v-model="state.ticketCount" :min="1" :max="99" class="w-full" />
+        </UFormField>
+        <UFormField label="票價" name="cost" hint="留空＝沒記錄；0＝招待票">
+          <template #default>
+            <UInputNumber v-model="state.cost" :min="0" class="w-full" />
+          </template>
+        </UFormField>
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <UFormField label="影廳" name="hallLabel">
+          <UInput v-model="state.hallLabel" placeholder="如 IMAX 廳" class="w-full" />
+        </UFormField>
+        <UFormField label="版本" name="formatCode">
+          <USelectMenu
+            v-model="state.formatCode"
+            :items="formats"
+            value-key="code"
+            label-key="label"
+            placeholder="數位／IMAX…"
+            class="w-full"
+          />
+        </UFormField>
+      </div>
+      <UFormField label="備註" name="memo">
+        <UTextarea v-model="state.memo" :rows="3" :maxlength="2000" class="w-full" />
+      </UFormField>
+      <UFormField>
+        <USwitch
+          v-model="state.isPublic"
+          label="公開這筆紀錄"
+          :description="state.isPublic ? '會出現在你的個人頁' : '只有你看得到'"
+        />
+      </UFormField>
 
       <UButton type="submit" size="lg" block :loading="saving">
         記下來
