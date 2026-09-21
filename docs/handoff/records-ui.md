@@ -164,8 +164,11 @@ select pg_get_functiondef(p.oid) from pg_proc p
 ### 4.4 `pnpm-lock.yaml` 與 `package.json`（F1）
 本機的 install／dev／build／test／verify:all **沒有任何一個**會比對這兩個檔，
 而 Vercel 的 `--frozen-lockfile` 會直接死在 install。
-⇒ **這一輪預期不需要改 `package.json`**（§2.7）。真的要改就**必須連 lockfile 一起進版控**，
-而且**先回報**——另一條線（tmdb-import）同時在跑，兩邊都改會衝突。
+⇒ **這一輪 `package.json` 對你是唯讀**（§2.7 已確認不需要新依賴）。
+真的需要新依賴就是卡點：由主 session 在兩條線都靜止時執行 `pnpm add`，
+並把 `package.json` ＋ `pnpm-lock.yaml` 放在**同一個 commit**。
+**不要自己跑 `pnpm add`**：兩邊同時跑會產生兩份互不相容的 lockfile，
+而本機 install／dev／build／test／verify:all **沒有任何一關會發現**。
 
 ### 4.5 `tests/page-root.test.ts` 會掃你改的每一個頁面
 它斷言 `app/pages/**` 每個 `.vue` 的 `<template>` **只有一個根節點**，

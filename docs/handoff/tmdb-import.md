@@ -44,8 +44,7 @@ TMDB 直接匯入新片時：
 `ac1e021` 已經交付「不動 DB 的那一半」：
 - `scripts/tmdb-new-releases.ts`（146 行）、`src/tmdb/client.ts`（+30 行的挑片方法）
 - **沒有任何 INSERT／UPDATE，連 service key 都不用**
-- 跑法：`pnpm tsx --env-file=.env scripts/tmdb-new-releases.ts [--pages N]`
-  （`package.json` 裡**還沒有**對應的 script 名，見 §6.1）
+- 跑法：**`pnpm tmdb:new-releases [--pages N]`**（主 session 已在派工前加好這個 script 名）
 - 需要 `DATABASE_URL`（`:46-48`，直連 Postgres 抓片庫，缺了就 throw）與
   `NUXT_TMDB_API_KEY`／`TMDB_API_KEY`（`:68-70`）。⚠️ F1 說 `DATABASE_URL` 刻意只給本機腳本。
 
@@ -356,7 +355,6 @@ docs/handoff/tmdb-import.md           ← 這份，收工時你自己更新
 app/pages/admin/-TmdbMaintenance.vue  ← 只在卡點 #4（後台觸發入口）放行後
 server/api/admin/tmdb/*.post.ts       ← 同上；既有三支見 c431ab1，照它的形狀
 app/types/database.types.ts           ← 只在卡點 #1（真的 apply migration）放行後
-package.json                          ← 只准加一個 script 名，且要先回報（見下）
 ```
 ⚠️ **這四個都落在 §6.2 的封鎖區裡**，寫成條件例外是刻意的——
 **deny 優先於 glob**，沒有放行就是不能動。
@@ -366,10 +364,14 @@ package.json                          ← 只准加一個 script 名，且要先
 
 ✅ **新增 `0019` 不需要同步 BUILD_PLAN**：`scripts/sync-schema-docs.ts:25-63` 的 SECTIONS
 只收 `0001`／`0002`／`0003`／`9999`。（但改 `0001_init.sql` 會被那支擋，所以別改它。）
-**`package.json` 的例外**：`scripts/tmdb-new-releases.ts` 目前沒有 script 名。
-加一個（例如 `tmdb:new-releases`）是合理的，但 **`package.json` 是共用檔**
-⇒ 加之前回報一句，讓主 session 確認另一條線沒有同時在改。
-**只加 `scripts` 區塊的一行，不要動 dependencies**（動了就要一起帶 lockfile，見 §4.4）。
+✅ **`package.json` 你完全不用碰。** 主 session 已經在派工前把
+`"tmdb:new-releases": "tsx --env-file=.env scripts/tmdb-new-releases.ts"` 加好了
+⇒ 直接 `pnpm tmdb:new-releases [--pages N]`。
+（`scripts` 區塊的增刪不會改動 `pnpm-lock.yaml`，所以這一步沒有 F1 的風險。）
+⇒ **`package.json` 從此對兩條線都是唯讀。** 真的需要新依賴就是卡點，
+由主 session 在兩條線都靜止時執行 `pnpm add`，並把 `package.json` ＋ `pnpm-lock.yaml`
+放在**同一個 commit**（F1）。**不要自己跑 `pnpm add`**：兩邊同時跑會產生兩份互不相容的
+lockfile，而本機 install／dev／build／test／verify:all **沒有任何一關會發現**。
 
 ### 6.2 要讀、但**不要寫**
 `src/pipeline/**`（`ingest-rating.ts` 是政府資料那條路）、`src/import/**`（§0 那個另一個匯入）、

@@ -29,6 +29,7 @@
     "db:sql": "tsx --env-file=.env scripts/db.ts",
     "import:mylog": "tsx --env-file=.env scripts/import-mylog.ts",
     "tmdb:backfill": "tsx --env-file=.env scripts/tmdb-backfill.ts",
+    "tmdb:new-releases": "tsx --env-file=.env scripts/tmdb-new-releases.ts",
     "verify:all": "tsx --env-file=.env scripts/verify-all.ts"
   },
   "dependencies": {
