@@ -44,7 +44,8 @@
 - ⚠️ **不要加 `scroll-padding-top`。** `LegalProse.vue:38,45` 與 `legal/copyright.vue:45` 的標題已經有
   `scroll-mt-20`（80px），對 57px 的導覽列還有 23px 餘裕。而 `scroll-padding` 與 `scroll-margin` 是
   **相加**的：加 56px 之後錨點會停在 136px，標題底下空一大塊。
-  代價已知並接受：長表單（`/app/records/new`、`/app/records/[id]/edit`、`/app/settings`）Shift+Tab
+  代價已知並接受：長表單（`/app/records/new`、`/app/settings`；⚠️ 2026-09-21 起
+  `/app/records/[id]/edit` **只是一個轉址**，表單搬進 `/app/records` 的編輯抽屜了）Shift+Tab
   往回走時，焦點元素會被捲到視窗頂端、被 57px 的導覽列蓋住 focus ring。真要修，就得**在同一個 commit 裡**
   加 `scroll-padding-top` 並把那三處的 `scroll-mt-20` 一起降成 `scroll-mt-4`——**最糟的是只做一半**。
 - ⚠️ **`UDrawer` 不要打開 `shouldScaleBackground`。** vaul 會對 `[data-vaul-drawer-wrapper]` 下
