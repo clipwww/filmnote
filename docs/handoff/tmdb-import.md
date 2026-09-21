@@ -81,6 +81,25 @@ INSERT 那一支（`:604-611`）已經用 `(coalesce(rec->>'source','gov'))::pub
 ⇒ **這條路在 schema 裡早就預留好了**（`film_origin` 列舉實測是 `('gov','tmdb','ugc')`，
 `'tmdb'` 已存在，`0001_init.sql:19`）。
 
+### 2.4.1 ★★ 那個 `case` 是 source-blind 的——它會讓 TMDB 蓋掉官方片名
+看清楚 `case when title_zh_source = 'gov'` 檢查的是**那一列的**來源，
+**不是進來的 `rec` 的來源**。INSERT 分支讀了 `rec->>'source'`，**UPDATE 分支完全沒讀。**
+
+⇒ 推論一次：① 已收錄那 13 部是**已經有 `tmdb_id` 的 gov 作品**，
+`resolve_film('tmdb:' || tmdbId)` 找得到它們 ⇒ 走 UPDATE 分支。
+它們的 `title_zh_source` 正是 `'gov'` ⇒ **`case` 成立** ⇒
+`coalesce(nullif(rec->>'titleZh',''), title_zh)` 把 **TMDB 片名寫進官方片名的位置**，
+而且 **`title_zh_source` 還留著 `'gov'`** ⇒ 被蓋掉的值從此被標記成「官方的」。
+
+⚠️ **這是 §8.3 要防的事情的反方向，而 §8.3 只講了其中一半。**
+「政府片名進來時翻回 gov」是一半；另一半是「**TMDB 片名進來時不可以碰 gov 的片名**」。
+兩半都要做，只做前者仍然會打穿第一條價值主張——而且**沒有任何錯誤訊息**。
+
+⇒ 所以新分支**必須同時看 `rec->>'source'` 與 `title_zh_source` 兩個值**，不是只看後者。
+⇒ 你要先回答的問題：**你的匯入路徑會不會讓 ① 那 13 部走進 UPDATE 分支？**
+（如果你的路徑只送 ③ 候選新增那 81 部，這個洞碰不到——但那要是**你驗證過的設計**，
+不是碰巧。`seed_films()` 是全片庫 2,748 部的寫入路徑，它不知道誰呼叫它。）
+
 ### 2.5 ⚠️⚠️ `title_zh_source` 有四個值，而 `'admin'` 不可以被你的新分支覆蓋
 `source_authority` 列舉是 **`('gov','tmdb','ugc','admin')`**（`0001_init.sql:20`）。
 
@@ -126,6 +145,12 @@ INSERT 那一支（`:604-611`）已經用 `(coalesce(rec->>'source','gov'))::pub
 上一輪的教訓：協調者給的分布數字全部帶著 `where email = …`，而 migration 改的是**整張表**。
 ⇒ 斷言要寫成「**不存在**符合 X 的列」這種資料述詞，
 不要寫成「總數 = N」——後者在別人有合法資料時會變成**假紅燈**。
+
+至少要有這三條（都是全表述詞）：
+- **匯入前後，`origin='gov' and title_zh_source='gov'` 的那些列，`title_zh` 零差異。**
+  這條守的是 §2.4.1 那個洞。
+- **不存在 `title_zh_source='admin'` 卻被這次匯入改動過 `title_zh` 的列。** 守 §2.5。
+- **不存在同一個 `tmdb_id` 對到兩個 `film_id` 的情形。** 守 §2.2 的重複作品。
 
 ### 3.2 ⚠️ 讀 migration 檔 ≠ 讀 DB 裡活著的定義（踩雷 #189）
 `supabase/migrations/0008` 與 `0010` 會在**執行時** `pg_get_functiondef()` 讀出
@@ -245,6 +270,15 @@ package.json                          ← 只准加一個 script 名（見下）
 - **禁 `git stash`／`git checkout .`／`git reset --hard`／切分支。**
 - `typecheck`／`lint` 在**不屬於你的檔**變紅 ⇒ **回報，不要修**。那大概是對方正在寫。
 - commit 前跑 `git status --short`，出現你足跡外的檔就停下來。
+
+### 6.4 ⚠️ `.nuxt/` 與 `.output/` 也是共用的，不只 git
+兩條線同時跑 `pnpm typecheck` 或 `pnpm build` 會**互相覆寫產物**
+⇒ 紅燈可能是假的，**綠燈也可能是假的**（你看到的產物是對方那次建的）。
+⇒ 四關變紅時**先問對方是不是正在跑同一關**，不要立刻當成自己的 bug 去追。
+
+**這一輪你不需要 `pnpm dev`**（沒有前端工作）⇒ 不要開 dev server。
+踩雷 `#241`：`127.0.0.1:3000` 回 200，但那是**另一個專案**的站——
+port 被別人佔著時你量到的東西不是你以為的那個。
 
 ---
 

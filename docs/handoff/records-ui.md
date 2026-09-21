@@ -32,6 +32,17 @@
   `ref` 的區域狀態 ⇒ 一律回到初始值。
 - **連向 edit 的入口有兩處，都在 `index.vue`**：`:423`（操作欄）與 `:473`（備註對話框裡的編輯鈕）。
   兩處都要改，漏第二處就是一個活著的舊連結。
+  ✅ 主 session 用全 repo grep 覆核過（`grep -rn 'records/' app server tests scripts`）：
+  **`index.vue` 以外沒有任何地方連向 `edit`**，所以「兩處」是查過的、不是抽樣的。
+
+⚠️ **但 `/app/records/new` 有六處外部入口**，不要把它跟 edit 搞混：
+`AppNav.vue:95`、`app/pages/app/import.vue:828`、`app/pages/app/films/new.vue:77` 與 `:162`、
+`app/pages/app/index.vue:123` 與 `:148`。
+其中 `films/new.vue:162` 的 `navigateTo('/app/records/new')` 是
+**「記到一半發現片庫沒這部片 → 去新增作品 → 回來接著記」**那條交棒
+（草稿在 `useRecordDraft`，理由寫在 `useRecordDraft.ts:4` 與 `films/new.vue:157`）。
+⇒ **這就是為什麼 `new.vue` 這一輪只改風琴那一處**（§1 第 5 條）：
+把它改成 Drawer 會打斷那條交棒，而那不在 David 的六條裡。
 - `edit.vue` 目前**沒有**風琴，欄位本來就直接顯示。但它**漏了「版本」欄位**：
   `state.formatCode` 有載入、`toRecordRow` 有送出，**template 裡沒有對應的 `USelectMenu`**
   ⇒ 版本現在改不了（值會原樣存回，不會被清掉）。改寫成 Drawer 時把它補上。
@@ -67,6 +78,13 @@
 `edit.vue` 有 `select(… film_id)`（`:45`）但**只用來查片名**（`:63`），從不寫回。
 `film_id` 在 UI 上完全不可改。**資料庫與 RLS 允不允許 UPDATE `film_id`，你要自己查**——
 查法見 §5.2，**不要讀 migration 檔就下結論**（理由見 §4.1）。
+
+✅ **好消息：`MyRecord` 已經有 `filmId`**（`useMyRecords.ts:15`，型別註解說明「抽屜只能靠它
+對回紀錄——片名會撞」）⇒ Drawer 要顯示「現在是哪一部」**不需要動 `useMyRecords.ts`**，
+避開了 §6.2 的不要寫。
+
+選作品的 UI **有現成的可以參考**：`app/pages/app/records/new.vue` 的作品選擇、
+以及 `app/pages/app/films/new.vue`。先讀它們再決定要不要抽成共用元件。
 
 ### 2.6 風琴只有一處
 `grep -rn "UCollapsible\|UAccordion\|<details" app/pages/app/records` ⇒
@@ -170,6 +188,11 @@ select pg_get_functiondef(p.oid) from pg_proc p
 基準是 **174 筆、全部 public、全部有 `watched_time`**
 ⇒「無時間」與「私密」兩種呈現**在真實資料上看不到，要驗必須自己造**。
 
+⚠️ **第 2 條（改作品）只能拿 `zz` 前綴的紀錄來驗，不要挑 David 真的一筆來試。**
+那 174 筆是他的真實資料，改錯了 `film_id` 就是把一筆真紀錄接到別部片上，
+而多刷排行是以 `film_id` 分組的（`BUILD_PLAN §8.3` 第 31 條）⇒ 他的統計會跟著變。
+驗完立刻刪，刪後複查 **174／全 public／全有時間**。
+
 ### 5.5 ★ 瀏覽器實測，而且要在 375 逐一點過（踩雷 #250）
 `/app` 需要登入 ⇒ **只能用 CDP 附著 David 已登入的 Chrome**，不要另開無痕。
 ⚠️ 踩雷 `#250` 是「桌機驗收 100% 綠、手機少一半入口」：圖表標籤在 375 下被 ECharts
@@ -219,6 +242,15 @@ docs/BUILD_PLAN.md                        ← 只准動 §7 你的 #330–#349 �
 - `typecheck`／`lint` 在**不屬於你的檔**變紅 ⇒ **回報，不要修**。那大概是對方正在寫。
 - commit 前跑 `git status --short`，出現你足跡外的檔就停下來。
 
+### 6.4 ⚠️ `.nuxt/` 與 `.output/` 也是共用的，不只 git
+兩條線同時跑 `pnpm typecheck` 或 `pnpm build` 會**互相覆寫產物**
+⇒ 紅燈可能是假的，**綠燈也可能是假的**（你看到的產物是對方那次建的）。
+⇒ 四關變紅時**先問對方是不是正在跑同一關**，不要立刻當成自己的 bug 去追。
+
+**`pnpm dev` 這一輪只有你會開**（另一條線沒有前端工作）。
+踩雷 `#241`：`127.0.0.1:3000` 回 200，但那是**另一個專案**的站
+⇒ 開 dev 之前先確認那個 port 上的站真的是 filmnote，不要只看 HTTP 狀態碼。
+
 ---
 
 ## 7. 回報
@@ -239,11 +271,16 @@ docs/BUILD_PLAN.md                        ← 只准動 §7 你的 #330–#349 �
 ## 8. 這些不要自己決定，寫進「卡點」
 
 1. **「全部」當預設之後，影城／版本選單要不要限制選項**（§2.2 的連帶代價）。
-2. **`[id]/edit.vue` 要不要刪掉。** 刪掉等於少一條可分享的深連結。
-3. **`new.vue` 的新增流程要不要也改成 Drawer。** David 只說了「點編輯」，
-   第 5 條只要求拿掉風琴 ⇒ **這一輪 `new.vue` 只改風琴那一處**，其餘不動。
-4. **搜尋要不要含日期字串**（例如打 `2024/07` 找那個月）。簡報只要求四個自由文字欄。
-5. 任何需要改 `package.json`／`useMyRecords.ts`／`nuxt.config.ts` 的事。
+2. **搜尋要不要含日期字串**（例如打 `2024/07` 找那個月）。簡報只要求四個自由文字欄。
+3. 任何需要改 `package.json`／`useMyRecords.ts`／`nuxt.config.ts` 的事。
+
+### 已經替你決定好的（不用問，照做）
+- **`new.vue` 這一輪只改風琴那一處**，新增流程不動（理由在 §2.1 那條交棒）。
+- **`[id]/edit.vue` 不必二選一。** 保留檔案、把它變成一個轉址
+  （`navigateTo('/app/records?edit=<id>', { replace: true })`）⇒ 深連結活著、
+  列表狀態也不會被清掉。這是建議選項，你有更好的做法就用你的，寫進回報。
+- **`edit.vue` 漏掉的「版本」欄位（§2.1）** 在重建表單時順手補上。
+  **那是補回一個本來就該在的欄位，不是第七條需求**，不要因此擴大範圍。
 
 > 過度指定跟指定不足一樣會造成返工（F5.3）。上面沒寫死的地方就是留給你判斷的，
 > 做了什麼、為什麼，寫進回報就好。
