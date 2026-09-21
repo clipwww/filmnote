@@ -1,12 +1,12 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1788603625302,
+  "lastScanned": 1789994476969,
   "projectRoot": "/Users/david/Documents/Github/filmnote",
   "techStack": {
     "languages": [
       {
         "name": "JavaScript/TypeScript",
-        "version": ">=22",
+        "version": ">=22.12.0",
         "confidence": "high",
         "markers": [
           "package.json"
@@ -23,27 +23,44 @@
     ],
     "frameworks": [
       {
+        "name": "nuxt",
+        "version": "4.5.2",
+        "category": "fullstack"
+      },
+      {
         "name": "vitest",
         "version": "5.0.0",
         "category": "testing"
       }
     ],
-    "packageManager": "npm",
-    "runtime": "Node.js 22"
+    "packageManager": "pnpm",
+    "runtime": "Node.js 22.12.0"
   },
   "build": {
-    "buildCommand": "cd /Users/david/Documents/Github/filmnote\nnode -e \"\nconst fs=require('fs');\nconst p='.omc/project-memory.json';\nconst j=JSON.parse(fs.readFileSync(p,'utf8'));\nj.build.buildCommand='pnpm run build';\nj.build.testCommand='pnpm test';\nj.build.lintCommand='pnpm run lint';\nj.build.devCommand='pnpm run dev';\nfs.writeFileSync(p, JSON.stringify(j,null,2)+'\\n');\nconsole.log('已修正 buildCommand（又被錄進一整串 heredoc）');\n\"\ngit grep -c -E '57,?873' 2>/dev/null || echo \"✅ 版控中已無殘留\"",
-    "testCommand": "cd /Users/david/Documents/Github/filmnote\npython3 - <<'PY'\nimport pathlib\np = pathlib.Path('docs/handoff/main-session.md')\ns = p.read_text()\n\ns = s.replace(\n\"現在用 `scratchpad/watch-agents.py`：連續兩次輪詢（相隔 20 秒）都 idle 才算回合結束，`blocked` 立刻通報。掛在 Monitor 上跑。編組變動時記得改 `AGENTS` 清單並重啟。\",\n\"\"\"我寫了一支輪詢腳本掛在 Monitor 上：連續兩次輪詢（相隔 20 秒）都 idle 才算回合結束，`blocked` 立刻通報。\n⚠️ **那支只存在於我的 session 暫存區，已經沒了**——它太依賴當下的編組名單，留在 repo 裡只會過期。重寫大約二十行：輪詢 `herdr agent get <name>`，取 `agent_status`，連兩次 idle 才吐一行。編組變動時記得改名單並重啟。\"\"\")\n\ns = s.replace(\n\"腳本在 `scratchpad/shoot.mjs`。\",\n\"腳本已搬進 repo：`scripts/screenshot-pages.mjs`（見 §6.3）。\")\n\ns += \"\"\"\n\n---\n\n## 9. 我收線時的狀態（2026-09-06）\n\n**三個子 session 全部關閉**，各自的交接筆記都寫完並提交：\n\n| 檔案 | 涵蓋 |\n|---|---|\n| `docs/handoff/backend.md` | `server/**`、migrations、scripts。**第 2 節那句歸納是整個 repo 最該先讀的一句話** |\n| `docs/handoff/frontend.md` | 殼與紀錄。§6 的驗證方法（production 才驗得到顏色、背景分頁沒有指標命中測試）值錢 |\n| `docs/handoff/charts.md` | 圖表、儀表板、首頁、分享頁（就是那個叫 `adminui` 的 session）|\n| `docs/handoff/adminui.md` | 同一個 session 的前一段（`/admin`、`/app/import`）|\n| `docs/handoff/design.md` | 設計 session，已結束不會再開 |\n\n工作區乾淨、`pnpm verify:all` 36/36、`pnpm test` 308 passed、`pnpm run lint` exit 0、已 push 到 `origin/main`。\n\n### 下一棒開工的第一件事\n\n**首頁改版**（§7 已裁決、`SCREENS §1` 已寫、尚未實作）。它需要 backend 先給一支海報牆的資料端點——對 anon 開放、可快取、只回公開作品的海報。片庫有 2,452 部有海報。\n\n⚠️ 那一頁是 `isr: 300`，**「已登入者看到進入紀錄頁的按鈕」必須在 client 端做**，否則第一個造訪者的登入狀態會被快取給所有人。\n\n### 開幾條線\n\n我這一棒最多開到三條，而最後是**三條同時撞到五小時額度的 91%，context 只用到 63–70%**。\n\n> 如果只做首頁，**一條線就夠**（圖表與對外頁面本來就是同一批檔案）。\n> 兩條以上才需要處理所有權切分，而切分的成本不只是寫在簡報裡——**它會變成你每一次轉述的稅**。\n\"\"\"\np.write_text(s)\nprint('已補完')\nPY\ngrep -c '' docs/handoff/main-session.md",
-    "lintCommand": "pnpm run lint",
-    "devCommand": "pnpm run dev",
+    "buildCommand": "pnpm build",
+    "testCommand": "pnpm test",
+    "lintCommand": "pnpm lint",
+    "devCommand": "pnpm dev",
     "scripts": {
+      "dev": "nuxt dev",
+      "build": "nuxt build",
+      "preview": "nuxt preview",
+      "postinstall": "nuxt prepare",
       "test": "vitest run",
       "test:watch": "vitest",
-      "lint": "oxlint src tests && eslint .",
-      "lint:fix": "oxlint --fix src tests && eslint . --fix",
-      "typecheck": "tsc --noEmit",
+      "seed": "tsx --env-file=.env scripts/seed-supabase.ts",
+      "db:types": "tsx --env-file=.env scripts/gen-types.ts",
+      "typecheck": "pnpm run typecheck:app && pnpm run typecheck:pipeline",
+      "typecheck:app": "nuxt typecheck",
+      "typecheck:pipeline": "tsc -p tsconfig.pipeline.json --noEmit",
+      "lint": "oxlint . && eslint .",
+      "lint:fix": "oxlint --fix . && eslint . --fix",
       "ingest:rating": "tsx src/pipeline/ingest-rating.ts",
-      "ingest:cinema": "tsx src/pipeline/ingest-cinema.ts"
+      "ingest:cinema": "tsx src/pipeline/ingest-cinema.ts",
+      "db:sql": "tsx --env-file=.env scripts/db.ts",
+      "import:mylog": "tsx --env-file=.env scripts/import-mylog.ts",
+      "tmdb:backfill": "tsx --env-file=.env scripts/tmdb-backfill.ts",
+      "verify:all": "tsx --env-file=.env scripts/verify-all.ts"
     }
   },
   "conventions": {
@@ -56,49 +73,196 @@
     "isMonorepo": false,
     "workspaces": [],
     "mainDirectories": [
+      "app",
+      "docs",
       "scripts",
       "src",
       "tests"
     ],
-    "gitBranches": null
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
   },
   "customNotes": [],
   "directoryMap": {
+    "app": {
+      "path": "app",
+      "purpose": "Application code",
+      "fileCount": 3,
+      "lastAccessed": 1789994476957,
+      "keyFiles": [
+        "app.config.ts",
+        "app.vue",
+        "spa-loading-template.html"
+      ]
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 4,
+      "lastAccessed": 1789994476958,
+      "keyFiles": [
+        "BUILD_PLAN.md",
+        "CODE_STYLE.md",
+        "README.md",
+        "SPEC.md"
+      ]
+    },
     "scripts": {
       "path": "scripts",
       "purpose": "Build/utility scripts",
-      "fileCount": 1,
-      "lastAccessed": 1788603625286,
+      "fileCount": 22,
+      "lastAccessed": 1789994476958,
       "keyFiles": [
-        "verify-parsers.ts"
+        "check-hydration.mjs",
+        "db.ts",
+        "fix-corrupted-titles.ts",
+        "gen-types.ts",
+        "import-mylog.ts"
       ]
+    },
+    "server": {
+      "path": "server",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1789994476959,
+      "keyFiles": []
     },
     "src": {
       "path": "src",
       "purpose": "Source code",
       "fileCount": 1,
-      "lastAccessed": 1788603625286,
+      "lastAccessed": 1789994476959,
       "keyFiles": [
         "types.ts"
       ]
     },
+    "supabase": {
+      "path": "supabase",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1789994476959,
+      "keyFiles": []
+    },
     "tests": {
       "path": "tests",
       "purpose": "Test files",
-      "fileCount": 4,
-      "lastAccessed": 1788603625289,
+      "fileCount": 18,
+      "lastAccessed": 1789994476959,
       "keyFiles": [
+        "admin-tmdb-auth.test.ts",
+        "chart-theme.test.ts",
+        "format-datetime.test.ts",
         "gov.test.ts",
-        "matcher.test.ts",
-        "normalize.test.ts",
-        "pipeline.test.ts"
+        "import-auth.test.ts"
+      ]
+    },
+    "app/assets": {
+      "path": "app/assets",
+      "purpose": "Static assets",
+      "fileCount": 1,
+      "lastAccessed": 1789994476960,
+      "keyFiles": [
+        "tmdb-blue-square.svg"
+      ]
+    },
+    "app/components": {
+      "path": "app/components",
+      "purpose": "UI components",
+      "fileCount": 24,
+      "lastAccessed": 1789994476960,
+      "keyFiles": [
+        "AccountDeletion.vue",
+        "AppNav.vue",
+        "AttendanceCalendar.vue"
+      ]
+    },
+    "app/pages": {
+      "path": "app/pages",
+      "purpose": "Page components",
+      "fileCount": 4,
+      "lastAccessed": 1789994476961,
+      "keyFiles": [
+        "confirm.vue",
+        "index.vue",
+        "login.vue"
+      ]
+    },
+    "app/schemas": {
+      "path": "app/schemas",
+      "purpose": "Schema definitions",
+      "fileCount": 3,
+      "lastAccessed": 1789994476961,
+      "keyFiles": [
+        "film.ts",
+        "record.ts",
+        "takedown.ts"
+      ]
+    },
+    "app/types": {
+      "path": "app/types",
+      "purpose": "Type definitions",
+      "fileCount": 1,
+      "lastAccessed": 1789994476961,
+      "keyFiles": [
+        "database.types.ts"
+      ]
+    },
+    "server/api": {
+      "path": "server/api",
+      "purpose": "API routes",
+      "fileCount": 2,
+      "lastAccessed": 1789994476961,
+      "keyFiles": [
+        "posters.get.ts",
+        "search.get.ts"
+      ]
+    },
+    "server/assets": {
+      "path": "server/assets",
+      "purpose": "Static assets",
+      "fileCount": 0,
+      "lastAccessed": 1789994476962,
+      "keyFiles": []
+    },
+    "server/middleware": {
+      "path": "server/middleware",
+      "purpose": "Middleware",
+      "fileCount": 2,
+      "lastAccessed": 1789994476962,
+      "keyFiles": [
+        "strip-auth-on-cacheable.ts",
+        "username-redirect.ts"
+      ]
+    },
+    "server/utils": {
+      "path": "server/utils",
+      "purpose": "Utility functions",
+      "fileCount": 16,
+      "lastAccessed": 1789994476962,
+      "keyFiles": [
+        "admin-auth.ts",
+        "admin-tmdb-options.ts",
+        "cron-auth.ts"
+      ]
+    },
+    "supabase/migrations": {
+      "path": "supabase/migrations",
+      "purpose": "Database migrations",
+      "fileCount": 19,
+      "lastAccessed": 1789994476963,
+      "keyFiles": [
+        "0001_init.sql",
+        "0002_venue_selectable.sql",
+        "0003_user_year_stats.sql"
       ]
     },
     "tests/fixtures": {
       "path": "tests/fixtures",
       "purpose": "Test fixtures",
       "fileCount": 2,
-      "lastAccessed": 1788603625290,
+      "lastAccessed": 1789994476963,
       "keyFiles": [
         "cinema-2025-sample.csv",
         "rating-113-sample.csv"
@@ -114,20 +278,32 @@
     },
     {
       "path": "docs/design/DESIGN_SYSTEM.md",
+      "accessCount": 13,
+      "lastAccessed": 1789400285487,
+      "type": "file"
+    },
+    {
+      "path": "nuxt.config.ts",
+      "accessCount": 12,
+      "lastAccessed": 1789401047366,
+      "type": "file"
+    },
+    {
+      "path": "docs/design/SCREENS.md",
       "accessCount": 10,
-      "lastAccessed": 1788620770885,
+      "lastAccessed": 1789399706897,
+      "type": "file"
+    },
+    {
+      "path": "scripts/verify-all.ts",
+      "accessCount": 8,
+      "lastAccessed": 1788794654225,
       "type": "file"
     },
     {
       "path": "docs/BUILD_PLAN.md",
       "accessCount": 7,
       "lastAccessed": 1788662539455,
-      "type": "file"
-    },
-    {
-      "path": "nuxt.config.ts",
-      "accessCount": 5,
-      "lastAccessed": 1788666479594,
       "type": "file"
     },
     {
@@ -174,8 +350,8 @@
     },
     {
       "path": "server/api/cron/tmdb-refresh.get.ts",
-      "accessCount": 2,
-      "lastAccessed": 1788624673111,
+      "accessCount": 3,
+      "lastAccessed": 1788793917262,
       "type": "file"
     },
     {
@@ -200,12 +376,6 @@
       "path": "server/api/legal/counter-notice.post.ts",
       "accessCount": 2,
       "lastAccessed": 1788664442876,
-      "type": "file"
-    },
-    {
-      "path": "docs/design/SCREENS.md",
-      "accessCount": 2,
-      "lastAccessed": 1788672504589,
       "type": "file"
     },
     {
@@ -374,12 +544,6 @@
       "path": "scripts/verify-core.sql",
       "accessCount": 1,
       "lastAccessed": 1788659863951,
-      "type": "file"
-    },
-    {
-      "path": "scripts/verify-all.ts",
-      "accessCount": 1,
-      "lastAccessed": 1788660085771,
       "type": "file"
     },
     {
