@@ -500,16 +500,28 @@ async function confirmRemove() {
       <!--
         頁碼分頁取代「再顯示 24 筆」。⚠️ **不要傳 `:to`**：傳了整組頁碼會變成路由連結，
         每次換頁都推一筆 history，而這一頁的狀態還沒進 URL ⇒ 上一頁會回到一張重設過的表。
-        ⚠️ `sibling-count` 從預設 2 調到 1：375 下 `2` 會讓中段頁碼排到 11 顆、橫向溢出。
       -->
-      <div v-if="pageCount > 1" class="mt-4 flex justify-center">
-        <UPagination
-          v-model:page="page"
-          :total="filtered.length"
-          :items-per-page="PER_PAGE"
-          :sibling-count="1"
-          size="sm"
-        />
+      <!--
+        ⚠️ `sibling-count` 用主題預設的 2，**不要調小**。實跑 reka-ui 自己的 `getRange()`
+        （`showEdges` 預設 false ⇒ 走 `siblingCount*2+1` 那一支、根本不長省略號）：
+        174 筆 = 8 頁時頁碼鈕最多 5 顆、加四顆控制鈕共 9 顆；調成 1 只剩 3 顆頁碼，
+        少掉的是脈絡不是寬度。⚠️ 像素寬**沒有在瀏覽器實量過**（375 逐一點過那關未跑）。
+      -->
+      <!--
+        橫向捲交給這一層自己的容器（沿用年份 tab 列本來的 `-mx-4 overflow-x-auto px-4`）：
+        頁面 body 永遠不橫向捲（§10 品質底線）。⚠️ 這是兜底不是量測——不管將來筆數長到幾頁、
+        主題把鈕改多寬，溢出都關在這個容器裡。
+      -->
+      <div v-if="pageCount > 1" class="mt-4 -mx-4 overflow-x-auto px-4">
+        <div class="flex justify-center">
+          <UPagination
+            v-model:page="page"
+            :total="filtered.length"
+            :items-per-page="PER_PAGE"
+            size="sm"
+            class="w-max"
+          />
+        </div>
       </div>
     </template>
 
