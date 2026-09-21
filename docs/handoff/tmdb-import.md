@@ -42,14 +42,19 @@ TMDB 直接匯入新片時：
 
 ### 2.1 dry-run 已經做好了，這一輪是接著它做
 `ac1e021` 已經交付「不動 DB 的那一半」：
-- `scripts/tmdb-new-releases.ts`（160 行）、`src/tmdb/client.ts`（+30 行的挑片方法）
+- `scripts/tmdb-new-releases.ts`（146 行）、`src/tmdb/client.ts`（+30 行的挑片方法）
 - **沒有任何 INSERT／UPDATE，連 service key 都不用**
-- 跑法：`pnpm exec tsx --env-file=.env scripts/tmdb-new-releases.ts --pages 3`
+- 跑法：`pnpm tsx --env-file=.env scripts/tmdb-new-releases.ts [--pages N]`
   （`package.json` 裡**還沒有**對應的 script 名，見 §6.1）
+- 需要 `DATABASE_URL`（`:46-48`，直連 Postgres 抓片庫，缺了就 throw）與
+  `NUXT_TMDB_API_KEY`／`TMDB_API_KEY`（`:68-70`）。⚠️ F1 說 `DATABASE_URL` 刻意只給本機腳本。
 
 **首次實跑的數字（2026-09-20，`--pages 3`）**：
 `now_playing` 60 ／ `upcoming` 34 ⇒ 去重後 **94 部**；
 ① 已收錄 **13** ② 疑似重複 **0** ③ 候選新增 **81**。
+
+⚠️ **兩個會讓你看錯數字的地方**：`--pages` **預設是 5**（`:67`），上面那組數字是 `--pages 3` 的；
+而 ③ 的清單**刻意只印前 40 筆**（`:136-139`）⇒ 首跑 ③ 是 81 部，**看畫面會以為只有 40 部**。
 
 ### 2.2 ★ 為什麼是三分類而不是「新／舊」兩分類
 片庫有 **267 部 `origin='gov'` 的作品沒有 `tmdb_id`**（比對器沒配到，
@@ -81,6 +86,31 @@ INSERT 那一支（`:604-611`）已經用 `(coalesce(rec->>'source','gov'))::pub
 ⇒ **這條路在 schema 裡早就預留好了**（`film_origin` 列舉實測是 `('gov','tmdb','ugc')`，
 `'tmdb'` 已存在，`0001_init.sql:19`）。
 
+### 2.4.0 ★★ 裁決框要的 `title_zh_source='tmdb'`，現在的 INSERT 分支根本寫不出來
+`seed_films()` 的 INSERT 欄位清單（`0001_init.sql:604-605`）是
+`(tmdb_id, title_zh, title_original, country, runtime_minutes, first_seen_roc_year,
+origin, review_state, visibility)` —— **`title_zh_source` 不在裡面。**
+⇒ 它落回欄位預設值 **`'gov'`**（`0001_init.sql:252`）。
+
+所以照現狀丟 `source='tmdb'` 進 `seed_films()`，結果是
+**`origin='tmdb'` 但 `title_zh_source='gov'`** ——**與 §8.3 的裁決相反**，而且更糟：
+① 群眾翻譯的片名從此被標記成「官方核准的」；
+② UPDATE 分支那條 `case when title_zh_source = 'gov'` 變成**一直放行**。
+
+⚠️ **裁決框只提了 UPDATE 分支那一條，這一條它沒提。** 兩條都要做。
+**既有的正確寫法先例**：`scripts/import-mylog.ts:222-227` 的 `upsertTmdbFilm()`
+顯式寫了 `'tmdb', …, 'tmdb', …, 'tmdb', 'approved', 'public'`。照它抄。
+
+★ 順帶一個會誤導判斷的事實：**`origin='tmdb'` 分不出「TMDB 直接匯入的新片」與
+「政府片配對成功」。** `src/pipeline/consolidate.ts:82` 寫的是
+`source: outcome.matched ? 'tmdb' : 'gov'` ⇒ 只要政府核准的片配對到 TMDB，
+`origin` 就已經是 `'tmdb'`。
+⇒ **任何「只對 TMDB 直接匯入的片生效」的條件都不能只看 `origin`。**
+
+★ `review_state='approved'` 其實不是選擇而是**唯一合法值**：表級 CHECK
+`film_ugc_review`（`0001_init.sql:274`）是 `check (origin = 'ugc' or review_state = 'approved')`，
+而 INSERT 已經寫死 `'approved', 'public'`（`:609`）⇒ §8.3 的這一半**早就成立**，不用做。
+
 ### 2.4.1 ★★ 那個 `case` 是 source-blind 的——它會讓 TMDB 蓋掉官方片名
 看清楚 `case when title_zh_source = 'gov'` 檢查的是**那一列的**來源，
 **不是進來的 `rec` 的來源**。INSERT 分支讀了 `rec->>'source'`，**UPDATE 分支完全沒讀。**
@@ -109,8 +139,13 @@ INSERT 那一支（`:604-611`）已經用 `(coalesce(rec->>'source','gov'))::pub
 > 而 `admin_correct_film()` 的回傳值會把它講出來，讓 UI 可以顯示。
 
 ⇒ **你的新分支必須只針對 `title_zh_source = 'tmdb'`，不可以寫成 `<> 'gov'`。**
-寫成 `<> 'gov'` 會把 admin 人工修正過的片名在下一次 seed 時**靜默洗掉**，
-而 `0012:321` 的冒煙測試**抓不到**——它是在修正的當下斷言，不是在重跑 seed 之後。
+寫成 `<> 'gov'` 會把 admin 人工修正過的片名在下一次 seed 時洗掉。
+
+✅ **好消息：這件事有既有的斷言在守，你會被抓到。** `0012:321-346` 有一組冒煙測試
+**會真的重跑 `seed_films()`**，admin 片名被洗掉就 raise，而且還附了一組對照組（`:337-346`）。
+`0012:26-30` 自己就說明「`seed_films()` 的 update 路徑正是保護 `title_zh_source='admin'`
+的機制」。⇒ 你改那條 `case` 的時候，**那組冒煙測試就是你的雙向自測**（§5.5）：
+把條件寫寬一點應該讓它變紅，如果沒紅，是你的改動沒生效或那組測試沒跑到。
 
 ⚠️ `'ugc'` 那一類怎麼處理**沒有裁決**。§8.3 只講 TMDB 建的列。
 ⇒ **範圍嚴格限定 `'tmdb'`，`'ugc'` 寫進卡點問，不要自己擴大。**
@@ -122,6 +157,35 @@ INSERT 那一支（`:604-611`）已經用 `(coalesce(rec->>'source','gov'))::pub
 ⇒ `link_film_to_tmdb` 直接丟 `unique_violation`。
 ⚠️ **`link_film_to_tmdb` 是 admin 端重新配對的唯一入口** ⇒ 任何修正配錯 id 的路徑都會踩到。
 **解法照 `0017:63-73` 的既有手法**：先 `delete from public.film_identity` 舊的那一列，再 `link`。
+
+### 2.7 其他查過的事實（會影響你的設計，不要再重查）
+- **`seed_films()` 只認 service context**：`0001_init.sql:598` 的 `is_service_context()`
+  （定義 `:60-66`，判 `session_user` ＋ JWT `role='service_role'`，**刻意不用 `current_user`**
+  ——這個 repo 真的被打穿過一次），GRANT 只給 `service_role`（`9999_grants.sql:230-232`）。
+  ⇒ 任何網頁入口都得先過 staff 判斷再取 `serviceSupabase()`（`server/utils/service-supabase.ts:16`）。
+- **`film.tmdb_id` 是 UNIQUE**（`0001_init.sql:249`）且刻意 NULLABLE（實測 20% 台灣上映片
+  TMDB 找不到）。而 **INSERT 分支沒有 `on conflict`** ⇒ 若某部片已有 `tmdb_id` 卻沒有對應的
+  `film_identity` 列，去重會失手而直接吃 `unique_violation`，**整批回滾**
+  （單一 simple-query 隱式交易，`scripts/db.ts:6`）。
+- **有 `tmdb_id` 就一定有快照列，資料庫已經保證**：`0004:36-57` 的 `film_ensure_snapshot`
+  觸發器（`after insert or update of tmdb_id`）⇒ 你不需要自己補快照列，但也不能假設沒有觸發器。
+- **批次太大會撞 statement timeout**：`scripts/seed-supabase.ts:57` 的 `FILM_BATCH = 200`，
+  `scripts/db.ts:37` 把 `statement_timeout` 設成 300 秒。`seed_films()` 是 plpgsql 迴圈。
+- **payload 的欄位契約沒有 zod，只有一個手寫 interface**：`scripts/seed-supabase.ts:15-25`
+  的 `FilmRow`，`source` 只宣告成 `string`（不是列舉）。要在 payload 加新欄位
+  （例如 `titleZhSource`）就是**改那個 interface ＋ SQL 兩邊**。
+- **`seed_films()` 的唯一生產呼叫端**是 `scripts/seed-supabase.ts:152`（`db.rpc`，批次 200）。
+- **`apply_tmdb_snapshot()` 的唯一生產呼叫端**是 `server/utils/tmdb-refresh.ts:179`，
+  由 cron（`server/api/cron/tmdb-refresh.get.ts`）每輪呼叫 ⇒ §1 講的「每次刷新再寫一次片名」
+  是活的路徑，不是理論。
+- **目前不存在任何「從 TMDB 新增作品」的網頁端點或後台 UI**。`server/api/admin/tmdb/`
+  只有 `refresh`／`purge`／`status` 三支（`c431ab1`），全部只操作既有快照。
+  ⇒ 卡點 #4 若放行，那是**全新的東西**，不是改既有的。
+- **`verify:all` 開頭會偵測 `supabase/migrations` 與 `scripts` 有未提交變更並警告**
+  （`scripts/verify-all.ts:679-689`）⇒ 看到那個警告是正常的，不是你弄壞了什麼。
+- ⚠️ **一則過期註解**：`scripts/tmdb-backfill.ts:12-14` 寫著「沒有 `pnpm tmdb:backfill` 別名」，
+  但 `package.json:31` 就有那一條。**規則（加 script 要核可）仍然有效，事實部分過期**。
+  那個檔不在 §6.1 的足跡裡 ⇒ 要順手修它先回報。
 
 ---
 
@@ -146,11 +210,20 @@ INSERT 那一支（`:604-611`）已經用 `(coalesce(rec->>'source','gov'))::pub
 ⇒ 斷言要寫成「**不存在**符合 X 的列」這種資料述詞，
 不要寫成「總數 = N」——後者在別人有合法資料時會變成**假紅燈**。
 
-至少要有這三條（都是全表述詞）：
-- **匯入前後，`origin='gov' and title_zh_source='gov'` 的那些列，`title_zh` 零差異。**
-  這條守的是 §2.4.1 那個洞。
+至少要有這四條（都是全表述詞）：
+- **匯入前後，`title_zh_source='gov'` 的那些列，`title_zh` 零差異。** 守 §2.4.1 那個洞。
+  ⚠️ **條件只能看 `title_zh_source`，不可以加 `origin='gov'`**——§2.4.0 證明了
+  政府片配對成功之後 `origin` 就已經是 `'tmdb'`，加了 `origin` 條件會**漏掉大部分要守的列**。
+  這正是 F5.4 那一類（斷言量錯了東西）；主 session 第一版就是這樣寫錯的。
 - **不存在 `title_zh_source='admin'` 卻被這次匯入改動過 `title_zh` 的列。** 守 §2.5。
 - **不存在同一個 `tmdb_id` 對到兩個 `film_id` 的情形。** 守 §2.2 的重複作品。
+- **新匯入的列，`title_zh_source` 必須是 `'tmdb'`**（不是 `'gov'`）。守 §2.4.0。
+
+**落點**：`scripts/verify-core.sql`。那裡的 **C2（`:206-224`）「政府核准的中文片名不得被
+TMDB 蓋掉」已經在做同一族的事**——它抓一部 `title_zh_source='gov'` + `state='fresh'` 的片、
+把快照片名改掉、跑 `apply_tmdb_snapshot()`，片名必須一個字都不變。
+⚠️ 但 **C2 的取樣條件是 `f.title_zh_source = 'gov'` ⇒ 它選不到新匯入的片**。
+**擴充 C2、不要另開一條孤立的檢查**（踩雷 #233：冒充的斷言比略過更糟）。
 
 ### 3.2 ⚠️ 讀 migration 檔 ≠ 讀 DB 裡活著的定義（踩雷 #189）
 `supabase/migrations/0008` 與 `0010` 會在**執行時** `pg_get_functiondef()` 讀出
@@ -164,8 +237,21 @@ select pg_get_functiondef(p.oid) from pg_proc p
 ```
 ⚠️ 這一條的代價是**靜默的**：拿舊定義推論「重跑 seed 會不會洗掉」，猜錯時資料被覆蓋
 **不會有任何訊息、不會有任何測試變紅**。
-⇒ 你的新 migration 要**照 `0008`／`0010` 的既有手法**（讀活體 → `replace` → `execute`），
-還是整支 `create or replace`，**由你讀完活體之後決定並說明理由**。
+
+✅ **這一輪查過了，可以直接用**：`0008:82-96` 與 `0010:47-62` 兩次改寫**都只動 INSERT 分支**
+（`country`／`titleOriginal` 的 `coalesce`→`nullif`），**第 613 行那條 UPDATE 閘門兩次都沒被碰過**
+⇒ §2.4 貼的那段 UPDATE 分支**就是線上現在跑的版本**。
+但**你還是要自己讀一次活體確認**——這是方法問題，不是這一次對不對的問題。
+
+### 3.3 ★★ 新 migration **不可以**用 `create or replace` 抄一份函式體
+`0010:41-45` 明文記載了理由：**`0009` 就是這樣做的，結果靜默回退了 `0006` 的修正**，
+而靜態檢查**全綠**，是 `verify-dmca` 才抓到的。
+⇒ **必須沿用 `0008`／`0010` 的「讀出活體定義 → `replace` 字串 → `execute`」手法。**
+這不是風格選擇，是這個 repo 踩過的坑。
+
+⚠️ 用 `replace` 就代表**你要先確認那段字串在活體裡真的只出現一次、而且一字不差**。
+`replace` 沒命中時 PostgreSQL 不會報錯，它會安靜地把原樣的定義寫回去
+⇒ **migration 成功、改動沒發生**。所以要把**命中次數印出來**當斷言（這正是踩雷 #254 那一條）。
 
 ---
 
@@ -261,12 +347,25 @@ SQL 檔裡 `0012`／`0017` 那種**解釋取捨的長註解是這個 repo 的迴
 src/tmdb/**
 scripts/tmdb-new-releases.ts
 scripts/<你新增的匯入腳本>
-supabase/migrations/0019_*.sql        ← 下一個編號，先 ls 確認（現況最大是 9999_grants 之外的 0018）
-server/api/admin/**                   ← 只在要加 admin 觸發時；先看 c431ab1 的既有做法
+scripts/verify-core.sql               ← §3.1 的冒煙述詞落在這裡（擴充 C2，:206-224）
+supabase/migrations/0019_*.sql        ← 下一個編號（現況最大是 0018，另有 9999_grants）
 docs/handoff/tmdb-import.md           ← 這份，收工時你自己更新
-docs/BUILD_PLAN.md                        ← 只讀。新踩雷交給主 session 合併（§7 第 2 點）
-package.json                          ← 只准加一個 script 名（見下）
 ```
+**條件例外**（只有在對應卡點被放行之後才可以動，否則視為禁寫）：
+```
+app/pages/admin/-TmdbMaintenance.vue  ← 只在卡點 #4（後台觸發入口）放行後
+server/api/admin/tmdb/*.post.ts       ← 同上；既有三支見 c431ab1，照它的形狀
+app/types/database.types.ts           ← 只在卡點 #1（真的 apply migration）放行後
+package.json                          ← 只准加一個 script 名，且要先回報（見下）
+```
+⚠️ **這四個都落在 §6.2 的封鎖區裡**，寫成條件例外是刻意的——
+**deny 優先於 glob**，沒有放行就是不能動。
+
+✅ **這一輪預期不需要重跑 `pnpm db:types`**：§3 規定不套 migration 到線上，
+而 F1 說只有一顆 DB ⇒ `db:types` 讀到的 schema 不變，`database.types.ts` 實際是凍結的。
+
+✅ **新增 `0019` 不需要同步 BUILD_PLAN**：`scripts/sync-schema-docs.ts:25-63` 的 SECTIONS
+只收 `0001`／`0002`／`0003`／`9999`。（但改 `0001_init.sql` 會被那支擋，所以別改它。）
 **`package.json` 的例外**：`scripts/tmdb-new-releases.ts` 目前沒有 script 名。
 加一個（例如 `tmdb:new-releases`）是合理的，但 **`package.json` 是共用檔**
 ⇒ 加之前回報一句，讓主 session 確認另一條線沒有同時在改。
@@ -275,7 +374,7 @@ package.json                          ← 只准加一個 script 名（見下）
 ### 6.2 要讀、但**不要寫**
 `src/pipeline/**`（`ingest-rating.ts` 是政府資料那條路）、`src/import/**`（§0 那個另一個匯入）、
 `app/**`（整個前端這一輪都是 records-ui 的）、`nuxt.config.ts`、`pnpm-lock.yaml`、
-`scripts/verify-all.ts`、`eslint.config.*`、`.omc/project-memory.json`
+`scripts/verify-all.ts`、`eslint.config.js`、`.omc/project-memory.json`
 ⇒ 真的必須動其中任何一個：**先回報，不要自己決定**。
 
 ### 6.3 ⚠️ 兩條線共用同一個 checkout
@@ -284,7 +383,11 @@ package.json                          ← 只准加一個 script 名（見下）
 ——**一條線的 `--fix` 掃到了另一條線的檔**。硬性條款：
 
 - 只 `git add` §6.1 之內、而且你真的改過的檔。**禁 `git add -A`、禁 `git commit -a`。**
-- **禁全 repo `pnpm lint:fix`。** 要 autofix 就指定檔案：`pnpm exec eslint --fix <你的檔>`。
+- **禁全 repo `pnpm lint:fix`。** 它是 `oxlint --fix . && eslint . --fix` **兩支**，
+  要 autofix 就兩支都指定檔案：`pnpm exec oxlint --fix <你的檔> && pnpm exec eslint --fix <你的檔>`。
+  ⚠️ `eslint.config.js` 的 ignores 實查涵蓋 `supabase/migrations/**`、`docs/**`、`.omc/**`、
+  `app/types/database.types.ts` ⇒ 失手的 `lint:fix` **不會**改到 migration 與交接文件，
+  但**會**改寫 `app/**`／`scripts/**`／`src/**`／`server/**` 的 `.vue`／`.ts` ⇒ 那正是對方的地盤。
 - **禁 `git stash`／`git checkout .`／`git reset --hard`／切分支。**
 - `typecheck`／`lint` 在**不屬於你的檔**變紅 ⇒ **回報，不要修**。那大概是對方正在寫。
 - commit 前跑 `git status --short`，出現你足跡外的檔就停下來。
@@ -317,8 +420,11 @@ port 被別人佔著時你量到的東西不是你以為的那個。
    `docs/BUILD_PLAN.md`。** 兩條線同時往 §7 的同一張表尾端加列**一定會 git 衝突**
    （§7.6 的表尾是兩邊都要加的地方）。⇒ **由主 session 合併**。
    號段是你的、編號由你決定，只是**落點由主 session 放**。
-3. `BUILD_PLAN §8.3` 第 1 則那個裁決框做完之後**回去更正它的狀態**，
-   但**不要刪掉它的理由**——那是唯一倖存的權威來源。
+3. `BUILD_PLAN §8.3` 第 1 則那個裁決框做完之後要更正狀態，**但不要自己動那個檔**
+   （同第 2 點）。把「§8.3 該改成什麼」的文字寫進這份交接，**落點由主 session 放**。
+   ⚠️ **不要刪掉它的理由**——那是唯一倖存的權威來源。
+   而且這一輪你已經找到**裁決框漏掉的那一半**（§2.4.0 的 `title_zh_source` 沒被寫），
+   那件事一定要寫進去。
 
 ---
 

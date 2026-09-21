@@ -79,8 +79,21 @@
 
 ### 2.5 改作品：三層都要看
 `edit.vue` 有 `select(… film_id)`（`:45`）但**只用來查片名**（`:63`），從不寫回。
-`film_id` 在 UI 上完全不可改。**資料庫與 RLS 允不允許 UPDATE `film_id`，你要自己查**——
-查法見 §5.2，**不要讀 migration 檔就下結論**（理由見 §4.1）。
+`film_id` 在 UI 上完全不可改。
+
+**主 session 讀 migration 檔的結論是「不需要 migration」**（查過的依據）：
+`0001_init.sql:827-830` 的 `record_update` policy，`with check` 只要求
+`user_id = auth.uid() and moderation_state='visible' and film_usable_by(film_id, auth.uid())`
+——**沒有把 `film_id` 釘成常數**（對照 `:782-787` 的 `film_update_own_ugc`，那個才是把管制欄位
+釘成常數的寫法）；`9999_grants.sql:76` 是**表級** `grant insert, update, delete on
+public.viewing_record to authenticated`，全 repo migration 裡沒有 `viewing_record` 的欄位級
+grant，也沒有 `film_id` 的 guard trigger（`0001:489` 是 `touch_updated_at`、`:499` 是
+`watched_on` 日期守門、`:323-324` 的 `film_identity_sync` 掛在 `film` 表不是 `viewing_record`）。
+
+⚠️ **但以上全部是讀檔得到的、未讀活體** ⇒ **你必須自己用 `pnpm db:sql` 讀活體覆核**
+（理由見 §4.1，踩雷 #189）。**不要把上面那段當成已驗證。**
+⚠️ 如果活體顯示真的需要 migration，那是卡點——`supabase/migrations/**` 是**另一條線的地盤**，
+你不要自己加。
 
 ✅ **好消息：`MyRecord` 已經有 `filmId`**（`useMyRecords.ts:15`，型別註解說明「抽屜只能靠它
 對回紀錄——片名會撞」）⇒ Drawer 要顯示「現在是哪一部」**不需要動 `useMyRecords.ts`**，
@@ -246,8 +259,10 @@ app/pages/app/records/new.vue
 app/pages/app/records/[id]/edit.vue      ← 改寫成 Drawer 後這個檔可能要刪
 app/composables/useRecordDraft.ts
 app/composables/useRecordOptions.ts
-app/schemas/record.ts                     ← 若改作品需要新欄位
+app/schemas/record.ts                     ← 若改作品需要新欄位（new 與 edit 唯一的共用檔）
 app/components/**                         ← 要抽 Drawer 內容成元件的話
+docs/design/SCREENS.md                    ← 做完後 :47、:620-630、:1210-1211、:1227-1229
+                                             四處會變成事實錯誤，一起更正
 docs/handoff/records-ui.md                ← 這份，收工時你自己更新
 docs/BUILD_PLAN.md                        ← 只讀。新踩雷交給主 session 合併（§7 第 2 點）
 ```
@@ -256,8 +271,22 @@ docs/BUILD_PLAN.md                        ← 只讀。新踩雷交給主 sessio
 `app/composables/useMyRecords.ts`（與 `/app` 共用，見 §4.2）、
 `app/utils/ticket.ts`、`app/utils/format-datetime.ts`、
 `nuxt.config.ts`、`package.json`、`pnpm-lock.yaml`、`scripts/verify-all.ts`、
-`app/components/AppNav.vue`、`eslint.config.*`、`.omc/project-memory.json`
+`app/components/AppNav.vue`、`eslint.config.js`、`.omc/project-memory.json`
 ⇒ 真的必須動其中任何一個：**先回報，不要自己決定**。
+
+⚠️ **deny 優先於 glob。** §6.1 給了你 `app/components/**`，但 `AppNav.vue` 在上面這張禁寫清單裡
+⇒ 那個 glob **不包含它**。（實查 `AppNav.vue` 只有 `:94` `/app/records` 與 `:95`
+`/app/records/new`，**沒有 edit 連結** ⇒ 這一輪本來就不需要動它。）
+
+⚠️ **一個沒被指派、但你幾乎一定會碰到的共用檔**：`app/composables/useFilmSearch.ts`。
+「改作品」的片名搜尋幾乎必然複用它，而它有**五個消費者**（`useRecordDraft.ts`、
+`app/pages/app/import.vue`、`records/new.vue`、`films/new.vue`、`admin/films.vue`）
+⇒ **改它的介面會讓兩個跟 records 無關的頁面 typecheck 變紅。**
+判準：**可以讀、可以呼叫；要改它的公開介面就先回報。**
+
+✅ **new 與 edit 沒有任何共用的表單元件**（查過：兩者唯一共用的是 `app/schemas/record.ts`）。
+`app/components/` 的 24 個檔裡沒有任何 `Record*` 表單元件（只有 `RepeatList.vue`、
+`TicketCard.vue`）⇒ Drawer 的表單是**新建**，不是重構既有元件。
 
 ### 6.3 ⚠️ 兩條線共用同一個 checkout
 另一條線 **tmdb-import** 同時在跑（`src/tmdb/**`、`scripts/**`、`supabase/migrations/**`、
@@ -265,7 +294,11 @@ docs/BUILD_PLAN.md                        ← 只讀。新踩雷交給主 sessio
 兩個 NuxtLink`——**一條線的 `--fix` 掃到了另一條線的檔**。硬性條款：
 
 - 只 `git add` §6.1 之內、而且你真的改過的檔。**禁 `git add -A`、禁 `git commit -a`。**
-- **禁全 repo `pnpm lint:fix`。** 要 autofix 就指定檔案：`pnpm exec eslint --fix <你的檔>`。
+- **禁全 repo `pnpm lint:fix`。** 它是 `oxlint --fix . && eslint . --fix` **兩支**，
+  要 autofix 就兩支都指定檔案：`pnpm exec oxlint --fix <你的檔> && pnpm exec eslint --fix <你的檔>`。
+  ⚠️ `eslint.config.js` 的 ignores 實查涵蓋 `supabase/migrations/**`、`docs/**`、`.omc/**`、
+  `app/types/database.types.ts` ⇒ 失手的 `lint:fix` **不會**改到 migration 與交接文件，
+  但**會**改寫 `app/**`／`scripts/**`／`src/**`／`server/**` 的 `.vue`／`.ts` ⇒ 那正是對方的地盤。
 - **禁 `git stash`／`git checkout .`／`git reset --hard`／切分支。**
 - `typecheck`／`lint` 在**不屬於你的檔**變紅 ⇒ **回報，不要修**。那大概是對方正在寫。
 - commit 前跑 `git status --short`，出現你足跡外的檔就停下來。
@@ -303,7 +336,11 @@ docs/BUILD_PLAN.md                        ← 只讀。新踩雷交給主 sessio
 
 1. **「全部」當預設之後，影城／版本選單要不要限制選項**（§2.2 的連帶代價）。
 2. **搜尋要不要含日期字串**（例如打 `2024/07` 找那個月）。簡報只要求四個自由文字欄。
-3. 任何需要改 `package.json`／`useMyRecords.ts`／`nuxt.config.ts` 的事。
+3. 任何需要改 `package.json`／`useMyRecords.ts`／`nuxt.config.ts`／
+   `app/composables/useFilmSearch.ts` 公開介面的事。
+4. **分頁如果你判斷應該下沉到伺服器端**（而不是在已載入的全集上做客端分頁）——
+   那一定會動到 `useMyRecords.ts`，而它是 `/app` 共用的（§4.2）⇒ 先回報。
+   簡報的預設是**客端分頁**：搜尋、篩選、排序反正都在客端，資料早就全在手上。
 
 ### 已經替你決定好的（不用問，照做）
 - **`new.vue` 這一輪只改風琴那一處**，新增流程不動（理由在 §2.1 那條交棒）。
