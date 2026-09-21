@@ -2443,8 +2443,8 @@ TMDB 上四話各自獨立、沒有連映版條目，而一筆 `viewing_record` 
 > | #250–#269 | **2026-09-20 主 session**（15 個互動入口的瀏覽器驗收）|
 > | #270–#289 | **dashboard**（2026-09-20 配發：`/app` 改成海報牆）|
 > | #290–#309 | **formats**（2026-09-20 配發：MAPPA／TITAN 升格成獨立版本）|
-> | #310–#329 | **tmdb-import**（2026-09-21 配發：TMDB 直接匯入新上映作品）|
-> | #330–#349 | **records-ui**（2026-09-21 配發：`/app/records` 六項改造——Drawer 編輯、改作品、關鍵字搜尋、年份篩選＋頁碼分頁、取消風琴）|
+> | #310–#329 | **tmdb-import**（2026-09-21 配發：TMDB 直接匯入新上映作品；已用到 #314，該線暫停待下週末）|
+> | #330–#349 | **records-ui**（2026-09-21 配發：`/app/records` 六項改造——Drawer 編輯、改作品、關鍵字搜尋、年份篩選＋頁碼分頁、取消風琴；已用到 #337）|
 > | #350+ | 未配 |
 >
 > **號段內有跳號是正常的，不要為了連號而重排。** 號段用完就跟主 session 要下一段。
@@ -2745,6 +2745,19 @@ diff /tmp/a /tmp/b                     # 除了 SSR 時戳外必須完全相同
 | 242 | **★ `document.elementFromPoint()` 對視窗外的座標回 `null`，而 `null` 會讓「這個點上是不是我要的元素」一律判成 false。** 也就是說「元素被別的東西蓋住」與「元素根本不在視窗裡」**回傳同一個答案**。2026-09-08 實測：量 `/app/records` 備註鈕可不可點，鈕在 y=1014 而視窗高 900，探針回 null ⇒ 報成「被蓋住」。⚠️ **而那個結論碰巧是對的**（捲進視窗重量之後確認真的被蓋 93px）——**一個會碰巧對的驗法比結論錯更危險**，它會一直用下去直到某天碰巧錯。⇒ 用 `elementFromPoint` 前**一定要先 `scrollIntoView({block:'center'})` 並斷言 `rect.top >= 0 && rect.bottom <= innerHeight`**，把「視窗外」跟「被遮蔽」分開。另附一條：量覆蓋層時 reka 的 DismissableLayer 會把 `body` 的 `pointer-events` 設成 `none`，要先暫存並改成 `auto` 再量、量完還原，否則探針一律回 null（同一個假答案的另一個來源） | 2026-09-08 實測（瀏覽器驗收） |
 | 243 | **「暗色有沒有漏純白」掃全文件會拿到永久假陽性——Nuxt DevTools 注入的 `#vue-tracer-overlay` 就有三個。** 2026-09-08 實測 `/app` 暗色：`document.querySelectorAll('*')` 掃出 3 個純白元素（一個 12×2 `opacity:0`、兩個 0×0），祖鏈全部是 `body > div#vue-tracer-overlay > …`；而 **`#__nuxt` 之內是 0 個**。⇒ 掃描一律限縮在 `#__nuxt`，否則每一次量測都會帶著三個永遠修不掉的紅字，而**一份永遠有紅字的報告等於沒有報告**——真的漏純白時沒有人會注意到多了一個。`scripts/screenshot-pages.mjs` 已修 | 2026-09-08 實測（瀏覽器驗收） |
 | 244 | **dev server 活得比你的重構久。** 2026-09-08：`/admin` 在瀏覽器裡整頁 500（`The requested module '/_nuxt/pages/admin/-admin-shared.ts' does not provide an export named 'apiErrorText'`），而**原始碼完全正確**——沒有任何檔案還從那裡匯入那個名字。根因是那個 `nuxt dev` 已經跑了 **2 天 22 小時**，橫跨當天所有的「把純函式搬進自足模組」。⚠️ 這是 #173 的復發，但這一次的形狀更難認：`pnpm lint` / `typecheck` / `test`(429) / `verify:all`(58) **四個全綠**，SSR 也回 200（那只是 SPA 外殼），**只有真的用瀏覽器打開才看得到**。⇒ 搬動任何匯出之後**重啟 dev server**；以及**不要用「HTTP 200」當頁面健康的證據**，SPA 路由的 200 什麼都不保證 | 2026-09-08 實測（瀏覽器驗收） |
+| 310 | **★★ 裁決可以是對的，但**不完整**——而照字面執行會得到與裁決相反的結果。** `§8.3` 第 1 則要 `title_zh_source='tmdb'`，但沒說 `seed_films()` 的 INSERT 分支**根本沒有那個欄位**（落回預設 `'gov'`）⇒ 照做會讓群眾翻譯的片名被標記成官方的，而且沒有任何錯誤訊息。⇒ **裁決落地前要先確認「照它做」在現有程式碼裡真的做得到**，不要假設裁決者查過實作。詳見 `docs/handoff/tmdb-import.md §9.5` | 2026-09-21 tmdb-import |
+| 311 | **★★ 「同一個字在兩層是兩個意思」比錯字危險。** `rec->>'source'` 在管線裡是「比對器有沒有配到 TMDB」（`consolidate.ts:82`），直覺上卻像「這筆資料是誰送的」。拿它當判別子會**靜默關掉政府片名的更新路徑**（約 2,401 列），**而主要那條斷言在那個壞法下正好是綠的**。⇒ 跨層判別子要用**新的、明示的**欄位，並配一條「該寫的必須還寫得進去」的**反向對照**才擋得住那個假綠燈 | 2026-09-21 tmdb-import |
+| 312 | **巢狀 dollar-quote 相鄰會產生 `$$`。** `$body$$fn$` 裡的 `y$`＋`$f` 就是 `$$`，外層 `do $$` 被提前關掉，而錯誤訊息（`syntax error at or near "fn$"`）指向的位置**跟原因無關**。⇒ 巢狀 dollar tag 之間留換行 | 2026-09-21 tmdb-import |
+| 313 | **「安全地證明閘門會擋」有辦法：挑一組無論閘門對錯都不可能寫入的參數。** 驗 `--apply` 的拒絕邏輯又不能真的動線上資料時用 `--limit 0`（閘門壞掉時 `rows.length === 0` 也不會寫）⇒ 驗到了拒絕，且沒把線上資料押上去 | 2026-09-21 tmdb-import |
+| 314 | **verify 新增的斷言要對「還沒套用的 migration」自動略過。** 否則共用 checkout 的另一條線跑 `verify:all` 會吃到一片紅燈——而那片紅燈是對的、卻不是他們的事。⇒ 以**活體函式定義**當開關（`pg_get_functiondef() like '%新欄位%'`），notice 略過、不計入 fails | 2026-09-21 tmdb-import |
+| 330 | **`port 3000 回 200` 不代表那是你開的站——也可能是同一個 repo 的另一顆 dev。** `#241` 講的是「3000 上是別的專案」，這次是反面：3000 上**就是 filmnote**，但那是更早起來的另一顆 `nuxt dev`，新起的被擠到 3001。兩顆 dev 跑同一個 checkout 會**同時寫 `.nuxt/`**。⇒ 要比對的是 `ps -o pid,lstart,command` 的**啟動時間**，不是 `curl` 看標題（兩顆標題一模一樣）。⚠️ 附帶：那顆站只綁 `[::1]` ⇒ `curl 127.0.0.1:3000` 連線被拒、`localhost:3000` 回 200，拿 IPv4 去探會得到「沒人在跑」的**錯誤**結論 | 2026-09-21 records-ui |
+| 331 | **`UPagination` 的 `showEdges` 預設 `false` ⇒ 省略號根本不會出現。** 憑印象算寬度會算出 11 顆（那是 `showEdges=true` 的形狀），實際最多 9 顆。⇒ 要知道第三方元件會 render 幾顆，**直接 import 它自己的 `getRange()` 跑一次**（`reka-ui/dist/Pagination/utils.js`），比開瀏覽器便宜、也比推論可靠 | 2026-09-21 records-ui |
+| 332 | **「四關全綠」對 client-only 的搜尋／分頁完全沒有意見，但它們是可以被抽出來測的。** 把 `matchesQuery`／`pageSlice` 從 SFC 抽成純函式之後，`(page-1)*perPage` 少減一**立刻紅 3 條**；留在 `computed` 裡則四關全綠。⇒ **client 行為要先變成純函式才測得到**，這比「開瀏覽器點一遍」涵蓋得更穩定 | 2026-09-21 records-ui |
+| 333 | **★ 拿 David 自己的帳號驗 RLS，驗不到一般使用者那條路——而且方向是假綠。** `viewing_record` 上有 `record_staff`（`for all`，using 與 with check 都是 `is_staff()`），**policy 是 permissive、以 OR 相加** ⇒ David 的 `is_staff()` 實測回 `t`，他的每一次 update 都走 `record_staff`，`record_update` 裡的 `film_usable_by` 對他**從來不生效**。⇒ 用他的帳號驗會得到「什麼都過」的假綠，而真正會擋人的是一般使用者那條路——**這個資料庫裡沒有第二個使用者可以驗**（`auth.users` 只有一個）| 2026-09-21 records-ui |
+| 334 | **`updated_at` 不能拿來證明「這是 UPDATE 不是 -1+1」。** `touch_updated_at` 用 `now()`，而 `now()` 在**同一個交易裡是凍結的** ⇒ insert 與隨後的 update 拿到一模一樣的值，那條斷言會**永遠紅、而且看起來像「真的沒更新」**。⇒ 能用的證據是 `id` 同、`created_at` 同、以及**票價列還在**（`viewing_record_cost` 的 FK 是 `ON DELETE CASCADE`，真的刪掉重建會被靜靜連帶刪掉）| 2026-09-21 records-ui |
+| 335 | **`venue.id` 是 `text` 不是 `uuid`。** 在 PL/pgSQL 裡宣告成 `uuid` 會炸在 `string_to_uuid`（`22P02`），而錯誤訊息只給行號、不說是哪一欄。⇒ 寫驗證 SQL 前先查 `information_schema.columns`，不要照「id 就是 uuid」的直覺寫 | 2026-09-21 records-ui |
+| 336 | **說明註解寫在根元素外面，會讓轉址頁也違反單根節點。** 把 `[id]/edit.vue` 改成轉址時，把「這個檔為什麼要有一個根元素」的註解寫在 `<div />` **上面** ⇒ `page-root.test.ts` 當場紅。⚠️ 那正是該測試存在的理由，而它是**在寫「註解只能放在根元素之內」這句話的同時**被踩到的 | 2026-09-21 records-ui |
+| 337 | **★★ Playwright 的 `click()` 會先把目標捲進視窗 ⇒ 點一個捲出畫面的元素，等於你自己改了捲動位置，然後量到「捲動位置變了」。** 量到的數字很有說服力（400→0、48→448），還拿兩個「完全不導航」的對話框做對照、**三個都復現** ⇒ 更確信是共有的既有行為。**但對照組一起復現，是因為它們共用同一個錯誤前提（都點第 0 列），不是因為共用同一個 bug。** 抓法：在點擊處理器第一行印 `window.scrollY`——印出來是 0 不是 400 ⇒ 元凶在點擊之前。⇒ 改點視窗內的列重驗，三個情境全過。⚠️ 為這個**不存在的 bug** 試的兩個修法都已完全撤掉、沒有進版 | 2026-09-21 records-ui |
 
 ---
 
