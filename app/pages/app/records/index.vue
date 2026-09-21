@@ -170,7 +170,8 @@ function memoIsLong(memo: string) {
 /**
  * 全文對話框。**一個 Modal 服務整張表**（24 列各生一個 `DialogRoot` 是白花的），開出來的是
  * 哪一列全靠 `memoRecord`。⚠️ 關閉時**刻意不清空**：`UModal` 有 200ms 關閉動畫，清空會讓
- * 內文先變空、`:to` 變成 `/app/records/undefined/edit` ⇒ 字先消失、框才淡出。
+ * 內文先變空、底下那顆「編輯這筆」的 `:to` 跟著算不出目標 ⇒ 字先消失、框才淡出。
+ * （2026-09-21：那個 `:to` 從 `/app/records/<id>/edit` 改成 `?edit=<id>`，理由同上不變。）
  */
 const memoOpen = ref(false)
 const memoRecord = ref<MyRecord | null>(null)
@@ -238,6 +239,58 @@ const columns: TableColumn<MyRecord>[] = [
 ]
 const columnPinning = { right: ['actions'] }
 
+/* ── 編輯抽屜（David 2026-09-21 第 1 條）──────────────────────────────────
+ * 「改成點編輯開 Drawer，不使用換頁，這樣不用處理返回上一頁狀態都被清掉」。
+ *
+ * 開關走 query string `?edit=<id>`，先例是 `3792b6a` 的 `/u/` `?view=wall`。
+ * ⚠️ 只換 query **不會讓頁面重掛**：`<NuxtPage>` 的 key 來自
+ * `generateRouteKey()` → `interpolatePath()`，那支拿的是**路由的 path 樣板**代入 params
+ * （`nuxt/dist/pages/runtime/utils.js:6-13`，查過原始碼不是推的）⇒ query 從來不在 key 裡。
+ * ⚠️ 捲動位置同理：Nuxt 預設的 scrollBehavior 在 `to.path === from.path` 且兩邊都沒有 hash
+ * 時 `return false`（`nuxt/dist/pages/runtime/router.options.js`）⇒ 不捲。
+ * ⇒ 篩選／頁碼／捲動位置全部留著，而瀏覽器「上一頁」只是把 `?edit` 拿掉＝關抽屜。
+ */
+/*
+ * ⚠️ 只有 `typeof === 'string'` 才算：重複的 `?edit=a&edit=b` 會變成陣列
+ * （`/u/` 那支 `:101` 同一個警告）。
+ */
+const route = useRoute()
+const editingId = computed(() => (typeof route.query.edit === 'string' ? route.query.edit : null))
+const editingRecord = computed(() => records.value.find(r => r.id === editingId.value) ?? null)
+
+/** 開抽屜的連結目標。**開是 push**（這樣「上一頁」才關得掉），關才是 replace。 */
+function editLink(id: string) {
+  return { query: { ...route.query, edit: id } }
+}
+/**
+ * 關抽屜。⚠️ **一定要 `replace: true`**：不 replace 的話 history 會是
+ * `[列表, 列表?edit=X, 列表]`，使用者關掉之後按「上一頁」抽屜會**重新打開**。
+ * X 鈕／ESC／點遮罩／儲存完都走這一支。
+ */
+async function closeEditor() {
+  await navigateTo({ query: { ...route.query, edit: undefined } }, { replace: true })
+}
+
+/**
+ * 存檔後：**先 `refresh()` 再關抽屜**，那一列才會是原地更新而不是「關掉之後才跳一下」。
+ * 頁碼不會動——回第 1 頁的 watch 監看的是篩選輸入值，不是 `filtered`（見上面那條）。
+ */
+async function onEditorSaved() {
+  await refresh()
+  await closeEditor()
+}
+
+/**
+ * 深連結（直接貼 `?edit=<id>` 進來）時 `records` 可能還在載 ⇒ 那不是「找不到」。
+ * 載完了還是找不到，才說找不到並把 query 收掉——否則網址會一直掛著一個開不了的抽屜。
+ */
+watch([editingId, status], () => {
+  if (editingId.value && status.value !== 'pending' && !editingRecord.value) {
+    toast.add({ title: '找不到這筆紀錄', color: 'error' })
+    closeEditor()
+  }
+})
+
 /* ── 刪除（破壞性動作一律二次確認，§10 品質底線）───────────────────────── */
 const pending = ref<MyRecord | null>(null)
 const deleting = ref(false)
@@ -279,7 +332,14 @@ async function confirmRemove() {
       </UButton>
     </div>
 
-    <div v-if="status === 'pending'" class="mt-8 space-y-2">
+    <!--
+      ⚠️ 骨架**只擋第一次載入**，不擋 `refresh()`。`useAsyncData` 的 `refresh()` 會把 `status`
+         打回 `'pending'`（`nuxt/dist/app/composables/asyncData.js:330`，無條件）⇒ 只看 `status`
+         的話，每次存檔或刪除都會把整張表換成 8 個骨架、**文件高度當場塌掉、捲動位置跟著跑掉**。
+         那直接違反第 1 條的「捲動位置沒變」。加上 `!records.length` 之後，refresh 期間畫面上
+         留的是舊資料，換好才換掉。
+    -->
+    <div v-if="status === 'pending' && !records.length" class="mt-8 space-y-2">
       <USkeleton v-for="i in 8" :key="i" class="h-11 w-full rounded-sm" />
     </div>
 
@@ -465,8 +525,12 @@ async function confirmRemove() {
 
         <template #actions-cell="{ row }">
           <div class="flex justify-end gap-1">
+            <!--
+              ⚠️ **必須是真的連結不是 `@click` 切 ref**：只有真的推一筆 history，
+                 瀏覽器「上一頁」才關得掉抽屜（第 1 條的字面要求）。同 `/u/` 的 `?view=wall`。
+            -->
             <UButton
-              :to="`/app/records/${row.original.id}/edit`"
+              :to="editLink(row.original.id)"
               variant="ghost"
               color="neutral"
               icon="i-lucide-pencil"
@@ -526,6 +590,38 @@ async function confirmRemove() {
     </template>
 
     <!--
+      ★ 編輯抽屜。**位置有兩個硬條件**：
+        1. 在根 `div` **之內**（`tests/page-root.test.ts`：`<template>` 只能有一個根節點，
+           而且直接子註解自己就是一個根節點 ⇒ 不可以跟根元素當兄弟）。
+        2. 在上面那個 `v-else` 的 `<template>` **之外**：那一段在 `refresh()` 期間會被
+           `status` 的分支影響，抽屜跟著卸載的話「存檔 → 原地更新」就會變成閃一下。
+      ⚠️ 用 `USlideover` 不用 `UDrawer`：David 說的是「Drawer」而兩個都在，選側滑是因為
+         這是**有日期／時間／兩個下拉的表單**——底部抽屜在 375 上一叫出虛擬鍵盤就會被推掉
+         一半（§3 的硬條件正是「375 要填得完、下拉打開時不被鍵盤蓋掉」），側滑是滿版高度、
+         內容自己捲，沒有這個互動。`/u/` 那個 `UDrawer` 是唯讀清單，不是同一種東西。
+    -->
+    <USlideover
+      :open="!!editingRecord"
+      title="編輯紀錄"
+      :description="editingRecord ? watchedAtText(editingRecord.watchedOn, editingRecord.watchedTime) : ''"
+      @update:open="(v: boolean) => { if (!v) closeEditor() }"
+    >
+      <template #body>
+        <!--
+          ⚠️ `:key` 綁 record id：`refresh()` 會換掉 `records` 的 identity，
+             key 不變才不會重掛表單、不會把使用者正在打的字清掉。
+        -->
+        <RecordEditForm
+          v-if="editingRecord"
+          :key="editingRecord.id"
+          :record="editingRecord"
+          @saved="onEditorSaved"
+          @cancel="closeEditor"
+        />
+      </template>
+    </USlideover>
+
+    <!--
       備註全文，**整張表共用這一個對話框**（是哪一筆由 `memoRecord` 決定）。
       ⚠️ 不要傳 `:scrollable`：預設主題已經是「body 自己捲、標題固定」，2000 字在 375 上也捲得動；
          傳了反而變成整個 overlay 捲、標題跟著捲走。
@@ -539,11 +635,16 @@ async function confirmRemove() {
       </template>
       <template #footer>
         <div class="flex w-full justify-end gap-2">
+          <!--
+            ⚠️ 點下去要**先把對話框關掉**：不關的話 Modal 與抽屜會同時開著，
+               兩個 focus trap 互咬（鍵盤會被關在後面那個裡面出不來）。
+          -->
           <UButton
             v-if="memoRecord"
-            :to="`/app/records/${memoRecord.id}/edit`"
+            :to="editLink(memoRecord.id)"
             variant="ghost"
             color="neutral"
+            @click="memoOpen = false"
           >
             編輯這筆
           </UButton>

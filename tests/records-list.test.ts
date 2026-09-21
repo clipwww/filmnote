@@ -124,3 +124,87 @@ describe('/app/records 的頁碼重設訊號', () => {
     expect(watched.sort()).toEqual(['cost', 'format', 'q', 'venue', 'year'])
   })
 })
+
+/**
+ * ★ 編輯抽屜（David 第 1 條）。這一整組釘的都是**行為**，而行為四關一律全綠。
+ *
+ * 第 1 條的驗收是「列表元件不卸載、篩選／頁碼／捲動位置全部沒變」。那件事最終只有真的
+ * 點一次才看得到，但它有三個**可以靜態釘住的前提**：換頁的入口是 query 不是路徑、
+ * 關抽屜是 replace、骨架不擋 `refresh()`。前提被改掉時這裡會紅。
+ */
+describe('/app/records 編輯抽屜', () => {
+  const src = readFileSync(
+    fileURLToPath(new URL('../app/pages/app/records/index.vue', import.meta.url)),
+    'utf8',
+  )
+  const redirect = readFileSync(
+    fileURLToPath(new URL('../app/pages/app/records/[id]/edit.vue', import.meta.url)),
+    'utf8',
+  )
+
+  it('沒有任何**活著的**連結指向舊的 `/edit` 路徑', () => {
+    // 交接 §2.1：入口有兩處（操作欄、備註對話框），漏掉第二處就是一個活著的舊連結
+    // ——而漏掉的那一個**換頁之後列表狀態就沒了**，正是 David 抱怨的那件事。
+    // ⚠️ 比對的是 `:to` 屬性值不是整份原始碼：原始碼裡還留著一則說明改動的註解，
+    //    照字面 grep `/edit` 會被那則註解咬到 ⇒ 那種斷言守的不是它宣稱要守的東西（§7.6）。
+    const links = src.match(/:to="[^"]*"/g) ?? []
+    // 自證：真的抓到連結了，不是因為一個都沒抓到才「通過」。
+    expect(links.length).toBeGreaterThan(0)
+    expect(links.filter(l => l.includes('/edit'))).toEqual([])
+  })
+
+  it('兩個入口都用 `editLink()`（真連結，push 一筆 history）', () => {
+    // 必須是真連結不是 @click 切 ref：只有推了 history，「上一頁」才關得掉抽屜。
+    expect(src.match(/:to="editLink\(/g)?.length).toBe(2)
+  })
+
+  it('★ 關抽屜是 replace 不是 push', () => {
+    // 不 replace 的話 history 是 [列表, 列表?edit=X, 列表]，關掉後按上一頁抽屜會重開。
+    expect(src).toMatch(/navigateTo\(\s*\{\s*query:[^}]*edit:\s*undefined\s*\}\s*\}\s*,\s*\{\s*replace:\s*true\s*\}\s*\)/)
+  })
+
+  it('★ 骨架只擋首次載入，不擋 refresh()', () => {
+    // `refresh()` 會把 status 打回 'pending'（asyncData.js 無條件）⇒ 只看 status 的話
+    // 每次存檔都把整張表換成骨架、文件高度塌掉、捲動位置跑掉 = 違反第 1 條。
+    expect(src).toMatch(/v-if="status === 'pending' && !records\.length"/)
+  })
+
+  it('`?edit` 只認字串（重複參數會變陣列）', () => {
+    expect(src).toMatch(/typeof route\.query\.edit === 'string'/)
+  })
+
+  it('舊的 `/edit` 路徑還活著，而且是 replace 轉址', () => {
+    // 深連結不要死；replace 是為了不讓「上一頁」在轉址頁與抽屜之間彈來彈去。
+    expect(redirect).toMatch(/path:\s*'\/app\/records'/)
+    expect(redirect).toMatch(/query:\s*\{\s*edit:/)
+    expect(redirect).toMatch(/replace:\s*true/)
+  })
+})
+
+/**
+ * ★ 改作品（David 第 2 條）：**單一 UPDATE，不是刪掉再新增**。
+ * ⚠️ 只驗「總數不變」分辨不出來——刪掉再新增也是 -1+1、總數一樣（交接 §1 第 2 條）。
+ * 資料層的證據在 `scripts/`（見交接 §10.2 的 SQL 驗證）；這裡釘的是**寫入路徑的形狀**。
+ */
+describe('/app/records 改作品的寫入路徑', () => {
+  const form = readFileSync(
+    fileURLToPath(new URL('../app/components/RecordEditForm.vue', import.meta.url)),
+    'utf8',
+  )
+
+  it('走 update().eq(id)，而且 film_id 跟著一起送', () => {
+    expect(form).toMatch(/\.update\(\{\s*\.\.\.toRecordRow\(form\),\s*film_id:\s*form\.film\.id\s*\}\)/)
+    expect(form).toMatch(/\.eq\('id',\s*props\.record\.id\)/)
+  })
+
+  it('★ viewing_record 完全沒有 delete 或 insert', () => {
+    // 這一條就是「不可以刪掉再新增」的靜態版本。
+    expect(form).not.toMatch(/from\('viewing_record'\)[\s\S]{0,80}\.delete\(/)
+    expect(form).not.toMatch(/from\('viewing_record'\)[\s\S]{0,80}\.insert\(/)
+  })
+
+  it('票價的三態沒有被壓成兩態（null ≠ 0）', () => {
+    expect(form).toMatch(/form\.cost === null/)
+    expect(form).toMatch(/onConflict:\s*'record_id'/)
+  })
+})
