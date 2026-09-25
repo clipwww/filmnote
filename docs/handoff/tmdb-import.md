@@ -671,3 +671,32 @@ David 放行權限（`.claude/settings.local.json`）並確認 `--pages 3` 全�
 - **空殼期**：`tmdb_refresh_due` 剛好 83 筆，cron 預設一次 100 筆 ⇒ 下一次
   `tmdb-refresh`（`vercel.json` `0 19 * * *` UTC = 台灣 9/26 03:00）會一次清完。
   ⚠️ **沒有驗到 cron 真的跑完**——明天要查 `tmdb_refresh_due` 是不是 0。
+
+# 11. 2026-09-25：後台匯入頁（David：「2 要做」）
+
+`/admin` 的「從 TMDB 匯入新作品」。commit：`b025b8d`（端點與共用判斷）、`7270e47`、`806acee`（UI）。
+
+- **三種來源**：台灣上映清單（同 CLI）、片名搜尋（只供預覽）、指定 TMDB id（貼網址或 5 位以上數字）。
+  匯入一律送 `ids` 或 `releases`，片名以 TMDB 明細為準。
+- **判斷共用**：`toSeedRow()` 從 CLI 搬到 `src/tmdb/seed-row.ts`；`buildImportPlan()`
+  （`src/tmdb/import-plan.ts`）在 ①②③ 之外多一類 `blocked`（已有 `tmdb:` identity ⇒ 會走 UPDATE 分支）。
+- **寫入端自己重跑預覽**，瀏覽器的勾選只能從 ③ 縮小範圍（測試釘住：塞 ① 的 id 進 `only` 不會被送出）。
+- **讀用 staff 自己的 client、寫才用 service role**。預覽那一支完全不碰 service role（測試釘住）。
+- `seed_films` 每 20 筆一批：PostgREST 的 `statement_timeout` 是 **8 秒**（authenticator 的 rolconfig），不是 CLI 的 300 秒。
+- 片庫讀取分頁（PostgREST 一次最多 1,000 列，片庫 2,800 多部）。
+
+**★ 新踩雷 #315：server 端做不到 CLI 的閘門 ①。** PostgREST 讀不到 `pg_proc`，沒辦法先確認 0019 已套用。
+替代品是兩道：寫完**讀回**新列的 `title_zh_source`（不是 `tmdb` 就在畫面上標紅），以及測試釘住
+`toSeedRow()` 永遠帶 `titleZhSource: 'tmdb'`（突變驗過：拿掉那一行 ⇒ 紅）。
+⇒ 哪天 0019 被回退，後台匯入會**寫進去之後才**報錯，不是事前擋下。
+
+**瀏覽器驗收**（CDP，獨立 profile，staff 已登入）：
+- 搜「奧德賽」⇒ 10 部，1368337 排第一；貼 TMDB 網址 ⇒ 只列 1368337，顯示「台灣上映 2026-07-17」。
+- 從 UI 匯入 1368337 ⇒ 「寫入 1 部、讀回確認全部是 TMDB 來源」；DB：`tmdb/tmdb/approved/public`、
+  `tmdb:1368337` identity 1 列。重新預覽 ⇒ 已收錄 1、可匯入 0、匯入鈕消失。
+- 從 UI 按「刷新快照」⇒ 《奧德賽》快照 `fresh`、有海報、片長 173。
+- 375：`scrollWidth = clientWidth = 375`；console 0 錯誤。
+- 片庫存活 2,831 → **2,832**。
+
+⚠️ **未驗**：「台灣上映清單」模式只跑過伺服器端的 dry-run（CLI），沒有從 UI 按過匯入。
+⚠️ 那 83 部的快照在 **21:50（台灣時間）就已經全部 fresh**，那不是這一棒按的——可能是 David 或別的 session。
