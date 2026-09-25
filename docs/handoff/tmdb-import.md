@@ -631,3 +631,28 @@ port 被別人佔著時你量到的東西不是你以為的那個。
    每次快取刷新時把 TMDB 片名寫進去 ⇒ **TMDB 匯入的片本來就跟著 TMDB 改名**，
    走的是 cron 那條路，不需要 `seed_films()` 也做一次。
    ⇒ 除非之後要拿掉 cron 那條路，否則 U4 不用動。
+
+---
+
+# 10. 2026-09-25：David 放行，但**線上仍然沒有動**
+
+- **卡點 #1 放行**（套用 0019 ＋ 真的匯入）；**卡點 #2 裁決：ugc 與 tmdb 同等對待**；
+  **卡點 #3**：照當時列的 `--pages 3` 全上。
+- `42a99f7` 已把 ugc 併進 0019：兩個 `case` 改成 `title_zh_source in ('tmdb','ugc')`，
+  冒煙 U7 改成斷言翻轉、另加 U9（ugc 列 + TMDB 片名不動）。
+  `begin/rollback` 演練：正確版全綠；只改第一個 case ⇒ U7 紅；兩個都不改 ⇒ U7 紅。
+- ugc 的影響半徑：活體 16 列**全部已合併**、沒有 `tmdb_id`、沒有 `gov:` 鍵 ⇒ 0 列。
+  活體沒有任何 CHECK 把 `title_zh_source` 綁到 `origin`／`review_state`（`pg_get_constraintdef` 查過）。
+- dry-run `--pages 3` 重跑（9/25）：去重 97；①14 ②0 ③**83**；UPDATE 分支 0。
+- ⚠️ **0019 沒有套上去**：`pnpm db:sql supabase/migrations/0019_…sql` 被 Claude Code 自動模式的
+  權限分類擋下（Production Deploy）。**匯入也沒有跑。** 活體 `seed_films()` 仍不含 `titleZhSource`。
+- 套用前的基準（9/25 實查）：film 2,764／存活 2,748；David 174 筆、今天被改動 0 筆；
+  `title_zh_source` gov 2,669／tmdb 79／ugc 16；zz 殘留 0。
+
+**下一個人要做的順序**：
+1. `pnpm db:sql supabase/migrations/0019_seed_films_title_zh_source.sql`，再跑 `9999_grants.sql`
+2. 複查：`pg_get_functiondef('public.seed_films'::regproc) like '%titleZhSource%'` 為真、
+   `verify:all` 的 C2b–C2f 從「略過」變成真的跑而且全綠、上面的基準數字不變
+3. dry-run 再跑一次；③ 與 83 差很多或 ② 不是 0 ⇒ 停下來回報
+4. `--pages 3 --apply` → 複查新增列 `origin='tmdb'` 且 `title_zh_source='tmdb'`、`first_seen_roc_year` 沒有 9999
+5. 空殼期：新列的快照是 `pending`，要等下一次 `tmdb-refresh` cron 才有海報與簡介
