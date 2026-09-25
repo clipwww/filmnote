@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { buildImportPlan, rowsToImport } from '#pipeline/tmdb/import-plan'
 import { toSeedRow } from '#pipeline/tmdb/seed-row'
-import { importBodySchema, importSourceSchema, parseTmdbId } from '../server/utils/tmdb-import-options'
+import { parseTmdbId } from '../app/utils/tmdb-id'
+import { importBodySchema, importSourceSchema } from '../server/utils/tmdb-import-options'
 
 /**
  * 後台「匯入新作品」（`/admin`）與 CLI 共用的判斷。
@@ -87,6 +88,9 @@ describe('parseTmdbId', () => {
   it('片名不是 id（交給搜尋）', () => {
     expect(parseTmdbId('奧德賽')).toBeNull()
     expect(parseTmdbId('2001太空漫遊')).toBeNull()
+    // ★ 片名本身就是數字的不可以被當成 id
+    expect(parseTmdbId('1917')).toBeNull()
+    expect(parseTmdbId('2046')).toBeNull()
   })
 })
 

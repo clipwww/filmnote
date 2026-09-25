@@ -23,13 +23,3 @@ export const importBodySchema = z.object({
   /** 瀏覽器的勾選。只能縮小範圍，見 `rowsToImport()`。 */
   only: z.array(z.coerce.number().int().positive()).max(500).optional(),
 })
-
-/**
- * 從貼上的文字取 TMDB id：純數字，或 `themoviedb.org/movie/1368337-the-odyssey` 這種網址。
- * 取不到回 null（交給呼叫端當成片名搜尋）。
- */
-export function parseTmdbId(input: string): number | null {
-  const s = input.trim()
-  const m = /^(\d{1,9})$/.exec(s) ?? /themoviedb\.org\/movie\/(\d{1,9})/.exec(s)
-  return m ? Number(m[1]) : null
-}

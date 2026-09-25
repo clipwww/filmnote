@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import StaffGate from './-StaffGate.vue'
+import TmdbImport from './-TmdbImport.vue'
 import TmdbMaintenance from './-TmdbMaintenance.vue'
 
 /**
@@ -52,6 +53,10 @@ const QUEUES = [
         </div>
       </nav>
 
+      <!-- 匯入在刷新的正上方：剛匯入的作品要按下面的「刷新快照」才有海報與簡介。 -->
+      <div class="mt-6">
+        <TmdbImport />
+      </div>
       <div class="mt-6">
         <TmdbMaintenance />
       </div>
