@@ -699,4 +699,40 @@ David 放行權限（`.claude/settings.local.json`）並確認 `--pages 3` 全�
 - 片庫存活 2,831 → **2,832**。
 
 ⚠️ **未驗**：「台灣上映清單」模式只跑過伺服器端的 dry-run（CLI），沒有從 UI 按過匯入。
-⚠️ 那 83 部的快照在 **21:50（台灣時間）就已經全部 fresh**，那不是這一棒按的——可能是 David 或別的 session。
+那 83 部的快照在 21:50（台灣時間）就已經全部 fresh：是 **David 自己按的**「刷新快照」（他確認過）。
+
+# 12. 2026-09-25：「疑似已存在」直接補 TMDB id（David：「要做」）
+
+commit：`d214e4f`（端點＋前置檢查＋證據）、`5fa94a0`（UI）、`a21e948`（審核中 UGC 擋下）。
+
+- 預覽的 ② 每個命中的片庫作品各一顆「補上 TMDB id」→ 確認時兩側片長／年份並排 →
+  `POST /api/admin/tmdb/link` → `link_film_to_tmdb()`（與 0017／0018 同一支）。
+- **補 id 不碰 `title_zh_source`**：政府片仍然是 gov，cron 也不會蓋掉它的片名（實測讀回）。
+- ② 的判斷證據：TMDB 那側補打明細（片長、台灣上映日），片庫那側只對命中的作品另查一次
+  （片長、核准年、國別、有沒有使用者上傳的海報——link 會把它清掉）。
+
+**★ 新踩雷 #316：`link_film_to_tmdb()` 遇到 id 已被持有會「靜默合併」，不是報錯。**
+它的 `select id from film where tmdb_id = p_tmdb` 連已合併的死列都算，命中就
+`merge_films(p_film, existing)` 並回傳別的 id。identity 觸發器也是 `on conflict (key) do update`，
+會把鍵搶過來。⇒ 端點在呼叫前擋（`src/tmdb/link-check.ts`：id 已在任何一列上、識別鍵屬於別人、
+目標已合併、目標已有 id），呼叫後再比一次回傳值。
+
+**★ 新踩雷 #317：`link_film_to_tmdb()` 對「審核中的使用者作品」必定失敗。**
+它把 `origin` 從 `ugc` 改成 `tmdb`，卻不動 `review_state` ⇒ 撞表級 CHECK `film_ugc_review`
+（`origin='ugc'` 或 `approved` 二擇一），整筆回滾、500。瀏覽器驗收時實際撞到的。
+⇒ 前置檢查改回 409，預覽直接標「先到作品審核處理」、不給按鈕。**沒有改資料庫函式**。
+活體影響：審核中的使用者作品目前 0 部（驗收時只有 zz 那一部）；真正的用途是 267 部政府孤兒片，不受影響。
+
+**驗收**（:3001 production build，staff 已登入；zz 片 `zz-link-verify`／原文 `Turtle Odyssey`，對 TMDB 575728）：
+- N1 把 zz 片接到《奧德賽》1368337 ⇒ **409**「已經在另一部作品上」✅
+- N3 zz 片為審核中 UGC ⇒ **409**「先到作品審核處理」，預覽不給按鈕 ✅
+- 改成政府孤兒片的形狀後從 UI 補上 ⇒ toast 成功；DB：`tmdb_id=575728`、`origin`／`title_zh_source` 仍 `gov`、
+  片名沒變、`tmdb:575728` identity、快照排入待刷新、`film_merge_log` 仍 16 ✅；重新預覽 ⇒ 已收錄 1 ✅
+- N2 同一部再補一次 ⇒ **409**「已經有 TMDB id」✅
+- 刪 zz 片後：存活 2,833、待刷新 1、合併 16、`tmdb:575728` identity 0、快照 0 ✅
+- `verify:all` 60／0／0；test 570 條。
+
+⚠️ **:3000 的 dev server 在驗收時送出的是舊版 `-TmdbImport.vue`**：檔案監看沒吃到變更
+（直接 `curl` 模組拿到舊的，加 `?t=` 才是新的）。那兩個 `nuxt dev`（9:38、9:44 啟動）不是這一棒開的，
+所以沒有重啟，改用 `pnpm build` ＋ `PORT=3001 node .output/server/index.mjs` 驗收。
+cookie 不分 port，localhost 的登入在 :3001 照樣有效。**要在 :3000 看到新畫面得重啟那個 dev server。**
