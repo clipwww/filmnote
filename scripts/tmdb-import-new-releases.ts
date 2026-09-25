@@ -27,6 +27,7 @@ import process from 'node:process'
 import { Client, types as pgTypes } from 'pg'
 import { classifyReleases } from '#pipeline/tmdb/classify'
 import { TmdbClient } from '#pipeline/tmdb/client'
+import { toSeedRow } from '#pipeline/tmdb/seed-row'
 
 // ⚠️ 踩雷 #253：node-postgres 預設把 date/timestamp 解析成 JS Date，印出來會位移一天。
 for (const oid of [1082, 1114, 1184, 1083])
@@ -39,33 +40,6 @@ function numArg(name: string, fallback: number): number {
   const i = args.indexOf(`--${name}`)
   const n = Number(args[i + 1])
   return i >= 0 && Number.isFinite(n) ? n : fallback
-}
-
-/** `seed_films()` 的 payload。欄位契約與 `scripts/seed-supabase.ts` 的 FilmRow 同一份。 */
-interface SeedFilmRow {
-  id: string
-  tmdbId: number
-  titleZh: string
-  titleOriginal: string | null
-  source: 'tmdb'
-  /** ★ 0019 才認得這個欄位。缺席時 seed_films() 落回 'gov'——那正是要避免的結果。 */
-  titleZhSource: 'tmdb'
-}
-
-function toSeedRow(r: TmdbSearchResult): SeedFilmRow {
-  return {
-    // 確定性鍵。resolve_film() 以它去重，film_identity.kind 由 'tmdb:' 前綴決定。
-    id: `tmdb:${r.id}`,
-    tmdbId: r.id,
-    titleZh: r.title ?? '',
-    titleOriginal: r.original_title || null,
-    source: 'tmdb',
-    titleZhSource: 'tmdb',
-  }
-  // ⚠️ 刻意不送 country／runtimeMinutes／firstSeenRocYear：清單端點都不給，
-  //    而 release_date 是 TMDB 的**主要**上映日不是台灣的（§2.3）——
-  //    「台灣什麼時候算上映」以政府核准資料為權威，不在這一支自己定義它。
-  //    runtime 與 release_year 會由 cron 的 apply_tmdb_snapshot() 之後補上。
 }
 
 async function main() {
