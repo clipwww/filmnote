@@ -656,3 +656,18 @@ port 被別人佔著時你量到的東西不是你以為的那個。
 3. dry-run 再跑一次；③ 與 83 差很多或 ② 不是 0 ⇒ 停下來回報
 4. `--pages 3 --apply` → 複查新增列 `origin='tmdb'` 且 `title_zh_source='tmdb'`、`first_seen_roc_year` 沒有 9999
 5. 空殼期：新列的快照是 `pending`，要等下一次 `tmdb-refresh` cron 才有海報與簡介
+
+## 10.1 同日稍晚：**已上線**
+
+David 放行權限（`.claude/settings.local.json`）並確認 `--pages 3` 全上之後：
+
+- **0019 已套用**，接著重跑 `9999_grants.sql`。活體 `seed_films()` 含 `titleZhSource`；
+  基準不變（2,764／2,748；David 174 筆、今天改動 0 筆）；`verify:all` **60／0／0**
+  （前一次 33／2 是因為 dev server 沒開，那兩組需要 `localhost:3000`）。
+- **匯入 83 部**（`--pages 3 --apply`，套用後 dry-run 與套用前一字不差）。
+  複查：83 列全部 `origin='tmdb'`、`title_zh_source='tmdb'`、`approved`、`public`；
+  `first_seen_roc_year=9999` 0 列；沒有 `tmdb:` identity 的 0 列；中文片名空白 0 列。
+  片庫 **2,847／存活 2,831**；`title_zh_source` gov 2,669（不變）／tmdb 162／ugc 16。
+- **空殼期**：`tmdb_refresh_due` 剛好 83 筆，cron 預設一次 100 筆 ⇒ 下一次
+  `tmdb-refresh`（`vercel.json` `0 19 * * *` UTC = 台灣 9/26 03:00）會一次清完。
+  ⚠️ **沒有驗到 cron 真的跑完**——明天要查 `tmdb_refresh_due` 是不是 0。

@@ -705,7 +705,7 @@ compoundVariants 組出來的是 `w-full inset-y-0 right-0` ＋ `max-w-md`
 | §9.4-1 影城／版本選項要不要限制 | 不限制 | 只改註解 |
 | §9.4-2 搜尋要不要比對日期 | 不用 | 只改註解與測試名稱 |
 | §9.4-3 換年份會清掉其餘篩選 | 改 | `3903949`：只重設新年份裡已經沒有的影城／版本，票價不動（`keepIfOffered()`；突變驗過：放回 `cost.value = ALL` ⇒ 紅） |
-| §10.6-5 非 staff 測試帳號（#333） | 建 | **未建、未嘗試**：會寫正式站的 `auth.users`；同一回合套用 0019 被權限擋下，所以先回報再動 |
+| §10.6-5 非 staff 測試帳號（#333） | 建，**常駐** | 已建 `zz-nonstaff@example.com`（role=`user`），憑證在 `.env` 的 `TEST_NONSTAFF_*`。以它的身分走 PostgREST 實測：改到已合併的片 ⇒ **403 / 42501**（`with check` 擋下，不是 USING 濾掉）且 `film_id` 沒變；改到正常的片 ⇒ 200、`id`／`created_at` 不變。zz 紀錄已刪 |
 | §10.6-6 篩選／頁碼進 URL | 先不用 | 無 |
 
 四關：`typecheck` ✅／`lint` ✅／`test` ✅ 547 條／`build` ✅（沒有 `externalized`）。
