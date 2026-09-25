@@ -3,7 +3,7 @@ import type { TableColumn } from '@nuxt/ui'
 import type { MyRecord } from '~/composables/useMyRecords'
 import type { Database } from '~/types/database.types'
 import { watchedAtText } from '~/utils/format-datetime'
-import { matchesQuery, pageSlice } from '~/utils/record-list'
+import { keepIfOffered, matchesQuery, pageSlice } from '~/utils/record-list'
 import { costText, venueSegment } from '~/utils/ticket'
 
 /**
@@ -26,7 +26,7 @@ import { costText, venueSegment } from '~/utils/ticket'
  * 篩選選項之一，預設全部」）。⚠️ 連帶代價：影城／版本的選項改由**全部年份**長出來——
  * 實測（`db:sql` 查活體）全期 174 筆有 15 家影城、6 種版本，舊預設的 2026 年 8 筆只有
  * 3 家、2 種 ⇒ 兩個選單第一次打開會從 4／3 項變成 16／7 項（都含「所有…」那一項）。
- * 那是這一改的已知代價、不是 bug；要不要為此限制選項是 David 的事，不要自己改回去。
+ * David 2026-09-25 裁決：**不限制選項**，維持全期長出來的 16／7 項。
  */
 /*
  * 篩選維度：年份／影城／版本／有無票價，外加關鍵字搜尋（作品名／影城／影廳／備註四欄）。
@@ -82,13 +82,11 @@ const costOptions = [
 /** 一頁的筆數。預設「所有年份」之後全集是 174 筆（實測）⇒ 不分頁會是很長的一張表。 */
 const PER_PAGE = 24
 
-// 換年份時把其餘篩選重設：留著一個當年不存在的影城，畫面會是空的而且看不出原因。
-// ⚠️ 預設改成「所有年份」之後這條**行為沒變、但更容易遇到**（以前開頁就已經在某一年，
-//    現在使用者的第一次選年份一定會走到這裡，把他剛設好的影城／版本清掉）。
+// 換年份只重設新年份裡已經沒有的影城／版本（David 2026-09-25：不要清掉剛設好的篩選）。
+// 票價那一維跟年份無關，不動。
 watch(year, () => {
-  venue.value = ALL
-  format.value = ALL
-  cost.value = ALL
+  venue.value = keepIfOffered(venue.value, venueOptions.value, ALL)
+  format.value = keepIfOffered(format.value, formatOptions.value, ALL)
 })
 
 const filtered = computed(() => byYear.value.filter((r) => {

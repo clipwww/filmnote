@@ -16,7 +16,7 @@ export interface SearchableRecord {
  * 四個自由文字欄的子字串比對：作品名（中文與原文）／影城／影廳／備註。
  * ⚠️ **逐欄比對，不是把欄位串起來比一次**：串起來會讓「影城結尾＋備註開頭」這種跨欄的巧合
  * 算成命中，使用者盯著那一列找不到自己打的字在哪。
- * ⚠️ **不含日期字串**（交接 §8 卡點 2 還沒裁決）⇒ 打 `2024` 現在只比得到片名裡的 2024。
+ * **不含日期字串**（David 2026-09-25 裁決：不用比對日期）⇒ 打 `2024` 只比得到片名裡的 2024。
  */
 export function matchesQuery(record: SearchableRecord, query: string): boolean {
   const q = query.trim().toLowerCase()
@@ -41,4 +41,12 @@ export function matchesQuery(record: SearchableRecord, query: string): boolean {
 export function pageSlice<T>(rows: T[], page: number, perPage: number): T[] {
   const start = (Math.max(1, page) - 1) * perPage
   return rows.slice(start, start + perPage)
+}
+
+/**
+ * 換年份時，影城／版本還在新年份的選項裡就留著，不在了才歸回 `all`。
+ * 留著一個當年沒有的影城，表會是空的而且看不出原因；全部清掉則會把使用者剛設好的篩選丟掉。
+ */
+export function keepIfOffered(value: string, options: { value: string }[], all: string): string {
+  return options.some(o => o.value === value) ? value : all
 }

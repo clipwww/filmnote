@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { parse } from '@vue/compiler-sfc'
 import { describe, expect, it } from 'vitest'
-import { matchesQuery, pageSlice } from '../app/utils/record-list'
+import { keepIfOffered, matchesQuery, pageSlice } from '../app/utils/record-list'
 
 /**
  * `/app/records` 的關鍵字搜尋與頁碼分頁。
@@ -58,12 +58,28 @@ describe('matchesQuery', () => {
     expect(matchesQuery({ film: { titleZh: null, titleOriginal: null } }, '沙丘')).toBe(false)
   })
 
-  it('★ 不含日期（交接 §8 卡點 2 還沒裁決）', () => {
-    // 這一條是**釘住現況**不是釘住正確性：David 說要就改，改了這條要一起改。
+  it('★ 不含日期（David 2026-09-25 裁決：不用比對日期）', () => {
     // 與時區無關（比的是欄位字串，不是 `watchedOn`）⇒ 不需要跑第二個 TZ。
     expect(matchesQuery(record({ memo: '看完去吃飯' }), '2024')).toBe(false)
     // 但片名裡的數字照樣比得到——「不含日期」講的是不去翻 `watchedOn`。
     expect(matchesQuery(record({ film: { titleZh: '1917', titleOriginal: '1917' } }), '1917')).toBe(true)
+  })
+})
+
+describe('keepIfOffered', () => {
+  const ALL = '__all__'
+  const offered = [{ value: ALL }, { value: '威秀影城 信義' }, { value: '國賓影城 長春' }]
+
+  it('新年份還有這家影城 ⇒ 留著', () => {
+    expect(keepIfOffered('威秀影城 信義', offered, ALL)).toBe('威秀影城 信義')
+  })
+
+  it('新年份沒有這家影城 ⇒ 歸回全部（不然表是空的而且看不出原因）', () => {
+    expect(keepIfOffered('秀泰影城 台北車站', offered, ALL)).toBe(ALL)
+  })
+
+  it('本來就是全部 ⇒ 還是全部', () => {
+    expect(keepIfOffered(ALL, offered, ALL)).toBe(ALL)
   })
 })
 
@@ -101,6 +117,24 @@ describe('pageSlice', () => {
  * 監看 `filtered` ⇒ **每一次存檔都把使用者踢回第 1 頁**，而那正是 David 抱怨的
  * 「返回上一頁狀態都被清掉」的同一個病。四關對這件事一律全綠，只有真的存一筆才看得到。
  */
+describe('/app/records 換年份', () => {
+  const src = readFileSync(
+    fileURLToPath(new URL('../app/pages/app/records/index.vue', import.meta.url)),
+    'utf8',
+  )
+  const script = parse(src, { filename: 'index.vue' }).descriptor.scriptSetup?.content ?? ''
+  const body = /watch\(\s*year\s*,\s*\(\)\s*=>\s*\{([^}]*)\}/.exec(script)?.[1] ?? ''
+
+  it('腳本裡真的有 watch(year)（不然下面兩條是永遠綠的裝飾品）', () => {
+    expect(body).toContain('keepIfOffered')
+  })
+
+  it('★ 不再無條件清掉影城／版本，也不碰票價', () => {
+    expect(body).not.toMatch(/(venue|format|cost)\.value = ALL/)
+    expect(body).not.toMatch(/cost\.value/)
+  })
+})
+
 describe('/app/records 的頁碼重設訊號', () => {
   const src = readFileSync(
     fileURLToPath(new URL('../app/pages/app/records/index.vue', import.meta.url)),
