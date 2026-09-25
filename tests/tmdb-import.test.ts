@@ -114,7 +114,7 @@ describe('兩支端點的授權順序', () => {
     const gate = s.indexOf('await assertStaffFrom(')
     expect(gate).toBeGreaterThan(0)
     for (const call of ['planImport(', 'executeImport(', 'readBody('])
-      expect(s.indexOf(call) === -1 || s.indexOf(call) > gate, call).toBe(true)
+      expect(!s.includes(call) || s.indexOf(call) > gate, call).toBe(true)
   })
 
   it('預覽那一支完全不碰 service role', () => {
