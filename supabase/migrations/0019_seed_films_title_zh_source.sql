@@ -29,7 +29,9 @@
 --
 -- ⚠️ 範圍嚴格限定 `'tmdb'`，**不可以寫成 `<> 'gov'`**：`source_authority` 有四個值
 --   ('gov','tmdb','ugc','admin')，`'admin'` 是 0012 的人工修正、**永久脫離政府更新**是
---   刻意的取捨，被這條洗掉不會有任何訊息。`'ugc'` 沒有裁決 ⇒ 維持現狀不碰。
+--   刻意的取捨，被這條洗掉不會有任何訊息。
+--   `'ugc'` 由 David 2026-09-25 裁決：**與 'tmdb' 同等對待**（政府片名進來就翻成 gov）。
+--   套用當下的影響半徑是 0 列：活體 16 列 ugc 全部已合併、沒有 tmdb_id、沒有 gov: 鍵。
 --
 -- ★ 用「讀出活體定義 → 字串取代 → execute」而不是 create or replace 抄一份函式體。
 --   0009 抄了函式體，**靜默回退了 0006 的修正**，靜態檢查全綠（§7 #109）。
@@ -56,12 +58,12 @@ declare
   r3 text := $r3$        title_zh = case
           when title_zh_source = 'gov' and coalesce(rec->>'titleZhSource','gov') = 'gov'
             then coalesce(nullif(rec->>'titleZh',''), title_zh)
-          when title_zh_source = 'tmdb' and coalesce(rec->>'titleZhSource','gov') = 'gov'
+          when title_zh_source in ('tmdb','ugc') and coalesce(rec->>'titleZhSource','gov') = 'gov'
                and nullif(rec->>'titleZh','') is not null
             then rec->>'titleZh'
           else title_zh end,
         title_zh_source = case
-          when title_zh_source = 'tmdb' and coalesce(rec->>'titleZhSource','gov') = 'gov'
+          when title_zh_source in ('tmdb','ugc') and coalesce(rec->>'titleZhSource','gov') = 'gov'
                and nullif(rec->>'titleZh','') is not null
             then 'gov'::public.source_authority
           else title_zh_source end,$r3$;
@@ -103,7 +105,7 @@ begin
   if after_src like '%' || n3 || '%' then
     raise exception '0019：舊的 source-blind case 還在——replace 沒有真的換掉它';
   end if;
-  if after_src not like $chk$%title_zh_source = 'tmdb' and coalesce(rec->>'titleZhSource','gov') = 'gov'%$chk$ then
+  if after_src not like $chk$%title_zh_source in ('tmdb','ugc') and coalesce(rec->>'titleZhSource','gov') = 'gov'%$chk$ then
     raise exception '0019：gov 翻轉分支不在改寫後的定義裡';
   end if;
   -- `<> ''gov''` 會把 0012 的人工修正洗掉。這條是結構性的保險絲，不是風格檢查。
@@ -215,13 +217,21 @@ begin
       raise exception '0019 冒煙失敗：★ U6 admin 人工修正被 TMDB payload 洗掉了（% / %）', t, s;
     end if;
 
-    -- ═══ U7 卡點 #2：ugc 沒有裁決 ⇒ 維持現狀（不被寫） ═══════════════════════
+    -- ═══ U9 ugc 列 + TMDB 片名：不可以動（先跑，U7 之後這一列就不是 ugc 了） ═══
     perform public.seed_films(jsonb_build_array(jsonb_build_object(
-      'id', 'tmdb:999900004', 'tmdbId', 999900004, 'titleZh', 'zz0019政府想改ugc')));
+      'id', 'tmdb:999900004', 'tmdbId', 999900004,
+      'titleZh', 'zz0019TMDB想改ugc', 'titleZhSource', 'tmdb', 'source', 'tmdb')));
     select title_zh, title_zh_source::text into t, s from public.film where id = v_ugc;
     if t <> 'zz0019使用者自建' or s <> 'ugc' then
-      raise exception '0019 冒煙失敗：U7 ugc 列被改動了（% / %）——'
-        '這一格沒有裁決（卡點 #2），這一輪刻意維持現狀', t, s;
+      raise exception '0019 冒煙失敗：★ U9 ugc 列被 TMDB 片名改動了（% / %）', t, s;
+    end if;
+
+    -- ═══ U7 David 2026-09-25：ugc 列 + 政府片名 ⇒ 值與來源一起翻成 gov ═════════
+    perform public.seed_films(jsonb_build_array(jsonb_build_object(
+      'id', 'tmdb:999900004', 'tmdbId', 999900004, 'titleZh', 'zz0019政府改ugc')));
+    select title_zh, title_zh_source::text into t, s from public.film where id = v_ugc;
+    if t <> 'zz0019政府改ugc' or s <> 'gov' then
+      raise exception '0019 冒煙失敗：★ U7 ugc 列沒有被政府片名翻成 gov（% / %）', t, s;
     end if;
 
     -- ═══ I1 §2.4.0：新建的列必須是 origin=tmdb + title_zh_source=tmdb ═════════
@@ -260,6 +270,6 @@ begin
       if sqlerrm <> 'SMOKE_OK' then raise; end if;
   end;
   raise notice '0019 冒煙測試通過：U1 擋住 TMDB 蓋政府片名／U2 政府片名照樣寫得進去／'
-    'U3 政府來時值與來源一起翻 gov／U4 U7 未裁決的格子維持現狀／U5 U6 admin 不被碰／'
+    'U3 U7 政府來時 tmdb／ugc 值與來源一起翻 gov／U4 U9 TMDB 片名不動 tmdb／ugc 列／U5 U6 admin 不被碰／'
     'U8 空片名不翻標籤／I1 新列是 tmdb／I2 政府列仍是 gov（變更已回滾）';
 end $$;
