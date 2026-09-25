@@ -652,7 +652,9 @@ async function assertNoResidue(): Promise<void> {
            -- 'zz%' 而不是 'zzverify%'：US-47 那一段另外建了 zzdelete / zzbystander，
            -- 只認一個前綴的殘留檢查會漏掉它們，而漏掉的樣子是 DB 裡多了一個
            -- 沒有人記得的 profile（測試資料紀律）。
-           (select count(*) from public.profile where username like 'zz%')::int as profiles,
+           -- 唯一的例外是常駐的非 staff 帳號（#333，David 2026-09-25 裁決常駐），以 email 精確排除。
+           (select count(*) from public.profile where username like 'zz%'
+              and id not in (select id from auth.users where email = 'zz-nonstaff@example.com'))::int as profiles,
            (select count(*) from public.takedown_notice
              where claimant_email = 'zzverify@example.invalid')::int as notices`, [`${TEST_PREFIX}%`])
   const r = rows[0]!
