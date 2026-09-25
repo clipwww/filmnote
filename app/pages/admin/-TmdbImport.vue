@@ -30,7 +30,7 @@ interface Preview {
   librarySize: number
   evidence: {
     releases: Record<number, { runtime: number | null, twReleaseDate: string | null }>
-    films: Record<string, { runtimeMinutes: number | null, releaseYear: number | null, firstSeenRocYear: number | null, country: string | null, hasUgcPoster: boolean }>
+    films: Record<string, { runtimeMinutes: number | null, releaseYear: number | null, firstSeenRocYear: number | null, country: string | null, hasUgcPoster: boolean, pendingUgc: boolean }>
   }
 }
 interface ImportResult {
@@ -290,7 +290,10 @@ function poster(path: string | null) {
                   <template v-if="preview.evidence.films[h.id]?.firstSeenRocYear">· 核准 {{ preview.evidence.films[h.id]!.firstSeenRocYear }} 年</template>
                   <template v-if="preview.evidence.films[h.id]?.country">· {{ preview.evidence.films[h.id]!.country }}</template>
                 </span>
-                <template v-if="linking?.tmdbId === s.release.id && linking?.filmId === h.id">
+                <span v-if="preview.evidence.films[h.id]?.pendingUgc" class="text-xs text-warning">
+                  還在審核中的使用者新增作品，先到「作品審核」處理
+                </span>
+                <template v-else-if="linking?.tmdbId === s.release.id && linking?.filmId === h.id">
                   <span class="text-xs">
                     確定把 TMDB {{ s.release.id }} 補到這一部？
                     <template v-if="preview.evidence.films[h.id]?.hasUgcPoster"><strong class="text-warning">使用者上傳的海報會被清掉。</strong></template>

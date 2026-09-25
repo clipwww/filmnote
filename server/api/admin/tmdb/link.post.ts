@@ -35,7 +35,7 @@ export default defineEventHandler(async (event) => {
 
   const db = await serverSupabaseClient<Database>(event)
   const [{ data: target }, { data: holders }, { data: ident }] = await Promise.all([
-    db.from('film').select('id,tmdb_id,merged_into_film_id,title_zh_source').eq('id', filmId).maybeSingle(),
+    db.from('film').select('id,tmdb_id,merged_into_film_id,title_zh_source,origin,review_state').eq('id', filmId).maybeSingle(),
     // ⚠️ 不加 merged_into_film_id is null：link_film_to_tmdb 的查詢連死列都算。
     db.from('film').select('id,merged_into_film_id').eq('tmdb_id', tmdbId),
     db.from('film_identity').select('film_id').eq('key', tmdbKey(tmdbId)),

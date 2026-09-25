@@ -128,7 +128,7 @@ describe('兩支端點的授權順序', () => {
 })
 
 describe('linkPreconditions（補 TMDB id）', () => {
-  const orphan = { id: 'f1', tmdb_id: null, merged_into_film_id: null }
+  const orphan = { id: 'f1', tmdb_id: null, merged_into_film_id: null, origin: 'gov', review_state: 'approved' }
 
   it('孤兒、沒人持有這個 id ⇒ 放行', () => {
     expect(linkPreconditions(orphan, [], false)).toEqual({ ok: true })
@@ -137,6 +137,12 @@ describe('linkPreconditions（補 TMDB id）', () => {
   it('找不到 ⇒ 404；已合併 ⇒ 409', () => {
     expect(linkPreconditions(null, [], false)).toMatchObject({ ok: false, status: 404 })
     expect(linkPreconditions({ ...orphan, merged_into_film_id: 'f9' }, [], false)).toMatchObject({ ok: false, status: 409 })
+  })
+
+  it('★ 審核中的使用者作品 ⇒ 409：link 會撞 film_ugc_review（2026-09-25 實測）', () => {
+    expect(linkPreconditions({ ...orphan, origin: 'ugc', review_state: 'pending' }, [], false)).toMatchObject({ ok: false, status: 409 })
+    // 〔對照〕已核准的使用者作品可以補
+    expect(linkPreconditions({ ...orphan, origin: 'ugc', review_state: 'approved' }, [], false)).toEqual({ ok: true })
   })
 
   it('已經有 tmdb_id ⇒ 409（改 id 會撞 film_identity_one_primary，0017）', () => {

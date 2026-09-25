@@ -12,6 +12,8 @@ export interface LinkTarget {
   id: string
   tmdb_id: number | null
   merged_into_film_id: string | null
+  origin: string
+  review_state: string
 }
 
 /** 目前持有這個 TMDB id 的列，**含已合併的**。 */
@@ -29,6 +31,10 @@ export function linkPreconditions(target: LinkTarget | null, holders: readonly T
     return { ok: false, status: 404, reason: '找不到這部作品' }
   if (target.merged_into_film_id)
     return { ok: false, status: 409, reason: '這部作品已經被合併掉了，請改補它合併進去的那一部' }
+  // link 會把 origin 從 ugc 改成 tmdb 但不動 review_state ⇒ 撞表級 CHECK film_ugc_review
+  // （origin='ugc' 或 approved，二擇一）。2026-09-25 實測：整筆回滾、500。
+  if (target.origin === 'ugc' && target.review_state !== 'approved')
+    return { ok: false, status: 409, reason: '這是還在審核中的使用者新增作品，先到「作品審核」處理，核准或合併之後再補 id' }
   if (target.tmdb_id !== null)
     return { ok: false, status: 409, reason: `這部已經有 TMDB id（${target.tmdb_id}）。改 id 不在這裡做` }
   if (holders.length) {

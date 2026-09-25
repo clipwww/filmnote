@@ -127,7 +127,7 @@ export interface SuspectEvidence {
   /** TMDB 那一側，以 TMDB id 為鍵。 */
   releases: Record<number, { runtime: number | null, twReleaseDate: string | null }>
   /** 片庫那一側，以 film id 為鍵。 */
-  films: Record<string, { runtimeMinutes: number | null, releaseYear: number | null, firstSeenRocYear: number | null, country: string | null, hasUgcPoster: boolean }>
+  films: Record<string, { runtimeMinutes: number | null, releaseYear: number | null, firstSeenRocYear: number | null, country: string | null, hasUgcPoster: boolean, pendingUgc: boolean }>
 }
 
 export interface ImportPreview extends ImportPlan<ImportCandidate> {
@@ -151,7 +151,7 @@ async function suspectEvidence(db: SupabaseClient<Database>, plan: ImportPlan<Im
   }))
   const ids = [...new Set(plan.suspected.flatMap(s => s.hits.map(h => h.id)))]
   const { data } = await db.from('film')
-    .select('id,runtime_minutes,release_year,first_seen_roc_year,country,ugc_poster_path')
+    .select('id,runtime_minutes,release_year,first_seen_roc_year,country,ugc_poster_path,origin,review_state')
     .in('id', ids)
   for (const f of data ?? []) {
     evidence.films[f.id] = {
@@ -161,6 +161,8 @@ async function suspectEvidence(db: SupabaseClient<Database>, plan: ImportPlan<Im
       country: f.country,
       // link 會把它清掉（表級 CHECK film_no_ugc_poster_when_tmdb）⇒ UI 要先講。
       hasUgcPoster: !!f.ugc_poster_path,
+      // 補不了：見 `linkPreconditions()` 的 film_ugc_review 那一條。
+      pendingUgc: f.origin === 'ugc' && f.review_state !== 'approved',
     }
   }
   return evidence
