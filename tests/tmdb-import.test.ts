@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { buildImportPlan, rowsToImport } from '#pipeline/tmdb/import-plan'
+import { linkPreconditions } from '#pipeline/tmdb/link-check'
 import { toSeedRow } from '#pipeline/tmdb/seed-row'
 import { parseTmdbId } from '../app/utils/tmdb-id'
 import { importBodySchema, importSourceSchema } from '../server/utils/tmdb-import-options'
@@ -113,15 +114,41 @@ describe('兩支端點的授權順序', () => {
     'utf8',
   ).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
 
-  it.each(['import-preview.post.ts', 'import.post.ts'])('%s：assertStaffFrom 在任何讀寫之前', (name) => {
+  it.each(['import-preview.post.ts', 'import.post.ts', 'link.post.ts'])('%s：assertStaffFrom 在任何讀寫之前', (name) => {
     const s = src(name)
     const gate = s.indexOf('await assertStaffFrom(')
     expect(gate).toBeGreaterThan(0)
-    for (const call of ['planImport(', 'executeImport(', 'readBody('])
+    for (const call of ['planImport(', 'executeImport(', 'readBody(', 'serviceSupabase(', '.from('])
       expect(!s.includes(call) || s.indexOf(call) > gate, call).toBe(true)
   })
 
   it('預覽那一支完全不碰 service role', () => {
     expect(src('import-preview.post.ts')).not.toMatch(/serviceSupabase|executeImport/)
+  })
+})
+
+describe('linkPreconditions（補 TMDB id）', () => {
+  const orphan = { id: 'f1', tmdb_id: null, merged_into_film_id: null }
+
+  it('孤兒、沒人持有這個 id ⇒ 放行', () => {
+    expect(linkPreconditions(orphan, [], false)).toEqual({ ok: true })
+  })
+
+  it('找不到 ⇒ 404；已合併 ⇒ 409', () => {
+    expect(linkPreconditions(null, [], false)).toMatchObject({ ok: false, status: 404 })
+    expect(linkPreconditions({ ...orphan, merged_into_film_id: 'f9' }, [], false)).toMatchObject({ ok: false, status: 409 })
+  })
+
+  it('已經有 tmdb_id ⇒ 409（改 id 會撞 film_identity_one_primary，0017）', () => {
+    expect(linkPreconditions({ ...orphan, tmdb_id: 5 }, [], false)).toMatchObject({ ok: false, status: 409 })
+  })
+
+  it('★ id 已在別的列上（含已合併的死列）⇒ 409：link_film_to_tmdb 會靜默合併', () => {
+    expect(linkPreconditions(orphan, [{ id: 'f2', merged_into_film_id: null }], false)).toMatchObject({ ok: false, status: 409 })
+    expect(linkPreconditions(orphan, [{ id: 'f3', merged_into_film_id: 'f4' }], false)).toMatchObject({ ok: false, status: 409 })
+  })
+
+  it('★ 識別鍵已屬於別人 ⇒ 409：identity 觸發器會把鍵搶過來', () => {
+    expect(linkPreconditions(orphan, [], true)).toMatchObject({ ok: false, status: 409 })
   })
 })

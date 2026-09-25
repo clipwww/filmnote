@@ -119,16 +119,59 @@ async function existingKeys(db: SupabaseClient<Database>, ids: number[]): Promis
   return new Set((data ?? []).map(r => r.key))
 }
 
+/**
+ * ② 疑似已存在的判斷證據。★ 片長是唯一擋得住「片名相近但根本是另一部片」的訊號
+ * （`matcher.ts`、0018 的交叉驗證）⇒ 兩邊的片長都要攤給人看，不能只給片名。
+ */
+export interface SuspectEvidence {
+  /** TMDB 那一側，以 TMDB id 為鍵。 */
+  releases: Record<number, { runtime: number | null, twReleaseDate: string | null }>
+  /** 片庫那一側，以 film id 為鍵。 */
+  films: Record<string, { runtimeMinutes: number | null, releaseYear: number | null, firstSeenRocYear: number | null, country: string | null, hasUgcPoster: boolean }>
+}
+
 export interface ImportPreview extends ImportPlan<ImportCandidate> {
   notFound: number[]
   librarySize: number
+  evidence: SuspectEvidence
+}
+
+async function suspectEvidence(db: SupabaseClient<Database>, plan: ImportPlan<ImportCandidate>): Promise<SuspectEvidence> {
+  const evidence: SuspectEvidence = { releases: {}, films: {} }
+  if (!plan.suspected.length)
+    return evidence
+  // ② 在活體上極少（2026-09-25 是 0），逐部補打明細的成本可以忽略。
+  const tmdb = tmdbClient()
+  await Promise.all(plan.suspected.map(async ({ release }) => {
+    const d = await tmdb.detail(release.id).catch(() => null)
+    evidence.releases[release.id] = {
+      runtime: d?.runtime ?? null,
+      twReleaseDate: d ? toCandidate(d).twReleaseDate : null,
+    }
+  }))
+  const ids = [...new Set(plan.suspected.flatMap(s => s.hits.map(h => h.id)))]
+  const { data } = await db.from('film')
+    .select('id,runtime_minutes,release_year,first_seen_roc_year,country,ugc_poster_path')
+    .in('id', ids)
+  for (const f of data ?? []) {
+    evidence.films[f.id] = {
+      runtimeMinutes: f.runtime_minutes,
+      releaseYear: f.release_year,
+      firstSeenRocYear: f.first_seen_roc_year,
+      country: f.country,
+      // link 會把它清掉（表級 CHECK film_no_ugc_poster_when_tmdb）⇒ UI 要先講。
+      hasUgcPoster: !!f.ugc_poster_path,
+    }
+  }
+  return evidence
 }
 
 export async function planImport(db: SupabaseClient<Database>, source: ImportSource): Promise<ImportPreview> {
   const { candidates, notFound } = await fetchCandidates(source)
   const library = await readLibrary(db)
   const keys = await existingKeys(db, candidates.map(c => c.id))
-  return { ...buildImportPlan(candidates, library, keys), notFound, librarySize: library.length }
+  const plan = buildImportPlan(candidates, library, keys)
+  return { ...plan, notFound, librarySize: library.length, evidence: await suspectEvidence(db, plan) }
 }
 
 export interface ImportResult {
