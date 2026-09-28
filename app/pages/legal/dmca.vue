@@ -41,8 +41,8 @@ const state = reactive({
 /* ── 網址回顯 ──
    §15.3 要它有兩個作用：讓 `target_film_id` 真的被填進去（admin 不必自己對網址）、
    大幅減少誤報（很多誤報是網址貼錯）。解析不到就留空並照常收件，不要擋。 */
-/* ⚠️ 解析規則跟伺服器**逐字相同**（`schemas/takedown.ts` 的 `filmSlugFromUrl`）：這裡認得出、
-   伺服器認不出的話使用者以為已經定位到，而 admin 打開來看到的是空的。 */
+/* ⚠️ 伺服器填 `target_film_id` 呼叫的是**同一支** `filmSlugFromUrl`（`schemas/takedown.ts`）：不要
+   在這裡另寫解析——這裡認得出、伺服器認不出，使用者以為已定位到，admin 打開來卻是空的。 */
 interface ResolvedFilm {
   slug: string
   titleZh: string | null

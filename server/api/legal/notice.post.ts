@@ -1,4 +1,5 @@
-import { z } from 'zod'
+// 欄位界限、網址補全、空電話→null、slug 解析都在共用模組，這支只剩限流＋把關＋寫入。
+import { filmSlugFromUrl, takedownNoticeSchema } from '~~/app/schemas/takedown'
 
 /**
  * 侵權通知的受理窗口（著作權法 §90-4 第 3、4 款、§90-6）。
@@ -13,37 +14,15 @@ import { z } from 'zod'
 //   這支不需要身分，但隔壁的 counter-notice 需要——兩支放一起才不會有人搬過去然後對著
 //   「登入了卻說沒登入」除錯半天。
 
-const noticeSchema = z.object({
-  // §90-6 及施行辦法要求的記載事項
-  claimantName: z.string().trim().min(1, '請填寫姓名或名稱').max(100),
-  claimantEmail: z.email('電子郵件格式不正確').max(200),
-  claimantPhone: z.string().trim().max(50).optional().nullable(),
-  workDescription: z.string().trim().min(10, '請說明受侵害的著作為何').max(2000),
-  targetUrl: z.url('請填寫可指向侵權內容的完整網址').max(500),
-  // 「聲明係基於善意」。未勾選就不是一份完整的通知。
-  statementGoodFaith: z.literal(true, { error: '必須聲明本通知係基於善意所為' }),
-})
-
 /**
- * 從本站的 `/film/{slug}` 網址解析出作品。
- *
- * 解析不出來不是錯誤——通知可以指向任何頁面，甚至可能寫錯。解析得出來時
- * 先把 `target_film_id` 填好，人工處理時就不必再對一次網址。
+ * 從本站的 `/film/{slug}` 網址解析出作品。解析不出來不是錯誤——通知可以指向任何頁面，
+ * 甚至可能寫錯。解析得出來時先把 `target_film_id` 填好，人工處理時就不必再對一次網址。
  */
 async function resolveTargetFilm(targetUrl: string): Promise<string | null> {
-  const slug = (() => {
-    try {
-      const path = new URL(targetUrl).pathname
-      return /^\/film\/([^/]+)\/?$/.exec(path)?.[1] ?? null
-    }
-    catch {
-      return null
-    }
-  })()
+  const slug = filmSlugFromUrl(targetUrl)
   if (!slug)
     return null
-
-  const { data } = await publicSupabase().rpc('resolve_film', { p_key: `slug:${decodeURIComponent(slug)}` })
+  const { data } = await publicSupabase().rpc('resolve_film', { p_key: `slug:${slug}` })
   return data ?? null
 }
 
@@ -56,7 +35,7 @@ export default defineEventHandler(async (event) => {
   //    各一份 ⇒ 實際上限比 20 寬鬆，寫死在畫面上就是另一個做不到的承諾。
   assertWithinRateLimit(event, { scope: 'legal-notice', windowMs: 60 * 60_000, max: 20 })
 
-  const parsed = noticeSchema.safeParse(await readBody(event))
+  const parsed = takedownNoticeSchema.safeParse(await readBody(event))
   if (!parsed.success) {
     throw createError({
       statusCode: 422,
@@ -71,7 +50,7 @@ export default defineEventHandler(async (event) => {
     .insert({
       claimant_name: body.claimantName,
       claimant_email: body.claimantEmail,
-      claimant_phone: body.claimantPhone ?? null,
+      claimant_phone: body.claimantPhone,
       work_description: body.workDescription,
       target_url: body.targetUrl,
       target_film_id: await resolveTargetFilm(body.targetUrl),
