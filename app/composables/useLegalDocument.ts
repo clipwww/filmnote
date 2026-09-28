@@ -1,5 +1,6 @@
 import type { Database } from '~/types/database.types'
 import type { ParsedLegalDoc } from '~/utils/legal-markdown'
+import { taipeiDateText } from '#pipeline/time/taipei'
 import { parseLegalMarkdown } from '~/utils/legal-markdown'
 
 export type LegalDocKind = Database['public']['Enums']['legal_doc_kind']
@@ -85,15 +86,10 @@ export function useLegalDocument(kind: LegalDocKind) {
 }
 
 /**
- * `…T02:36:36.795Z` → `2026-09-06 生效`（台北）。⚠️ 一律指定 `timeZone`：`effective_at` 是
- * timestamptz，不指定的話伺服器算的是 UTC 日期、瀏覽器算的是當地日期——同一列在 SSR 與
- * hydration 會顯示成不同日期，而且**只有跨日的那幾個小時會不一樣**，平常測不出來。
+ * `…T02:36:36.795Z` → `2026-09-06`（台北）。⚠️ 一定要走台北時區（`taipeiDateText` 寫死了）：
+ * `effective_at` 是 timestamptz，不指定的話伺服器算 UTC 日期、瀏覽器算當地日期——同一列在 SSR
+ * 與 hydration 顯示成不同日期，而且**只有跨日的那幾個小時會不一樣**，平常測不出來。
  */
 export function effectiveDateText(effectiveAt: string): string {
-  return new Intl.DateTimeFormat('zh-Hant-TW', {
-    timeZone: 'Asia/Taipei',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date(effectiveAt)).replace(/\//g, '-')
+  return taipeiDateText(effectiveAt)
 }

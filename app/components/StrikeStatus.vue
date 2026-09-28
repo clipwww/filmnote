@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Database } from '~/types/database.types'
+import { taipeiDateText } from '~/utils/taipei-time'
 
 /**
  * 三振狀態（`SCREENS §15.5`）。放在 `/app/settings` 的帳號區塊**不是藏在 `/legal`**：
@@ -91,15 +92,6 @@ const statusText = computed(() => {
         : `再有 ${remaining.value} 次會終止全部或部分服務。`
   }
 })
-
-function dateText(iso: string) {
-  return new Intl.DateTimeFormat('zh-Hant-TW', {
-    timeZone: 'Asia/Taipei',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date(iso)).replace(/\//g, '-')
-}
 </script>
 
 <template>
@@ -116,7 +108,7 @@ function dateText(iso: string) {
       <li v-for="(s, i) in data.strikes" :key="s.id" class="px-3 py-2.5 text-sm">
         <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <span class="text-muted tabular-nums">{{ `第 ${i + 1} 次` }}</span>
-          <span class="text-muted tabular-nums">{{ dateText(s.created_at) }}</span>
+          <span class="text-muted tabular-nums">{{ taipeiDateText(s.created_at) }}</span>
         </div>
         <p v-if="s.work" class="mt-1 text-toned">
           {{ s.work }}
