@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { FilmOption } from '~/composables/useFilmSearch'
 import type { Database } from '~/types/database.types'
+import { apiErrorText } from '~/utils/admin-format'
 import { agoText, dayText } from './-admin-shared'
 import AdminShell from './-AdminShell.vue'
 import StaffGate from './-StaffGate.vue'
@@ -254,7 +255,7 @@ async function approve(id: string) {
     await refreshQueue()
   }
   catch (e) {
-    toast.add({ title: '審核失敗', description: errText(e), color: 'error' })
+    toast.add({ title: '審核失敗', description: apiErrorText(e), color: 'error' })
   }
   finally {
     acting.value = false
@@ -283,16 +284,11 @@ async function reject(id: string) {
     await refreshQueue()
   }
   catch (e) {
-    toast.add({ title: '退回失敗', description: errText(e), color: 'error' })
+    toast.add({ title: '退回失敗', description: apiErrorText(e), color: 'error' })
   }
   finally {
     acting.value = false
   }
-}
-
-function errText(e: unknown): string {
-  const err = e as { statusMessage?: string, data?: { statusMessage?: string }, message?: string }
-  return err?.data?.statusMessage ?? err?.statusMessage ?? err?.message ?? '未知錯誤'
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -410,7 +406,7 @@ async function doMerge() {
     await refreshQueue()
   }
   catch (e) {
-    toast.add({ title: '合併失敗', description: errText(e), color: 'error' })
+    toast.add({ title: '合併失敗', description: apiErrorText(e), color: 'error' })
   }
   finally {
     acting.value = false

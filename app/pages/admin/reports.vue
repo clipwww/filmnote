@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Database } from '~/types/database.types'
-import { agoText, dayText } from './-admin-shared'
+import { agoText, dayText, pgErrorText } from './-admin-shared'
 import AdminShell from './-AdminShell.vue'
 import StaffGate from './-StaffGate.vue'
 
@@ -135,10 +135,9 @@ async function doResolve() {
     await refresh()
   }
   catch (e) {
-    const err = e as { code?: string, message?: string }
     toast.add({
       title: '沒有結成',
-      description: err.code === '42501' ? '需要審核權限（資料庫回 42501）' : err.message ?? '未知錯誤',
+      description: pgErrorText(e as { code?: string, message?: string }),
       color: 'error',
     })
   }

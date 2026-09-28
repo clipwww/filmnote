@@ -43,9 +43,7 @@ export function stampText(iso: string | null | undefined): string {
  */
 /*
  * ⚠️ 與 `pgErrorText()` 不同：那支收的是 PostgREST 直接回的錯，這支收的是 `$fetch` 包過的
- * `FetchError`，兩者的欄位長得完全不一樣。
- * ⚠️ `admin/films.vue` 裡有一份同樣邏輯的區域 `errText()`（那一輪沒有授權改那個檔），
- * 日後合併時刪掉那一份即可。
+ * `FetchError`，兩者的欄位長得完全不一樣。`admin/films.vue`、`app/import.vue` 也用這一支。
  */
 export function apiErrorText(e: unknown): string {
   const err = e as { statusMessage?: string, data?: { statusMessage?: string }, message?: string }
