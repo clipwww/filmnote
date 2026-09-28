@@ -438,7 +438,8 @@ David 當回合的指示：額度剩約 2 小時 ⇒ **先做四件便宜且互�
 
 ### 9.5 足跡外的新檔（先報備）
 
-- `app/utils/record-list.ts`（新）：`matchesQuery()` 與 `pageSlice()`。抽出來的唯一理由是
+- `app/utils/record-list.ts`（新）：`matchesQuery()` 與 `pageSlice()`。（2026-09-28：已收進 `useRecordListState()`、
+  不再 export；篩選與頁碼的整組狀態都在那裡，測試打它的介面。）抽出來的唯一理由是
   **測得到**——留在 SFC 的 computed 裡時四關全綠也看不見它們（`§5.1`、`§5.6 #236`）。
   `app/utils/` 不在 §6.1 的清單裡，但 §6.2 點名唯讀的是 `ticket.ts` 與 `format-datetime.ts`
   兩個檔、不是整個目錄，而新檔與 tmdb-import 那條線零交集。

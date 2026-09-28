@@ -1,161 +1,265 @@
+import type { ListableRecord } from '../app/utils/record-list'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { parse } from '@vue/compiler-sfc'
 import { describe, expect, it } from 'vitest'
-import { keepIfOffered, matchesQuery, pageSlice } from '../app/utils/record-list'
+import { effectScope, nextTick, ref } from 'vue'
+import { RECORD_LIST_ALL as ALL, RECORD_LIST_PER_PAGE as PER_PAGE, useRecordListState } from '../app/utils/record-list'
 
 /**
- * `/app/records` 的關鍵字搜尋與頁碼分頁。
+ * `/app/records` 的篩選、關鍵字搜尋與頁碼分頁，打的是 `useRecordListState` 的介面：
+ * 改輸入 → 看 `filtered`／`visible`／`page`／選項。
  *
  * ── 為什麼需要這一支 ────────────────────────────────────────────────────
- * 這兩件事**只有在瀏覽器裡才會執行**：`typecheck` / `lint` / `test` / `build` 四關
- * 對「第 2 頁切到的是不是第 25 筆」「打的字有沒有比到備註」一律全綠。
- * ⇒ 能靜態量的就靜態量，把 Chrome 留給真的只能點的（`#236`）。
+ * 這些**只有在瀏覽器裡才會執行**：四關對「第 2 頁切到的是不是第 25 筆」「存檔後有沒有被踢回
+ * 第 1 頁」一律全綠 ⇒ 能靜態量的就靜態量，把 Chrome 留給真的只能點的（`#236`、`#332`）。
+ * ⚠️ watch 是 flush 'pre'（非同步）：每次改輸入都要 `await nextTick()`，否則「不回第 1 頁」會假綠。
  */
 
-function record(over: Partial<Parameters<typeof matchesQuery>[0]> = {}) {
+function rec(over: Partial<ListableRecord> = {}): ListableRecord {
   return {
+    year: '2026',
     film: { titleZh: '沙丘', titleOriginal: 'Dune: Part Two' },
     venueName: '威秀影城 信義',
     hallLabel: 'IMAX 廳',
+    formatLabel: 'IMAX',
     memo: '座位有點前面',
+    cost: 390,
     ...over,
   }
 }
 
-describe('matchesQuery', () => {
-  it('空字串放行全部（清空搜尋 = 還原）', () => {
-    expect(matchesQuery(record(), '')).toBe(true)
-    expect(matchesQuery(record(), '   ')).toBe(true)
+function setup(rows: ListableRecord[]) {
+  const records = ref(rows)
+  const s = effectScope().run(() => useRecordListState(records))!
+  return { records, s }
+}
+
+/** 只看搜尋：一筆紀錄比不比得到 `query`。 */
+async function hits(r: ListableRecord, query: string) {
+  const { s } = setup([r])
+  s.q.value = query
+  await nextTick()
+  return s.filtered.value.length === 1
+}
+
+/** 預設 174 筆（David 現有筆數），`memo` 當編號好驗「切到的是哪一段」。 */
+function many(n = 174) {
+  return Array.from({ length: n }, (_, i) => rec({ memo: `r${i}` }))
+}
+
+describe('關鍵字搜尋', () => {
+  it('空字串放行全部（清空搜尋 = 還原）', async () => {
+    expect(await hits(rec(), '')).toBe(true)
+    expect(await hits(rec(), '   ')).toBe(true)
   })
 
-  it('四個欄位各自都比得到', () => {
-    expect(matchesQuery(record(), '沙丘')).toBe(true) // 作品（中文）
-    expect(matchesQuery(record(), '威秀')).toBe(true) // 影城
-    expect(matchesQuery(record(), 'IMAX')).toBe(true) // 影廳
-    expect(matchesQuery(record(), '座位')).toBe(true) // 備註
+  it('四個欄位各自都比得到', async () => {
+    expect(await hits(rec(), '沙丘')).toBe(true) // 作品（中文）
+    expect(await hits(rec(), '威秀')).toBe(true) // 影城
+    expect(await hits(rec({ formatLabel: null }), 'IMAX')).toBe(true) // 影廳（版本欄不參與搜尋）
+    expect(await hits(rec(), '座位')).toBe(true) // 備註
   })
 
-  it('原文片名不分大小寫（`titleOriginal` 是拉丁字）', () => {
-    expect(matchesQuery(record(), 'dune')).toBe(true)
-    expect(matchesQuery(record(), 'DUNE')).toBe(true)
+  it('原文片名不分大小寫（`titleOriginal` 是拉丁字）', async () => {
+    expect(await hits(rec(), 'dune')).toBe(true)
+    expect(await hits(rec(), 'DUNE')).toBe(true)
   })
 
-  it('沒比到就是沒比到', () => {
-    expect(matchesQuery(record(), '奧本海默')).toBe(false)
+  it('沒比到就是沒比到', async () => {
+    expect(await hits(rec(), '奧本海默')).toBe(false)
   })
 
-  it('★ 不跨欄命中：逐欄比對而不是把欄位串起來比一次', () => {
+  it('★ 不跨欄命中：逐欄比對而不是把欄位串起來比一次', async () => {
     // 「信義座位」在「影城結尾 + 備註開頭」之間是連著的，串起來比會假命中。
-    expect(matchesQuery(record(), '信義座位')).toBe(false)
-    expect(matchesQuery(record(), '廳座位')).toBe(false)
+    expect(await hits(rec(), '信義座位')).toBe(false)
+    expect(await hits(rec(), '廳座位')).toBe(false)
   })
 
-  it('欄位是 null / undefined 不會炸，也不會假命中', () => {
-    const bare = { film: null, venueName: null, hallLabel: null, memo: null }
-    expect(matchesQuery(bare, '沙丘')).toBe(false)
-    expect(matchesQuery({}, '沙丘')).toBe(false)
-    expect(matchesQuery({ film: { titleZh: null, titleOriginal: null } }, '沙丘')).toBe(false)
+  it('欄位是 null / undefined 不會炸，也不會假命中', async () => {
+    expect(await hits({ year: '2026', film: null, venueName: null, hallLabel: null, memo: null }, '沙丘')).toBe(false)
+    expect(await hits({ year: '2026' }, '沙丘')).toBe(false)
+    expect(await hits({ year: '2026', film: { titleZh: null, titleOriginal: null } }, '沙丘')).toBe(false)
   })
 
-  it('★ 不含日期（David 2026-09-25 裁決：不用比對日期）', () => {
+  it('★ 不含日期（David 2026-09-25 裁決：不用比對日期）', async () => {
     // 與時區無關（比的是欄位字串，不是 `watchedOn`）⇒ 不需要跑第二個 TZ。
-    expect(matchesQuery(record({ memo: '看完去吃飯' }), '2024')).toBe(false)
+    expect(await hits(rec({ year: '2024', memo: '看完去吃飯' }), '2024')).toBe(false)
     // 但片名裡的數字照樣比得到——「不含日期」講的是不去翻 `watchedOn`。
-    expect(matchesQuery(record({ film: { titleZh: '1917', titleOriginal: '1917' } }), '1917')).toBe(true)
+    expect(await hits(rec({ film: { titleZh: '1917', titleOriginal: '1917' } }), '1917')).toBe(true)
+  })
+
+  it('搜尋與篩選器是疊加不是取代', async () => {
+    const { s } = setup([rec({ memo: '甲' }), rec({ memo: '甲', cost: null }), rec({ memo: '乙', cost: null })])
+    s.q.value = '甲'
+    s.cost.value = 'none'
+    await nextTick()
+    expect(s.filtered.value).toHaveLength(1)
+    expect(s.filtered.value[0]!.cost).toBeNull()
   })
 })
 
-describe('keepIfOffered', () => {
-  const ALL = '__all__'
-  const offered = [{ value: ALL }, { value: '威秀影城 信義' }, { value: '國賓影城 長春' }]
+describe('篩選選項', () => {
+  const rows = [
+    rec({ year: '2026', venueName: '國賓影城 長春', formatLabel: '數位' }),
+    rec({ year: '2025', venueName: '威秀影城 信義', formatLabel: 'IMAX' }),
+    rec({ year: '2025', venueName: '秀泰影城 台北車站', formatLabel: '數位' }),
+    rec({ year: '2024', venueName: '威秀影城 信義', formatLabel: '4DX' }),
+  ] // 已按 watched_on 新到舊，同 useMyRecords
 
-  it('新年份還有這家影城 ⇒ 留著', () => {
-    expect(keepIfOffered('威秀影城 信義', offered, ALL)).toBe('威秀影城 信義')
+  it('★ 年份預設「所有年份」，選項新到舊（不走升冪的 sort）', () => {
+    const { s } = setup(rows)
+    expect(s.year.value).toBe(ALL)
+    expect(s.yearOptions.value.map(o => o.value)).toEqual([ALL, '2026', '2025', '2024'])
+    expect(s.yearOptions.value[0]!.label).toBe('所有年份（4）')
   })
 
-  it('新年份沒有這家影城 ⇒ 歸回全部（不然表是空的而且看不出原因）', () => {
-    expect(keepIfOffered('秀泰影城 台北車站', offered, ALL)).toBe(ALL)
+  it('影城／版本升冪、含「所有…」，預設從全期長出來（David 2026-09-25：不限制選項）', () => {
+    const { s } = setup(rows)
+    expect(s.venueOptions.value.map(o => o.value)).toEqual([ALL, '國賓影城 長春', '威秀影城 信義', '秀泰影城 台北車站'])
+    expect(s.formatOptions.value.map(o => o.value)).toEqual([ALL, '4DX', 'IMAX', '數位'])
   })
 
-  it('本來就是全部 ⇒ 還是全部', () => {
-    expect(keepIfOffered(ALL, offered, ALL)).toBe(ALL)
+  it('選了某一年，影城／版本收斂回那一年', async () => {
+    const { s } = setup(rows)
+    s.year.value = '2025'
+    await nextTick()
+    expect(s.venueOptions.value.map(o => o.value)).toEqual([ALL, '威秀影城 信義', '秀泰影城 台北車站'])
+    expect(s.formatOptions.value.map(o => o.value)).toEqual([ALL, 'IMAX', '數位'])
+  })
+
+  it('★ 換年份：還提供的影城／版本留著，不提供的才歸回全部，票價不動', async () => {
+    const { s } = setup(rows)
+    s.venue.value = '威秀影城 信義'
+    s.format.value = '數位'
+    s.cost.value = 'has'
+    await nextTick()
+    s.year.value = '2024' // 2024 有威秀，但沒有「數位」
+    await nextTick()
+    expect(s.venue.value).toBe('威秀影城 信義')
+    expect(s.format.value).toBe(ALL)
+    expect(s.cost.value).toBe('has')
+  })
+
+  it('clearFilters 五個一起歸位', async () => {
+    const { s } = setup(rows)
+    s.year.value = '2025'
+    s.q.value = 'x'
+    s.cost.value = 'none'
+    await nextTick()
+    expect(s.hasNarrowed.value).toBe(true)
+    s.clearFilters()
+    await nextTick()
+    expect([s.year.value, s.venue.value, s.format.value, s.cost.value, s.q.value]).toEqual([ALL, ALL, ALL, ALL, ''])
+    expect(s.hasNarrowed.value).toBe(false)
   })
 })
 
-describe('pageSlice', () => {
-  const all = Array.from({ length: 174 }, (_, i) => `r${i}`) // David 現有 174 筆
-  const PER_PAGE = 24
-
-  it('★ 驗的是內容不是長度（#234：JS 陣列會自己長）', () => {
-    expect(pageSlice(all, 2, PER_PAGE)[0]).toBe(all[PER_PAGE])
-    expect(pageSlice(all, 2, PER_PAGE).at(-1)).toBe(all[PER_PAGE * 2 - 1])
-    expect(pageSlice(all, 3, PER_PAGE)[0]).toBe(all[PER_PAGE * 2])
+describe('頁碼分頁', () => {
+  it('★ 驗的是內容不是長度（#234：JS 陣列會自己長）', async () => {
+    const all = many()
+    const { s } = setup(all)
+    s.page.value = 2
+    await nextTick()
+    // 比 memo 不比物件：ref() 包過之後拿到的是 reactive proxy，toBe 會因 identity 不同而紅。
+    expect(s.visible.value[0]!.memo).toBe(all[PER_PAGE]!.memo)
+    expect(s.visible.value.at(-1)!.memo).toBe(all[PER_PAGE * 2 - 1]!.memo)
+    s.page.value = 3
+    await nextTick()
+    expect(s.visible.value[0]!.memo).toBe(all[PER_PAGE * 2]!.memo)
   })
 
-  it('每一頁都接得上，而且合起來剛好是全集（沒有重疊、沒有漏）', () => {
-    const pageCount = Math.ceil(all.length / PER_PAGE)
-    const rejoined = Array.from({ length: pageCount }, (_, i) => pageSlice(all, i + 1, PER_PAGE)).flat()
-    expect(rejoined).toEqual(all)
+  it('每一頁都接得上，而且合起來剛好是全集（沒有重疊、沒有漏）', async () => {
+    const all = many()
+    const { s } = setup(all)
+    const rejoined: ListableRecord[] = []
+    for (let p = 1; p <= s.pageCount.value; p++) {
+      s.page.value = p
+      await nextTick()
+      rejoined.push(...s.visible.value)
+    }
+    expect(rejoined.map(r => r.memo)).toEqual(all.map(r => r.memo))
   })
 
-  it('最後一頁不補滿：174 = 7 × 24 + 6', () => {
-    expect(pageSlice(all, 8, PER_PAGE)).toHaveLength(6)
-    expect(pageSlice(all, 8, PER_PAGE)[0]).toBe(all[168])
+  it('最後一頁不補滿：174 = 7 × 24 + 6', async () => {
+    const { s } = setup(many())
+    expect(s.pageCount.value).toBe(8)
+    s.page.value = 8
+    await nextTick()
+    expect(s.visible.value.map(r => r.memo)).toEqual(['r168', 'r169', 'r170', 'r171', 'r172', 'r173'])
   })
 
-  it('空集合與越界的頁碼回空陣列（不是 undefined、不會炸）', () => {
-    expect(pageSlice([], 1, PER_PAGE)).toEqual([])
-    expect(pageSlice(all, 99, PER_PAGE)).toEqual([])
+  it('空集合只有 1 頁、回空陣列（不是 undefined、不會炸）', () => {
+    const { s } = setup([])
+    expect(s.pageCount.value).toBe(1)
+    expect(s.visible.value).toEqual([])
   })
 })
 
 /**
  * ★ 這一段釘的是「回第 1 頁的訊號來源」。
  *
- * `refresh()`（存檔、刪除之後都會呼叫）會換掉 `filtered` 的 identity。
- * 監看 `filtered` ⇒ **每一次存檔都把使用者踢回第 1 頁**，而那正是 David 抱怨的
+ * `refresh()`（存檔、刪除之後都會呼叫）會換掉 `records`／`filtered` 的 identity。
+ * 若監看 `filtered` ⇒ **每一次存檔都把使用者踢回第 1 頁**，而那正是 David 抱怨的
  * 「返回上一頁狀態都被清掉」的同一個病。四關對這件事一律全綠，只有真的存一筆才看得到。
  */
-describe('/app/records 換年份', () => {
-  const src = readFileSync(
-    fileURLToPath(new URL('../app/pages/app/records/index.vue', import.meta.url)),
-    'utf8',
-  )
-  const script = parse(src, { filename: 'index.vue' }).descriptor.scriptSetup?.content ?? ''
-  const body = /watch\(\s*year\s*,\s*\(\)\s*=>\s*\{([^}]*)\}/.exec(script)?.[1] ?? ''
+describe('頁碼的重設與夾回', () => {
+  // 值要選得讓集合仍有好幾頁，才分得出「回第 1 頁」與「被夾回最後一頁」
+  const inputs = { year: '2026', venue: '威秀影城 信義', format: 'IMAX', cost: 'has', q: 'r1' } as const
 
-  it('腳本裡真的有 watch(year)（不然下面兩條是永遠綠的裝飾品）', () => {
-    expect(body).toContain('keepIfOffered')
+  it.each(Object.keys(inputs) as (keyof typeof inputs)[])('換 %s ⇒ 回第 1 頁', async (key) => {
+    const { s } = setup(many())
+    s.page.value = 3
+    await nextTick()
+    s[key].value = inputs[key]
+    await nextTick()
+    expect(s.pageCount.value).toBeGreaterThan(1)
+    expect(s.page.value).toBe(1)
   })
 
-  it('★ 不再無條件清掉影城／版本，也不碰票價', () => {
-    expect(body).not.toMatch(/(venue|format|cost)\.value = ALL/)
-    expect(body).not.toMatch(/cost\.value/)
+  it('★ refresh()（records 換成內容相同的新陣列）不回第 1 頁', async () => {
+    const { records, s } = setup(many())
+    s.page.value = 3
+    await nextTick()
+    records.value = records.value.map(r => ({ ...r }))
+    await nextTick()
+    expect(s.page.value).toBe(3)
+    expect(s.visible.value[0]!.memo).toBe(`r${PER_PAGE * 2}`)
+  })
+
+  it('★ 刪掉最後一頁唯一那筆 ⇒ 夾回新的最後一頁，不是跳回第 1 頁', async () => {
+    const { records, s } = setup(many(PER_PAGE * 7 + 1)) // 8 頁，第 8 頁只有 1 筆
+    s.page.value = 8
+    await nextTick()
+    records.value = records.value.slice(0, -1)
+    await nextTick()
+    expect(s.pageCount.value).toBe(7)
+    expect(s.page.value).toBe(7)
+    expect(s.visible.value.at(-1)!.memo).toBe(`r${PER_PAGE * 7 - 1}`)
   })
 })
 
-describe('/app/records 的頁碼重設訊號', () => {
+/**
+ * 頁面接線：規則全在 composable 裡，頁面若自己再加一條 watch 就會繞過上面所有測試。
+ */
+describe('/app/records 的狀態接線', () => {
   const src = readFileSync(
     fileURLToPath(new URL('../app/pages/app/records/index.vue', import.meta.url)),
     'utf8',
   )
-  const script = parse(src, { filename: 'index.vue' }).descriptor.scriptSetup?.content ?? ''
+  // 先剝掉註解：頁面裡那則「不要寫 page.value = 1」的警告本身就會咬到下面的斷言（§7.6）。
+  const script = (parse(src, { filename: 'index.vue' }).descriptor.scriptSetup?.content ?? '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
 
-  it('腳本真的讀到了（不然下面兩條會是永遠綠的裝飾品）', () => {
-    expect(script).toContain('page.value = 1')
+  it('篩選／頁碼狀態來自 useRecordListState(records)', () => {
+    expect(script).toMatch(/\}\s*=\s*useRecordListState\(records\)/)
   })
 
-  it('沒有任何 watch 監看 `filtered`', () => {
+  it('★ 頁面自己不重設頁碼、不監看 filtered', () => {
+    expect(script).not.toMatch(/page\.value\s*=/)
     expect(script).not.toMatch(/watch\(\s*filtered\b/)
     expect(script).not.toMatch(/watch\(\s*\[[^\]]*\bfiltered\b/)
-  })
-
-  it('回第 1 頁的 watch 監看的是五個輸入值', () => {
-    const m = /watch\(\s*\[([^\]]*)\]\s*,\s*\(\)\s*=>\s*\{\s*page\.value = 1/.exec(script)
-    expect(m).not.toBeNull()
-    const watched = m![1]!.split(',').map(s => s.trim()).filter(Boolean)
-    expect(watched.sort()).toEqual(['cost', 'format', 'q', 'venue', 'year'])
   })
 })
 

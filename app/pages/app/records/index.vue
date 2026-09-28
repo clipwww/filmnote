@@ -3,7 +3,7 @@ import type { TableColumn } from '@nuxt/ui'
 import type { MyRecord } from '~/composables/useMyRecords'
 import type { Database } from '~/types/database.types'
 import { watchedAtText } from '~/utils/format-datetime'
-import { keepIfOffered, matchesQuery, pageSlice } from '~/utils/record-list'
+import { useRecordListState } from '~/utils/record-list'
 import { costText, venueSegment } from '~/utils/ticket'
 
 /**
@@ -40,104 +40,29 @@ const toast = useToast()
 
 const { records, status, refresh } = useMyRecords()
 
-/* ── 篩選 ─────────────────────────────────────────────────────────────── */
-const ALL = '__all__'
-/** 年份現在跟另外三個篩選器同型（`ALL` = 所有年份），**預設就是 `ALL`**。 */
-const year = ref(ALL)
-const venue = ref(ALL)
-const format = ref(ALL)
-const cost = ref(ALL)
-const q = ref('')
-
-/**
- * 年份選項**新到舊**。`records` 已按 `watched_on` 新到舊排序、`Set` 保留插入序
- * ⇒ 這裡刻意**不走下面的 `options()`**：那一支會 `.sort()` 成升冪，年份會變成舊的在最上面。
+/*
+ * ── 篩選／搜尋／頁碼 ── 狀態與規則全在 `useRecordListState`（`~/utils/record-list`）：換年份保留
+ * 還提供的影城／版本、五個輸入變才回第 1 頁、`refresh()` 不回第 1 頁、集合變小夾回最後一頁。
+ * ⚠️ 不要在這裡另外 watch `filtered` 或寫 `page.value = 1`：那會把存檔後的使用者踢回第 1 頁。
  */
-const years = computed(() => [...new Set(records.value.map(r => r.year))])
-const yearOptions = computed(() => [
-  { label: `所有年份（${records.value.length}）`, value: ALL },
-  ...years.value.map(y => ({ label: y, value: y })),
-])
-
-const byYear = computed(() =>
-  year.value === ALL ? records.value : records.value.filter(r => r.year === year.value))
-
-/**
- * 選項只從**目前年份範圍內**的紀錄長出來：選了就 0 筆的選項比沒有選項更難用。
- * ⚠️ 預設變成「所有年份」之後，這一支第一次算出來的是全期的 16／7 項（見檔頭的實測數字），
- * 不再是當年的 4／3 項。選了某一年才會收斂回那一年。
- */
-function options(values: (string | null | undefined)[], allLabel: string) {
-  const seen = [...new Set(values.map(v => v?.trim()).filter((v): v is string => !!v))].sort()
-  return [{ label: allLabel, value: ALL }, ...seen.map(v => ({ label: v, value: v }))]
-}
-const venueOptions = computed(() => options(byYear.value.map(r => r.venueName), '所有影城'))
-const formatOptions = computed(() => options(byYear.value.map(r => r.formatLabel), '所有版本'))
-const costOptions = [
-  { label: '票價不限', value: ALL },
-  { label: '有填票價', value: 'has' },
-  { label: '沒填票價', value: 'none' },
-]
-
-/** 一頁的筆數。預設「所有年份」之後全集是 174 筆（實測）⇒ 不分頁會是很長的一張表。 */
-const PER_PAGE = 24
-
-// 換年份只重設新年份裡已經沒有的影城／版本（David 2026-09-25：不要清掉剛設好的篩選）。
-// 票價那一維跟年份無關，不動。
-watch(year, () => {
-  venue.value = keepIfOffered(venue.value, venueOptions.value, ALL)
-  format.value = keepIfOffered(format.value, formatOptions.value, ALL)
-})
-
-const filtered = computed(() => byYear.value.filter((r) => {
-  if (venue.value !== ALL && r.venueName?.trim() !== venue.value)
-    return false
-  if (format.value !== ALL && r.formatLabel?.trim() !== format.value)
-    return false
-  if (cost.value === 'has' && (r.cost === null || r.cost === undefined))
-    return false
-  if (cost.value === 'none' && r.cost !== null && r.cost !== undefined)
-    return false
-  // 搜尋與三個篩選器是**疊加**不是取代：比對規則見 `~/utils/record-list`。
-  // 不加 debounce——資料早就全在客端（174 筆），逐字元重算量不出延遲。
-  return matchesQuery(r, q.value)
-}))
-
-const hasNarrowed = computed(() =>
-  year.value !== ALL || venue.value !== ALL || format.value !== ALL || cost.value !== ALL || !!q.value.trim())
-function clearFilters() {
-  year.value = ALL
-  venue.value = ALL
-  format.value = ALL
-  cost.value = ALL
-  q.value = ''
-}
-
-/* ── 頁碼分頁 ─────────────────────────────────────────────────────────────
- * 全集早就在客端（`useMyRecords` 一次取完），所以換頁**不重新請求**、也不動 DB。
- */
-const page = ref(1)
-const pageCount = computed(() => Math.max(1, Math.ceil(filtered.value.length / PER_PAGE)))
-
-/**
- * ⚠️ 監看的是**篩選與搜尋的輸入值**，不是 `filtered`。
- * 改成監看 `filtered` 會壞掉的地方：`refresh()`（存檔、刪除之後都會呼叫）會換掉
- * `filtered` 的 identity ⇒ 每一次存檔都把使用者踢回第 1 頁。
- */
-watch([year, venue, format, cost, q], () => {
-  page.value = 1
-})
-
-/**
- * 刪掉最後一頁唯一那筆之後 `page` 會落在範圍外 ⇒ 表會是空的而且畫面上沒有任何解釋。
- * ⚠️ 這裡是**夾回最後一頁不是跳回第 1 頁**：跳回第 1 頁就是上面那條 watch 明文要避免的事。
- */
-watch(pageCount, (n) => {
-  if (page.value > n)
-    page.value = n
-})
-
-const visible = computed(() => pageSlice(filtered.value, page.value, PER_PAGE))
+const {
+  PER_PAGE,
+  year,
+  venue,
+  format,
+  cost,
+  q,
+  yearOptions,
+  venueOptions,
+  formatOptions,
+  costOptions,
+  filtered,
+  hasNarrowed,
+  clearFilters,
+  page,
+  pageCount,
+  visible,
+} = useRecordListState(records)
 
 /* ── 備註（短的印在格子裡，長的點開對話框）──
  * ⚠️ 備註是自由文字：實測 174 筆裡 73 筆有備註、平均 14.3 字、最長 67 字、**5 筆含換行**、
@@ -271,7 +196,7 @@ async function closeEditor() {
 
 /**
  * 存檔後：**先 `refresh()` 再關抽屜**，那一列才會是原地更新而不是「關掉之後才跳一下」。
- * 頁碼不會動——回第 1 頁的 watch 監看的是篩選輸入值，不是 `filtered`（見上面那條）。
+ * 頁碼不會動——回第 1 頁的訊號是五個篩選輸入值，不是 `filtered`（`useRecordListState`）。
  */
 async function onEditorSaved() {
   await refresh()
