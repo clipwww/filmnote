@@ -209,7 +209,8 @@ export function monthlySeriesToDate(
   // 「今年、這個月」是台北的：`getFullYear()/getMonth()` 吃瀏覽器時區，跨月那幾小時海外讀者的
   // 「這個月」會跟 DB 的台北日期差一格。`today` 可注入是為了測跨午夜。
   const now = taipeiYearMonth(today)
-  if (year === null || year !== now.year)
+  // 注入的 `today` 解析不了 ⇒ 不知道「這個月」是哪個月，寧可整年照畫也不要 throw 讓圖表整塊消失。
+  if (now === null || year === null || year !== now.year)
     return filled
   return filled.map((v, i) => (i + 1 > now.month ? null : v))
 }

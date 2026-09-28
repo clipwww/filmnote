@@ -1,5 +1,5 @@
 /**
- * 台北牆上時間：全站唯一的 `Asia/Taipei` 格式器（2026-09-28 David 裁決：「今天」一律是台北）。
+ * 台北牆上時間：全站唯一的 `Asia/Taipei` 格式器（2026-09-28 裁決：「今天」一律是台北）。
  * 前端（`app/utils/taipei-time.ts` 轉出）、伺服器（`mylog-csv`）、匯入（`mylog`）共用這一份，
  * 各自再包一層自己的失敗策略（app 回 `''`、匯入 throw）。
  */
@@ -66,10 +66,10 @@ export function taipeiToday(now: number | Date = Date.now()): string {
   return taipeiDateText(now)
 }
 
-/** 台北的年與月（1..12）。`stats.ts` 用它判斷「今年還沒到的月份」。 */
-export function taipeiYearMonth(now: number | Date = Date.now()): { year: number, month: number } {
-  const p = taipeiParts(now)!
-  return { year: Number(p.year), month: Number(p.month) }
+/** 台北的年與月（1..12）。`stats.ts` 用它判斷「今年還沒到的月份」。無效的 Date 回 null，不 throw。 */
+export function taipeiYearMonth(now: number | Date = Date.now()): { year: number, month: number } | null {
+  const p = taipeiParts(now)
+  return p ? { year: Number(p.year), month: Number(p.month) } : null
 }
 
 /**

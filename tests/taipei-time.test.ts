@@ -12,7 +12,7 @@ import {
 } from '../src/time/taipei'
 
 /**
- * `src/time/taipei.ts` 的介面測試（「今天」全站一律台北，2026-09-28 David 裁決）。
+ * `src/time/taipei.ts` 的介面測試（「今天」全站一律台北，2026-09-28 裁決）。
  * ★ 整支檔案跑在 `America/Los_Angeles`：踩雷 #239 實測把 `timeZone` 拿掉，台北機器上全綠、
  *   非台灣時區才紅 ⇒ 在台北跑的時區斷言恆真。第一個 describe 先證明切換真的生效。
  */
@@ -27,7 +27,11 @@ const ORIGINAL_TZ = vi.hoisted(() => {
   return tz
 })
 afterAll(() => {
-  process.env.TZ = ORIGINAL_TZ
+  // 直接指派 undefined 會存成字串 'undefined'（不是合法時區），原本沒設就要真的刪掉。
+  if (ORIGINAL_TZ === undefined)
+    delete process.env.TZ
+  else
+    process.env.TZ = ORIGINAL_TZ
 })
 
 /** 台北 2026-09-28 00:30；洛杉磯與 UTC 都還是 9/27。 */
@@ -84,6 +88,11 @@ describe('台北的今天', () => {
   it('年與月跟著台北跨年', () => {
     expect(taipeiYearMonth(Date.parse('2025-12-31T16:30:00Z'))).toEqual({ year: 2026, month: 1 })
     expect(taipeiYearMonth(Date.parse('2025-12-31T15:59:00Z'))).toEqual({ year: 2025, month: 12 })
+  })
+
+  it('無效的 Date 回 null，不 throw（跟模組其他函式一致）', () => {
+    expect(taipeiYearMonth(new Date('x'))).toBeNull()
+    expect(taipeiYearMonth(Number.NaN)).toBeNull()
   })
 })
 
@@ -158,5 +167,11 @@ describe('monthlySeriesToDate —— 「這個月」是台北的', () => {
     expect(thisYear[0]).toBe(0)
     expect(thisYear[1]).toBeNull()
     expect(monthlySeriesToDate(monthly, 2025, t).every(v => v !== null)).toBe(true)
+  })
+
+  it('注入無效的 today ⇒ 整年照畫，不 throw', () => {
+    const s = monthlySeriesToDate(monthly, 2026, new Date('x'))
+    expect(s).toHaveLength(12)
+    expect(s.every(v => v !== null)).toBe(true)
   })
 })
