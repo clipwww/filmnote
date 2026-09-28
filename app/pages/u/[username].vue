@@ -3,6 +3,7 @@ import type { StatSegment } from '~/utils/stat-line'
 // 型別要明寫（auto-import 只帶值）。用它而不是再抄一次三個字串字面——
 // 那三個同時是 `matchesDistPick()` 的 kind，抄一份就多一處會漂移。
 import type { DistKind } from '~/utils/stats'
+import type { ListedRecord } from '~/utils/ticket'
 // 顯式匯入：新加的 app/utils 檔，不依賴 auto-import 的探索時機（踩雷 #173）。
 import { hourHeatmapHeight } from '~/utils/hour-heatmap-option'
 
@@ -178,10 +179,16 @@ const allRecords = computed(() =>
   (loadedAll.value && extraRecords.value.length ? extraRecords.value : items.value))
 
 /**
+ * 分布長條抽屜多吃一欄國別（`/app` 沒有這組長條，`MyRecord` 就不帶）。⚠️ 值直接取自
+ * `film.country`、**沒有正規化**——必須與 RPC `coalesce(f.country, '')` 分組的字串一模一樣。
+ */
+type PublicCard = ListedRecord & { country: string | null }
+
+/**
  * API 的形狀 → `TicketCard` 的形狀。`cost` 恆為 null：公開頁完全不給金額
  * （聚合是推論通道不是安全邊界，見 `/api/u/[username]` 檔頭），金額由 client 另外取。
  */
-const cards = computed(() => allRecords.value.map(r => ({
+const cards = computed<PublicCard[]>(() => allRecords.value.map(r => ({
   id: r.id ?? '',
   // 多刷抽屜靠它把排行的一列對回紀錄。`?? null` 是保險：比不中總比爆掉好。
   filmId: r.film?.id ?? null,
@@ -190,9 +197,8 @@ const cards = computed(() => allRecords.value.map(r => ({
   watchedTime: r.watchedTime,
   venueName: r.venue?.name ?? null,
   /*
-   * ⚠️ 下面三欄是分布長條抽屜唯一的過濾依據，**漏一欄不會 typecheck 紅**（inline literal）：
-   * 症狀是「長條說 120 場、抽屜列不出東西」，四關全綠、console 零錯誤（#169 同族）。
-   * `formatCode` 是識別、`formatLabel` 給人看，兩個都要（RPC 以 code 分組）。
+   * ⚠️ 下面三欄是分布長條抽屜唯一的過濾依據。漏一欄的症狀是「長條說 120 場、抽屜列不出東西」，
+   * console 零錯誤（#169 同族）——所以 `cards` 標了 `PublicCard[]`，漏一欄就是 typecheck 紅燈。
    */
   venueId: r.venue?.id ?? null,
   formatCode: r.formatCode ?? null,
@@ -208,9 +214,8 @@ const cards = computed(() => allRecords.value.map(r => ({
     titleOriginal: r.film?.title_original ?? null,
     tmdbPosterPath: r.film?.tmdb_poster_path ?? null,
     /*
-     * 2026-09-20 補：端點早就回 `ugc_poster_url`、`TicketCard` 也讀它，這裡沒接
-     * ⇒ 只有 UGC 海報的片 `/app` 是海報、`/u/` 是文字卡（`backend.md §6e`）。
-     * ⚠️ 修了但**驗不到**：實測 `ugc_poster_url` 非 null 的筆數是 0（#175 的形狀）。
+     * 2026-09-20 補：這裡沒接 ⇒ 只有 UGC 海報的片 `/app` 是海報、`/u/` 是文字卡（`backend.md §6e`）。
+     * 現在 `ListedRecordFilm` 必填，漏了會紅。⚠️ **驗不到**：實測 `ugc_poster_url` 非 null 的筆數是 0（#175）。
      */
     ugcPosterUrl: r.film?.ugc_poster_url ?? null,
   },

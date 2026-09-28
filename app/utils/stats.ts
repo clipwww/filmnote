@@ -507,9 +507,9 @@ export function repeatTitle(titleZh: string | null | undefined, year: number | n
 }
 
 /**
- * 某筆紀錄要不要算進「多刷排行」那條抽屜。⚠️ **`filmId` 必填不是可選，這是刻意的**：
- * `/app` 有 `MyRecord` 介面擋著，但 `/u/` 的 `cards` 是無型別標註的 inline literal ⇒ 宣告成
- * 可選的話忘了帶會 **typecheck 全綠、抽屜永遠空的、標題還理直氣壯寫著「10 次」**。
+ * 某筆紀錄要不要算進「多刷排行」那條抽屜。⚠️ **`filmId` 必填不是可選，這是刻意的**（#237）：
+ * 宣告成可選的話呼叫端忘了帶會 **typecheck 全綠、抽屜永遠空的、標題還理直氣壯寫著「10 次」**。
+ * 兩頁的 `cards`／`records` 現在都是 `ListedRecord`，這裡的必填是第二道。
  */
 /*
  * ⚠️ 只用 `film_id` 對，不要用片名或 slug（`BUILD_PLAN` 附錄 31）：片名會撞（David 就有

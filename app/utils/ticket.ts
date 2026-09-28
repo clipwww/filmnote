@@ -132,3 +132,44 @@ export interface TicketCardRecord extends TicketMeta {
   /** 只有本人看得到的紀錄。公開頁面永遠拿不到這種列，所以只有 `/app` 會用到。 */
   isPrivate?: boolean | null
 }
+
+/** `ListedRecord.film`：欄位全部**必填**（可以是 null，不能不給）。 */
+export interface ListedRecordFilm extends TicketCardFilm {
+  slug: string | null
+  titleZh: string | null
+  titleOriginal: string | null
+  tmdbPosterPath: string | null
+  ugcPosterUrl: string | null
+}
+
+/**
+ * 牆、票根卡與圖表抽屜吃的一筆紀錄：`/app` 的 `MyRecord` 與 `/u/` 的 `cards` 都是它。
+ * ⚠️ 欄位刻意**必填不用 `?`**：map 漏一欄要是 typecheck 紅燈，不是靜默的空抽屜或文字卡（§7 #237）。
+ */
+/*
+ * 2026-09-20 的實例：`/u/` 的 map 沒接 `ugcPosterUrl`，因為 `TicketCardFilm` 全是可選欄位，
+ * 只有 UGC 海報的片就在 `/u/` 變成文字卡而四關全綠。
+ */
+export interface ListedRecord extends TicketCardRecord {
+  id: string
+  /** 多刷抽屜只能靠它對回紀錄（片名會撞、slug 對未審核 UGC 是 null）。`/u/` 可能讀不到作品 ⇒ 可 null。 */
+  filmId: string | null
+  /** 分組用，`watchedOn` 的前四碼。 */
+  year: string
+  watchedOn: string | null
+  watchedTime: string | null
+  venueName: string | null
+  /**
+   * 場所的識別：`/u/` 影城分布長條的抽屜、`/app` 的編輯表單預填都靠它。⚠️ **不可改用 `venueName`
+   * 比對**：`venue.name` 不保證唯一（同名分館），而 RPC 是 `group by r.venue_id`——長條與抽屜會對不起來。
+   */
+  venueId: string | null
+  hallLabel: string | null
+  /** 識別（RPC 以 code 分組）；`formatLabel` 才是給人看的，兩個都要。 */
+  formatCode: string | null
+  formatLabel: string | null
+  ticketCount: number | null
+  cost: number | null
+  memo: string | null
+  film: ListedRecordFilm
+}
