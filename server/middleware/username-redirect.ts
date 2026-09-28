@@ -9,7 +9,14 @@ export default defineEventHandler(async (event) => {
   if (!m)
     return
 
-  const name = decodeURIComponent(m[1]!)
+  // 壞掉的跳脫（`/u/%E0%A4`）decodeURIComponent 會丟 URIError ⇒ 整頁 500；交給頁面照常回 404。
+  let name: string
+  try {
+    name = decodeURIComponent(m[1]!)
+  }
+  catch {
+    return
+  }
   const rest = m[2] ?? ''
   const db = publicSupabase()
 

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   filmSlugFromUrl,
@@ -110,5 +112,23 @@ describe('表單變體與伺服器變體的判斷一致', () => {
   it('伺服器變體只收 literal true：字串 "true"、1 都退件', () => {
     expect(takedownNoticeSchema.safeParse({ ...valid, statementGoodFaith: 'true' }).success).toBe(false)
     expect(takedownNoticeSchema.safeParse({ ...valid, statementGoodFaith: 1 }).success).toBe(false)
+  })
+})
+
+// 接線：舊的 500 就出在端點自己 decode（§7 #166：先剝註解再比對）。
+describe('解碼只准在 try 裡：端點與 /u/ 轉址', () => {
+  const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
+
+  it('notice.post.ts 用共用的 filmSlugFromUrl，不自己 decodeURIComponent', () => {
+    const src = read('../server/api/legal/notice.post.ts')
+    expect(src).toMatch(/filmSlugFromUrl\(/)
+    expect(src).not.toMatch(/decodeURIComponent/)
+  })
+
+  it('username-redirect 的 decodeURIComponent 包在 try 裡（/u/%E0%A4 不可 500）', () => {
+    const src = read('../server/middleware/username-redirect.ts')
+    expect(src).toMatch(/try\s*\{\s*name = decodeURIComponent\(/)
   })
 })
