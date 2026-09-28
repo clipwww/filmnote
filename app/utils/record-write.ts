@@ -5,14 +5,9 @@ import type { Database } from '../types/database.types'
 import { toRecordRow } from '../schemas/record'
 
 /**
- * 觀影紀錄的**建立**（`/app/records/new`）與**更新**（`RecordEditForm`）。寫入順序、票價三態、
- * 「部分失敗」都在這裡決定，兩個呼叫端只負責把結果講給使用者聽。
- * ⚠️ 不含 `import.vue`（批次＋import_key）與刪除（FK cascade）：那是不同的操作，硬塞進來只會多分支。
- */
-/*
- * 票價寫進獨立的 `viewing_record_cost`，不是 `viewing_record` 的欄位——RLS 只能遮「列」
- * 不能有條件地遮「欄」，`show_cost` 必須靠結構強制 ⇒ 永遠是兩次寫入、先紀錄後票價
- * （票價列靠 `record_id` 掛著，先寫票價會撞 FK）。
+ * 新增（`records/new`）與更新（`RecordEditForm`）的寫入順序、票價三態、部分失敗都在這裡定；⚠️ 不含 `import.vue`（批次＋import_key）與刪除（FK cascade）。
+ * 票價在獨立的 `viewing_record_cost`：RLS 只能遮「列」不能遮「欄」，`show_cost` 要靠結構強制
+ * ⇒ 永遠兩次寫入、先紀錄後票價（票價列靠 `record_id` 掛著，先寫票價會撞 FK）。
  */
 
 type Client = SupabaseClient<Database>

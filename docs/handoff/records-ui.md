@@ -402,11 +402,12 @@ David 當回合的指示：額度剩約 2 小時 ⇒ **先做四件便宜且互�
 
 1. **頁碼重設的 watch 監看 `filtered` ⇒ 每一次存檔都把使用者踢回第 1 頁。**
    `refresh()`（存檔、刪除後都會呼叫）會換掉 `filtered` 的 identity。現在監看的是
-   **輸入值** `[year, venue, format, cost, q]`。`tests/records-list.test.ts` 有一條靜態斷言
-   釘住這件事（`expect(script).not.toMatch(/watch\(\s*filtered\b/)`）。
+   **輸入值** `[year, venue, format, cost, q]`（在 `useRecordListState` 裡）。真正的守門是
+   `tests/records-list.test.ts`「頁碼的重設與夾回」的 `refresh()…不回第 1 頁`（改成監看 `filtered` 實測會紅）；
+   靜態斷言 `not.toMatch(/watch\(\s*filtered\b/)` 留著守頁面接線（頁面別自己再加 watch）。
 2. **`pageCount` 的夾住不可以改成「回第 1 頁」。** 刪掉最後一頁唯一那筆時 `page` 會落在
    範圍外、表變成空的而且畫面沒有任何解釋 ⇒ 夾回**最後一頁**。改成回第 1 頁就等於
-   第 1 點明文要避免的事。
+   第 1 點明文要避免的事。同一個 describe 的「刪掉最後一頁唯一那筆 ⇒ 夾回新的最後一頁」釘住這條。
 3. **年份選項不可以走 `options()`。** 那支會 `.sort()` 成升冪 ⇒ 年份會變成舊的在最上面。
    `records` 本來就是新到舊、`Set` 保留插入序，所以年份選項另外組。
 4. **搜尋是逐欄比對，不可以把欄位串起來比一次。** 串起來會讓「影城結尾＋備註開頭」這種
