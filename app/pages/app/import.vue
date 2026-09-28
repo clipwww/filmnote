@@ -821,13 +821,11 @@ const moneyText = (n: number) => `NT$${Math.round(n).toLocaleString('zh-Hant-TW'
       </h1>
       <p class="mt-2 text-muted">
         這是站主搬遷自己舊資料用的一次性工具，沒有對外開放。
-        要一筆一筆記，用<NuxtLink to="/app/records/new" class="text-primary hover:underline">
-          記一場
-        </NuxtLink>；
+        <!-- eslint-disable-next-line vue/singleline-html-element-content-newline -- 拆行會多出可見空格（#92），--fix 已改壞過一次（1004076） -->
+        要一筆一筆記，用<NuxtLink to="/app/records/new" class="text-primary hover:underline">記一場</NuxtLink>；
         要一次補很多筆，
-        <NuxtLink to="/legal/dmca" class="text-primary hover:underline">
-          從受理窗口
-        </NuxtLink>跟我說一聲。
+        <!-- eslint-disable-next-line vue/singleline-html-element-content-newline -- 同上 -->
+        <NuxtLink to="/legal/dmca" class="text-primary hover:underline">從受理窗口</NuxtLink>跟我說一聲。
       </p>
     </template>
 
