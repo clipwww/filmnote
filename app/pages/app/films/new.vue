@@ -7,6 +7,7 @@ import type { ResizedImage } from '~/utils/image'
 import type { TicketCardRecord } from '~/utils/ticket'
 import { filmSchema, toFilmRow } from '~/schemas/film'
 import { POSTER_MAX_EDGE, resizePoster } from '~/utils/image'
+import { taipeiToday } from '~/utils/taipei-time'
 
 /**
  * `/app/films/new` — 手動新增作品（`SCREENS.md §11`、US-13~18）。**這是流程的一部分不是錯誤
@@ -128,15 +129,9 @@ onBeforeUnmount(releasePreview)
    存在的理由只有一個：**讓人在按下按鈕之前就看到「沒有海報也是一張完整的票根」**，而不是
    先想像出一個破圖、再被一句安慰的文案安撫。這也是 §0「無海報的卡片要好到使用者不會希望
    它變成海報」唯一能被使用者親眼驗證的地方。 */
-function todayLocal(): string {
-  const d = new Date()
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
-}
-
 const previewRecord = computed<TicketCardRecord>(() => ({
   id: 'preview',
-  watchedOn: todayLocal(),
+  watchedOn: taipeiToday(), // 「今天」全站一律是台北（2026-09-28 David 裁決）
   // 影城、場次、票價都是**下一步**才填的。空欄位在票根卡上就是不存在，
   // 不渲染「—」或「未知」佔位（§4.3 的票價規則同一條）。
   film: {

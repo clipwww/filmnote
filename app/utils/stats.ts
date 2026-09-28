@@ -1,3 +1,4 @@
+import { taipeiYearMonth } from '#pipeline/time/taipei'
 // 相對匯入而不是 `~/utils/…`：vitest 的 `~` 別名指向 src/（管線那一側），
 // 走別名的話單元測試會 resolve 不到。同層檔案用相對路徑最不會出事。
 import { WEEK_START } from './chart-theme'
@@ -202,13 +203,15 @@ export function monthlySeries(monthly: YearStats['monthly']): number[] {
 export function monthlySeriesToDate(
   monthly: YearStats['monthly'],
   year: number | null,
-  today = new Date(),
+  today: number | Date = Date.now(),
 ): (number | null)[] {
   const filled = monthlySeries(monthly)
-  if (year === null || year !== today.getFullYear())
+  // 「今年、這個月」是台北的：`getFullYear()/getMonth()` 吃瀏覽器時區，跨月那幾小時海外讀者的
+  // 「這個月」會跟 DB 的台北日期差一格。`today` 可注入是為了測跨午夜。
+  const now = taipeiYearMonth(today)
+  if (year === null || year !== now.year)
     return filled
-  const thisMonth = today.getMonth() + 1
-  return filled.map((v, i) => (i + 1 > thisMonth ? null : v))
+  return filled.map((v, i) => (i + 1 > now.month ? null : v))
 }
 
 /** 月度趨勢圖那條虛線要 12 個點。少一格就整條不畫，不補零。 */

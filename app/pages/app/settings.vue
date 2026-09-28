@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Database } from '~/types/database.types'
+import { taipeiToday } from '~/utils/taipei-time'
 
 useSeoMeta({ title: '設定' })
 
@@ -72,7 +73,8 @@ async function exportData() {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `filmnote-${username.value}-${new Date().toISOString().slice(0, 10)}.json`
+  // 檔名日期是台北的今天：`toISOString()` 是 UTC，台北早上 8 點前匯出會標成昨天。
+  a.download = `filmnote-${username.value}-${taipeiToday()}.json`
   a.click()
   URL.revokeObjectURL(url)
 }
