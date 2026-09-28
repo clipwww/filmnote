@@ -1,5 +1,6 @@
 import type { Database } from '~/types/database.types'
 import type { TicketCardRecord } from '~/utils/ticket'
+import { signUgcPosters } from '#shared/ugc-poster'
 
 export interface MyRecord extends TicketCardRecord {
   id: string
@@ -74,23 +75,9 @@ export function useMyRecords() {
     const fm = new Map((films.data ?? []).map(f => [f.id, f]))
     const pm = new Map((posters.data ?? []).map(f => [f.id, f.tmdb_poster_path]))
 
-    /**
-     * UGC 海報在 private bucket，`ugc_poster_path` 是**路徑不是 URL**，直接塞進
-     * `<img src>` 只會得到 400 ⇒ 必須換成 signed URL。批次簽一次，不要一部片一個往返。
-     */
-    const ugcPaths = (films.data ?? [])
-      .map(f => f.ugc_poster_path)
-      .filter((p): p is string => !!p)
-    const um = new Map<string, string>()
-    if (ugcPaths.length) {
-      const { data: signed } = await supabase.storage
-        .from('ugc-poster')
-        .createSignedUrls(ugcPaths, 60 * 60)
-      for (const s of signed ?? []) {
-        if (s.path && s.signedUrl)
-          um.set(s.path, s.signedUrl)
-      }
-    }
+    // UGC 海報的簽名規則在 `#shared/ugc-poster`（與 `/api/u` 共用）。這裡傳**使用者自己的**
+    // client ⇒ 簽不簽得出來由本人的 storage 權限決定；`/api/u` 用匿名 client，差別是刻意的。
+    const ugcUrl = await signUgcPosters(supabase, (films.data ?? []).map(f => f.ugc_poster_path))
     const vm = new Map((venues.data ?? []).map(v => [v.id, v.name]))
     const cm = new Map((costs.data ?? []).map(c => [c.record_id, c.amount]))
 
@@ -127,10 +114,7 @@ export function useMyRecords() {
         titleZh: fm.get(r.film_id)?.title_zh ?? null,
         titleOriginal: fm.get(r.film_id)?.title_original ?? null,
         tmdbPosterPath: pm.get(r.film_id) ?? null,
-        ugcPosterUrl: (() => {
-          const path = fm.get(r.film_id)?.ugc_poster_path
-          return path ? um.get(path) ?? null : null
-        })(),
+        ugcPosterUrl: ugcUrl(fm.get(r.film_id)?.ugc_poster_path),
       },
     }))
   }, { server: false, watch: [user] })

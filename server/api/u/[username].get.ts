@@ -1,3 +1,5 @@
+import { signUgcPosters } from '#shared/ugc-poster'
+
 /**
  * 公開個人頁的資料來源。**一律以匿名視角讀取**：`/u/**` 雖然不快取，但 SSR 結果會被
  * 序列化進 `__NUXT_DATA__` 一起送出 ⇒ 只要 SSR 期間碰過觀看者身分，就得為「這份 HTML
@@ -90,27 +92,13 @@ export default defineEventHandler(async (event) => {
       : Promise.resolve({ data: [] as never[] }),
   ])
 
-  // UGC 海報在 private bucket，`ugc_poster_path` 是**路徑不是 URL**（直接塞 `<img src>`
-  // 會 400）⇒ 換成 signed URL 且**批次簽一次**。★ 用匿名 client：未審核的海報因此簽不
-  // 出來，那正是要的——這支端點的輸出對所有人相同。簽不出來就當作沒有海報。
-  const ugcPaths = (films ?? [])
-    .map(f => f.ugc_poster_path)
-    .filter((p): p is string => !!p)
-
-  const signedByPath = new Map<string, string>()
-  if (ugcPaths.length) {
-    const { data: signed } = await db.storage
-      .from('ugc-poster')
-      .createSignedUrls(ugcPaths, 60 * 60)
-    for (const s of signed ?? []) {
-      if (s.path && s.signedUrl)
-        signedByPath.set(s.path, s.signedUrl)
-    }
-  }
+  // UGC 海報：規則在 `#shared/ugc-poster`（與 `useMyRecords` 共用）。★ 用匿名 client：未審核
+  // 的海報因此簽不出來，那正是要的——這支端點的輸出對所有人相同。簽不出來就當作沒有海報。
+  const ugcUrl = await signUgcPosters(db, (films ?? []).map(f => f.ugc_poster_path))
 
   const filmById = new Map((films ?? []).map(f => [
     f.id,
-    { ...f, ugc_poster_url: f.ugc_poster_path ? signedByPath.get(f.ugc_poster_path) ?? null : null },
+    { ...f, ugc_poster_url: ugcUrl(f.ugc_poster_path) },
   ]))
   const venueById = new Map((venues ?? []).map(v => [v.id, v]))
 
