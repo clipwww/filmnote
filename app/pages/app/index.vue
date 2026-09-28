@@ -42,12 +42,22 @@ const recordsLoading = computed(() => recordsStatus.value === 'pending' || recor
 /** RPC 算的權威總數，不受 `useMyRecords` 的 500 上限影響。空狀態閘門與截斷對帳都吃它。 */
 const totalRecords = computed(() => allStats.value?.totals?.records ?? 0)
 
+/**
+ * 金額的 view model，與 `/u/` 的 `useUserSpend()` 同一支投影（閘門、`Number()`、逐年 partial）。
+ * ⚠️ 不要改用 `useUserSpend()`：那支是為 `/u/` 的 SSR ＋觀看者差異造的，搬來只會多發一次
+ * 同樣的 RPC，並製造同一頁兩個金額來源（頁首那句與這條 band 遲早不一致）。
+ */
+const money = computed(() => spendViewModel(allStats.value))
+
 /** 恆為全期，所以第一段固定「總共」——它必須說得出自己涵蓋什麼範圍（§4.4）。 */
 const yearSegments = computed<StatSegment[]>(() => {
   const t = totals.value
   if (!t)
     return []
-  const spend = t.spend > 0 ? costText(t.spend) : null
+  // ⚠️ 閘門刻意是 `total > 0` 不是 `canSeeMoney`：全是兌換票時後者會印出「花了免費」。
+  //    `isPartial` 要跟 `/u/` 一樣讓數字自己帶「以上」，不是只靠底下那行小字。
+  const m = money.value
+  const spend = m && m.total > 0 ? spendText(m.total, m.currency, m.isPartial) : null
   return [
     { value: '總共', suffix: '看了' },
     { value: String(t.records), suffix: '場、' },
@@ -57,39 +67,23 @@ const yearSegments = computed<StatSegment[]>(() => {
 })
 
 const spendNote = computed(() => {
-  const t = totals.value
-  return t?.spend_is_partial
-    ? `其中 ${t.spend_unknown_records} 筆沒有票價，金額不是全部的花費。`
+  const m = money.value
+  return m?.isPartial
+    ? `其中 ${m.unknownRecords} 筆沒有票價，金額不是全部的花費。`
     : null
 })
 
 /* 截斷判準在 `PosterWall.vue`（兩頁共用）。⚠️ 不要在這裡寫死 500——判準是兩條路對帳。 */
 
-/**
- * ⚠️ 不要改用 `useUserSpend()`：那支是為 `/u/` 的 SSR ＋觀看者差異造的，搬來只會多發一次
- * 同樣的 RPC，並製造同一頁兩個金額來源（頁首那句與這條 band 遲早不一致）。
- */
-const spendRows = computed(() =>
-  (allStats.value?.by_year ?? [])
-    // ⚠️ `spend` 在 DB 是 `numeric(12,2)`；JSON 送成 `'0.00'` 時 `SpendByYear` 的
-    //    `width()` 用 `spend === 0` 比較，會讓「免費」那一列長出一小段條。
-    .map(y => ({
-      year: y.year,
-      spend: Number(y.spend ?? 0),
-      records: y.records,
-      tickets: y.tickets,
-      isPartial: !!y.spend_is_partial,
-    }))
-    .sort((a, b) => b.year - a.year))
+const spendRows = computed(() => money.value?.byYear ?? [])
 
-const spendCurrency = computed(() => allStats.value?.totals?.spend_currency ?? 'TWD')
+const spendCurrency = computed(() => money.value?.currency ?? 'TWD')
 
 /**
- * 判準是「讀得到幾列票價」不是「總額大於零」（`SCREENS §2.0b`）——後者會把全是
- * 兌換票（NT$0）誤判成沒東西可看。⚠️ `showCharts`（<10 筆）2026-09-20 拿掉了，
- * **這道閘門留著**：它守票價不守筆數，不要一起收。
+ * 判準是「讀得到幾列票價」不是「總額大於零」（`SCREENS §2.0b`，在 `spendViewModel()` 裡）。
+ * ⚠️ `showCharts`（<10 筆）2026-09-20 拿掉了，**這道閘門留著**：它守票價不守筆數，不要一起收。
  */
-const hasSpend = computed(() => (allStats.value?.totals?.spend_known_records ?? 0) > 0)
+const hasSpend = computed(() => money.value?.canSeeMoney ?? false)
 
 /** ⚠️ 這句的字面與 `/u/` 的 `spendInsight` 共用，要改兩邊一起改。 */
 const spendInsight = '你自己記下的票價，逐年合計。'

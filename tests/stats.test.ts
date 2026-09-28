@@ -29,6 +29,7 @@ import {
   slotTitle,
   spendCountsText,
   spendText,
+  spendViewModel,
   topWithRest,
   venueInsightText,
   WEEKDAY_LABELS,
@@ -1213,8 +1214,8 @@ describe('儀表板的每年花費 band 吃的是全期那一份', () => {
 
   it('★ 一筆票價都沒記過就整條不出現——band 掛在 hasSpend 那個閘門上', () => {
     // David 2026-09-07 裁決：`spend_known_records = 0` 的帳號**整條 band 不出現**，
-    // 不畫成 0、不留佔位。上面那條只證明 `spend_known_records` 這個字出現在檔案裡，
-    // 沒有證明它真的接在 band 的 `v-if` 上——閘門被拿掉的話，那種帳號會看到
+    // 不畫成 0、不留佔位。判準本身由下面 `spendViewModel` 那組測試守，這條守的是它
+    // 真的接在 band 的 `v-if` 上——閘門被拿掉的話，那種帳號會看到
     // 十三列「NT$0 以上」，比沒有這條 band 更糟。
     const src = readCode(DASHBOARD)
     const band = src.indexOf('title="每年花費"')
@@ -1223,10 +1224,77 @@ describe('儀表板的每年花費 band 吃的是全期那一份', () => {
     expect(tag, '「每年花費」不在 <ChartBand 裡了 ⇒ 這條已經失去目標').toBeGreaterThan(-1)
     expect(src.slice(tag, band)).toContain('v-if="hasSpend"')
   })
+})
 
-  it('★ 顯示閘門是「讀得到幾列票價」，不是「總額大於零」', () => {
-    // SCREENS §2.0b 第 1 條：`spend > 0` 會把「全部都是兌換票（NT$0）」的帳號
-    // 誤判成沒東西可看。判準必須是 `spend_known_records`。
-    expect(readCode(DASHBOARD)).toContain('spend_known_records')
+describe('金額的 view model（spendViewModel，/app 與 /u/ 共用）', () => {
+  /** 全期（`p_year = null`）的最小 RPC 回傳。只填這支投影會讀的欄位。 */
+  function allTime(totals: Partial<YearStats['totals']>, byYear: YearStats['by_year'] = []): YearStats {
+    return {
+      year: null,
+      is_own: true,
+      totals: { records: 3, tickets: 3, spend: 0, spend_currency: 'TWD', spend_is_partial: false, spend_known_records: 0, spend_unknown_records: 0, ...totals },
+      by_year: byYear,
+    } as unknown as YearStats
+  }
+  const y = (year: number, spend: unknown, partial = false, records = 2, tickets = 5) =>
+    ({ year, records, films: records, tickets, spend: spend as number, spend_is_partial: partial })
+
+  it('★ 閘門是「讀得到幾列票價」，不是「總額大於零」——全是兌換票（NT$0）仍看得到', () => {
+    // SCREENS §2.0b 第 1 條：`spend > 0` 會把「全部都是兌換票」的帳號誤判成沒東西可看。
+    expect(spendViewModel(allTime({ spend: 0, spend_known_records: 2 }))?.canSeeMoney).toBe(true)
+  })
+
+  it('★ 一筆票價都讀不到 ⇒ canSeeMoney = false（整條 band 與頁首那句都不存在）', () => {
+    // `show_cost = false` 的路人：RLS 讓票價一列都讀不到 ⇒ known = 0。
+    const v = spendViewModel(allTime({ spend: 0, spend_known_records: 0, spend_unknown_records: 3, spend_is_partial: true }))
+    expect(v?.canSeeMoney).toBe(false)
+  })
+
+  it('★ numeric 的字串被轉成數字：\'0.00\' 必須嚴格等於 0', () => {
+    // `SpendByYear` 的 `width()` 用 `spend === 0` 決定「免費」那一列條寬是 0（#171 的配套）。
+    const v = spendViewModel(allTime({ spend: '120.50' as unknown as number, spend_known_records: 2 }, [y(2015, '0.00'), y(2016, '120.50')]))
+    expect(v?.total).toBe(120.5)
+    expect(v?.byYear.find(r => r.year === 2015)?.spend).toBe(0)
+    expect(v?.byYear.find(r => r.year === 2016)?.spend).toBe(120.5)
+  })
+
+  it('新的年份在前', () => {
+    const v = spendViewModel(allTime({ spend_known_records: 1 }, [y(2014, 300), y(2019, 100), y(2015, 0)]))
+    expect(v?.byYear.map(r => r.year)).toEqual([2019, 2015, 2014])
+  })
+
+  it('★ isPartial 是逐年的，不是全期那一個', () => {
+    // 全期只要任一年不完整就是 true；拿它標每一列等於沒標。
+    const v = spendViewModel(allTime({ spend_known_records: 1, spend_is_partial: true }, [y(2020, 6260, true), y(2019, 3000, false)]))
+    expect(v?.isPartial).toBe(true)
+    expect(v?.byYear.map(r => [r.year, r.isPartial])).toEqual([[2020, true], [2019, false]])
+  })
+
+  it('★ NT$0 的年份不被濾掉（#171）；完整是「免費」、不完整是「NT$0 以上」', () => {
+    // 實測 David 2015 年 2 場、票價都記了、合計 NT$0（兌換票）。濾 `records === 0` 是元件的事。
+    const v = spendViewModel(allTime({ spend_known_records: 1, spend_is_partial: true }, [y(2016, 0, true), y(2015, 0, false)]))
+    const text = (v?.byYear ?? []).map(r => spendText(r.spend, v!.currency, r.isPartial))
+    expect(text).toEqual(['NT$0 以上', '免費'])
+  })
+
+  it('場數與張數原樣帶過去，不對調', () => {
+    // 實測 David 2019 年 25 場 37 張（records !== tickets 才驗得出對調，#175）。
+    const v = spendViewModel(allTime({ spend_known_records: 1 }, [y(2019, 3000, false, 25, 37)]))
+    expect(v?.byYear[0]).toMatchObject({ records: 25, tickets: 37 })
+  })
+
+  it('幣別沒給時是 TWD；計數欄位原樣帶過去', () => {
+    const v = spendViewModel(allTime({ spend_currency: undefined as unknown as string, spend_known_records: 4, spend_unknown_records: 1, records: 5 }))
+    expect(v).toMatchObject({ currency: 'TWD', countedRecords: 4, unknownRecords: 1, visibleRecords: 5, isOwn: true })
+  })
+
+  it('★ 指定年份的結果不投影——by_year 在 p_year 非 null 時是空陣列', () => {
+    // 拿單年的結果畫「每年花費」，band 會無聲消失而畫面看起來完全正常。
+    expect(spendViewModel({ ...allTime({ spend_known_records: 1 }, [y(2019, 100)]), year: 2019 })).toBeNull()
+  })
+
+  it('沒有資料就是 null', () => {
+    expect(spendViewModel(null)).toBeNull()
+    expect(spendViewModel({ year: null } as unknown as YearStats)).toBeNull()
   })
 })

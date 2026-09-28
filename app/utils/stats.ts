@@ -704,3 +704,65 @@ export function spendText(amount: number, currency: string, partial: boolean): s
 export function spendCountsText(records: number, tickets: number): string {
   return `${records} 場 / ${tickets} 張`
 }
+
+/* ─────────────────────── 金額的 view model（`/app` 與 `/u/` 共用） ─────────────────────── */
+
+/** 「每年花費」的一列。形狀就是 `SpendByYear` 的 `byYear` prop。 */
+export interface SpendYearRow {
+  year: number
+  spend: number
+  /** 場數與張數是兩個數字，兩個本來就對匿名公開，印出來不是新的外洩。 */
+  records: number
+  tickets: number
+  /** ⚠️ **逐年**的旗標：全期那個只要任一年不完整就是 true，標在圖上等於每一年都掛同一個但書。 */
+  isPartial: boolean
+}
+
+export interface SpendView {
+  /** false ⇒ **整個金額章節不存在**。不是畫成 0，不是佔位（否則總額÷場次能反推）。 */
+  canSeeMoney: boolean
+  /** 觀看者就是本人。來自 RPC 的 `is_own`（`auth.uid()`），不是前端自己比對 id。 */
+  isOwn: boolean
+  total: number
+  currency: string
+  /** 這個觀看者看得到的紀錄總數。 */
+  visibleRecords: number
+  /** 其中讀得到票價的有幾筆。 */
+  countedRecords: number
+  /** 讀不到票價的有幾筆。**本人是「沒記」、路人是「沒公開」，文案不可共用。 */
+  unknownRecords: number
+  /** 全期總額涵蓋不完整。 */
+  isPartial: boolean
+  /** 新的年份在前。**不濾任何一列**：NT$0 的年份也在（#171），濾 `records === 0` 是元件的事。 */
+  byYear: SpendYearRow[]
+}
+
+/**
+ * 全期 `user_year_stats` → 金額的 view model。`/u/`（`useUserSpend`）與 `/app` 各自打 RPC、
+ * 共用這一支投影：兩條資料路徑刻意分開（§7 #210、`charts.md §1.5`），判準不可以分岔。
+ */
+/*
+ * ★ 閘門是 `spend_known_records > 0` 不是「總額 > 0」——後者把「全是兌換票（NT$0）」誤判成
+ *   看不到（`SCREENS §2.0b`）；`show_cost = false` 時 RLS 讓票價一列都讀不到 ⇒ known = 0。
+ * ⚠️ 指定年份的結果回 null：`by_year` 在 `p_year` 非 null 時是 `[]`，拿來畫會無聲少掉整條 band。
+ */
+export function spendViewModel(s: YearStats | null | undefined): SpendView | null {
+  if (!s?.totals || s.year != null)
+    return null
+  const t = s.totals
+  return {
+    canSeeMoney: (t.spend_known_records ?? 0) > 0,
+    isOwn: !!s.is_own,
+    total: Number(t.spend ?? 0),
+    currency: t.spend_currency ?? 'TWD',
+    visibleRecords: t.records ?? 0,
+    countedRecords: t.spend_known_records ?? 0,
+    unknownRecords: t.spend_unknown_records ?? 0,
+    isPartial: !!t.spend_is_partial,
+    byYear: (s.by_year ?? [])
+      // ⚠️ `spend` 在 DB 是 `numeric(12,2)`，`Number()` 不是裝飾：`SpendByYear` 的 `width()` 用
+      //    `spend === 0` 嚴格比較，JSON 送成 `'0.00'` 的話「免費」那一列會長出一小段條（#171 的配套）。
+      .map(y => ({ year: y.year, spend: Number(y.spend ?? 0), records: y.records, tickets: y.tickets, isPartial: !!y.spend_is_partial }))
+      .sort((a, b) => b.year - a.year),
+  }
+}
