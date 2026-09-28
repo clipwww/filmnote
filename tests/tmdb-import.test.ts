@@ -128,7 +128,14 @@ describe('兩支端點的授權順序', () => {
   })
 
   it('預覽那一支完全不碰 service role', () => {
-    expect(src('import-preview.post.ts')).not.toMatch(/serviceSupabase|executeImport/)
+    expect(src('import-preview.post.ts')).not.toMatch(/serviceSupabase|executeImport|supabaseImportWriteDb/)
+  })
+
+  // 型別擋不住「把 staff client 包成寫入 db」（兩者同型別），只能在接線這一行釘住。
+  it('寫入那一支：寫入 db 包的是 service role，讀片庫仍用 staff client', () => {
+    const s = src('import.post.ts')
+    expect(s).toMatch(/executeImport\(supabaseImportWriteDb\(serviceSupabase\(\)\)/)
+    expect(s).not.toMatch(/supabaseImportPlanDb\(serviceSupabase/)
   })
 })
 

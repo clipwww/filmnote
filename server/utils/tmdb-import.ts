@@ -19,7 +19,7 @@ import { MAX_SEARCH_RESULTS } from './tmdb-import-options'
  */
 // ★ 讀用**使用者自己的 client**（`film_staff` policy 看得到全部），寫才用 service role：
 //   `seed_films` 只授權給 service_role，而 service client 的輸出不可以回給瀏覽器。
-//   兩個 client 都由端點建好、以 `supabaseImportDb()` 包起來傳進來，這裡不碰 serviceSupabase。
+//   兩個 client 都由端點建好、各自以 `supabaseImportPlanDb()`／`supabaseImportWriteDb()` 包起來傳進來，這裡不碰 serviceSupabase。
 // ⚠️ 與 CLI 的差異：CLI 的閘門 ①（`pg_get_functiondef` 確認 0019 已套用）在這裡做不到，
 //   PostgREST 讀不到 `pg_proc`。替代品是寫完**讀回**新列的 `title_zh_source`（`readback`），
 //   外加 `tests/tmdb-import.test.ts` 釘住 payload 永遠帶 `titleZhSource: 'tmdb'`。
@@ -74,7 +74,7 @@ export interface ReadbackRow {
 
 /**
  * 匯入流程要的資料庫動作。★ 接口是動作不是 SupabaseClient：測試換上記憶體版就能驅動分頁與讀回，
- * 正式版是 `supabaseImportDb()`。預覽用 ImportPlanDb（staff 自己的 client），寫入用 ImportWriteDb（service role）。
+ * 正式版是下面兩支 `supabaseImport*Db()`。預覽用 ImportPlanDb（staff 自己的 client），寫入用 ImportWriteDb（service role）。
  */
 export interface ImportPlanDb {
   /** 存活片庫的一頁 `[from, from + size)`，依 id 排序。 */
@@ -89,7 +89,8 @@ export interface ImportWriteDb {
   readback: (tmdbIds: number[]) => Promise<ReadbackRow[]>
 }
 
-export function supabaseImportDb(db: SupabaseClient<Database>): ImportPlanDb & ImportWriteDb {
+/** 讀片庫。傳 staff 自己的 client（`film_staff` policy 看得到全部）。 */
+export function supabaseImportPlanDb(db: SupabaseClient<Database>): ImportPlanDb {
   return {
     async libraryPage(from, size) {
       const { data, error } = await db.from('film')
@@ -113,6 +114,12 @@ export function supabaseImportDb(db: SupabaseClient<Database>): ImportPlanDb & I
         .in('id', ids)
       return data ?? []
     },
+  }
+}
+
+/** 寫入。⚠️ 傳 service role：`seed_films` 只 grant 給 service_role，換成 staff client 只會整批失敗。 */
+export function supabaseImportWriteDb(db: SupabaseClient<Database>): ImportWriteDb {
+  return {
     async seedFilms(rows) {
       const { data, error } = await db.rpc('seed_films', { p_films: rows as unknown as Json })
       return { count: Number(data ?? 0), error: error?.message ?? null }

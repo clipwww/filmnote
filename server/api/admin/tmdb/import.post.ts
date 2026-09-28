@@ -24,7 +24,7 @@ export default defineEventHandler(async (event) => {
   assertWithinRateLimit(event, { windowMs: 60_000, max: 5, scope: 'admin-tmdb-import' })
 
   const tmdb = tmdbClientFor(useRuntimeConfig(event).tmdbApiKey, { concurrency: 4 })
-  const plan = await planImport({ db: supabaseImportDb(await serverSupabaseClient<Database>(event)), tmdb }, parsed.data.source)
+  const plan = await planImport({ db: supabaseImportPlanDb(await serverSupabaseClient<Database>(event)), tmdb }, parsed.data.source)
     .catch((cause) => {
       throw tmdbHttpError(cause)
     })
@@ -39,7 +39,7 @@ export default defineEventHandler(async (event) => {
   if (!rows.length)
     return { written: 0, readback: [], plan }
 
-  const result = await executeImport(supabaseImportDb(serviceSupabase()), rows)
+  const result = await executeImport(supabaseImportWriteDb(serviceSupabase()), rows)
 
   // eslint-disable-next-line no-console -- 管理動作的稽核日誌
   console.log('[admin/tmdb/import]', JSON.stringify({
