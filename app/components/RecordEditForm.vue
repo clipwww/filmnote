@@ -20,7 +20,7 @@ import { recordWriteToast, updateRecord } from '~/utils/record-write'
  * key 不變才不會重掛、才不會把使用者正在打的字清掉。
  */
 const props = defineProps<{ record: MyRecord }>()
-const emit = defineEmits<{ saved: [], cancel: [] }>()
+const emit = defineEmits<{ saved: [], refresh: [], cancel: [] }>()
 
 const supabase = useSupabaseClient<Database>()
 const toast = useToast()
@@ -86,8 +86,12 @@ async function onSubmit(event: FormSubmitEvent<RecordForm>) {
     if (result.status === 'failed')
       return
     hadCost.value = result.hasCost
-    // cost-failed 也要 emit：UPDATE 已經落地，列表不 refresh 就會停在舊值（改之前這裡報「更新失敗」）。
-    emit('saved')
+    // cost-failed：UPDATE 已落地 ⇒ 列表要 refresh，但抽屜不關，使用者原地再按一次就能重試票價
+    // （更新是冪等的：同一 id 的 UPDATE＋onConflict upsert）。關掉會把剛打的票價丟掉。
+    if (result.status === 'cost-failed')
+      emit('refresh')
+    else
+      emit('saved')
   }
   catch (e) {
     // 模組把 PostgREST 的錯誤都收成結果了；會走到這裡的是網路層或導頁丟出來的例外。

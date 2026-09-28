@@ -180,7 +180,12 @@ describe('recordWriteToast（兩個呼叫端共用 ⇒ 部分失敗的講法一�
  * 接線：模組再完美，呼叫端不用它就等於沒測。這兩條守的是「頁面自己不再直接寫 viewing_record」。
  */
 describe('寫入的呼叫端接線', () => {
+  // 先剝註解再比對（§7 #166）：否則把呼叫留在 `// 以前是 await createRecord(supabase, …)` 也會綠。
   const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
+    .replace(/\s\/\/\s.*$/gm, '')
 
   it('new.vue 走 createRecord，RecordEditForm 走 updateRecord', () => {
     const create = read('../app/pages/app/records/new.vue')
@@ -191,5 +196,12 @@ describe('寫入的呼叫端接線', () => {
       expect(src).not.toMatch(/from\('viewing_record(_cost)?'\)/)
       expect(src).toMatch(/toast\.add\(recordWriteToast\(result,/)
     }
+  })
+
+  it('抽屜遇到 cost-failed 只 refresh 不關（剛打的票價要留著給使用者重試）', () => {
+    const edit = read('../app/components/RecordEditForm.vue')
+    const list = read('../app/pages/app/records/index.vue')
+    expect(edit).toMatch(/if \(result\.status === 'cost-failed'\)\s*emit\('refresh'\)\s*else\s*emit\('saved'\)/)
+    expect(list).toMatch(/@refresh="refresh\(\)"/)
   })
 })

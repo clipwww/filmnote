@@ -551,6 +551,7 @@ async function confirmRemove() {
           :key="editingRecord.id"
           :record="editingRecord"
           @saved="onEditorSaved"
+          @refresh="refresh()"
           @cancel="closeEditor"
         />
       </template>
