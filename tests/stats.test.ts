@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { hourHeatmapHeight, hourHeatmapOption } from '../app/utils/hour-heatmap-option'
 import {
   calendarSeries,
+  dashboardSpendText,
   dayTitle,
   distPickTitle,
   doubleFeatureDays,
@@ -1224,6 +1225,15 @@ describe('儀表板的每年花費 band 吃的是全期那一份', () => {
     expect(tag, '「每年花費」不在 <ChartBand 裡了 ⇒ 這條已經失去目標').toBeGreaterThan(-1)
     expect(src.slice(tag, band)).toContain('v-if="hasSpend"')
   })
+
+  it('★ /app 的金額全部來自那支共用投影：hasSpend 吃 canSeeMoney、頁首吃 dashboardSpendText', () => {
+    // 取代原本的 `toContain('spend_known_records')`：判準搬進投影後，頁面只剩「有沒有接上」可守。
+    // 改回 `total > 0` 或直接讀 totals，投影測試照樣綠，只有這條會紅。
+    const src = readCode(DASHBOARD)
+    expect(src).toMatch(/const money = computed\(\(\) => spendViewModel\(allStats\.value\)\)/)
+    expect(src).toMatch(/const hasSpend = computed\(\(\) => money\.value\?\.canSeeMoney \?\? false\)/)
+    expect(src).toMatch(/const spend = dashboardSpendText\(money\.value\)/)
+  })
 })
 
 describe('金額的 view model（spendViewModel，/app 與 /u/ 共用）', () => {
@@ -1291,6 +1301,17 @@ describe('金額的 view model（spendViewModel，/app 與 /u/ 共用）', () =>
   it('★ 指定年份的結果不投影——by_year 在 p_year 非 null 時是空陣列', () => {
     // 拿單年的結果畫「每年花費」，band 會無聲消失而畫面看起來完全正常。
     expect(spendViewModel({ ...allTime({ spend_known_records: 1 }, [y(2019, 100)]), year: 2019 })).toBeNull()
+  })
+
+  it('★ /app 頁首：不完整的 0 印「NT$0 以上」（與 /u/ 一致），完整的 0 整段不印', () => {
+    const v = (t: Partial<YearStats['totals']>) => spendViewModel(allTime(t))
+    expect(dashboardSpendText(v({ spend: 0, spend_known_records: 1, spend_unknown_records: 2, spend_is_partial: true }))).toBe('NT$0 以上')
+    // 完整的 0 若照印，頁首會是「花了免費」。
+    expect(dashboardSpendText(v({ spend: 0, spend_known_records: 2 }))).toBeNull()
+    expect(dashboardSpendText(v({ spend: 6890, spend_known_records: 2, spend_is_partial: true }))).toBe('NT$6,890 以上')
+    expect(dashboardSpendText(v({ spend: 6890, spend_known_records: 2 }))).toBe('NT$6,890')
+    expect(dashboardSpendText(v({ spend: 0, spend_known_records: 0, spend_unknown_records: 3, spend_is_partial: true }))).toBeNull()
+    expect(dashboardSpendText(null)).toBeNull()
   })
 
   it('沒有資料就是 null', () => {

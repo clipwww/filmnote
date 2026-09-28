@@ -775,3 +775,17 @@ export function spendViewModel(s: YearStats | null | undefined): SpendView | nul
       .sort((a, b) => b.year - a.year),
   }
 }
+
+/**
+ * `/app` 頁首「花了 …」那一段；null ⇒ 整段不印（連「，花了」都不接）。
+ * 與 `/u/` 的 `UserSpendSummary` 對齊：不完整的 0 也印「NT$0 以上」。
+ */
+/*
+ * ⚠️ 唯一刻意的差異：**完整的 0 不印**——`spendText()` 會回「免費」，頁首就變成「花了免費」。
+ * ⚠️ 閘門不可改回 `total > 0`：那會吃掉「有記票價、合計 0、另有沒記的」帳號的「NT$0 以上」。
+ */
+export function dashboardSpendText(v: SpendView | null | undefined): string | null {
+  if (!v?.canSeeMoney || (v.total === 0 && !v.isPartial))
+    return null
+  return spendText(v.total, v.currency, v.isPartial)
+}

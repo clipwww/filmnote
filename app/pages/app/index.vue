@@ -54,10 +54,8 @@ const yearSegments = computed<StatSegment[]>(() => {
   const t = totals.value
   if (!t)
     return []
-  // ⚠️ 閘門刻意是 `total > 0` 不是 `canSeeMoney`：全是兌換票時後者會印出「花了免費」。
-  //    `isPartial` 要跟 `/u/` 一樣讓數字自己帶「以上」，不是只靠底下那行小字。
-  const m = money.value
-  const spend = m && m.total > 0 ? spendText(m.total, m.currency, m.isPartial) : null
+  // 閘門與「以上」都在 `dashboardSpendText()`（完整的 0 不印，否則「花了免費」）。
+  const spend = dashboardSpendText(money.value)
   return [
     { value: '總共', suffix: '看了' },
     { value: String(t.records), suffix: '場、' },

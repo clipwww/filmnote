@@ -158,7 +158,8 @@ band**，所以範圍限定拿掉了——底下 2026-09-06 的每一條判斷�
   （那正是 `useUserSpend()` 檔頭在防的東西，不要把它搬過來又親手破壞它。）
   ★ 兩條路**各自打 RPC、共用同一支投影** `spendViewModel()`（`utils/stats.ts`）：閘門、
   `Number()`、逐年 partial、新到舊都在那裡，由 `tests/stats.test.ts` 直接測。`/app` 頁首
-  的金額也吃它的 `isPartial`（與 `/u/` 一樣帶「以上」），但閘門仍是 `total > 0`（否則印「花了免費」）。
+  的金額走 `dashboardSpendText()`：與 `/u/` 一樣帶「以上」（不完整的 0 也印「NT$0 以上」），
+  只有**完整的 0 不印**（否則「花了免費」）。
   ⚠️ 而且**一定要用 `allStats` 不是 `stats`**：RPC 在 `p_year` 不是 null 時
   `by_year` 回的是**空陣列**，寫成 `stats.value?.by_year` 的話使用者一切到某一年
   這條 band 就無聲消失，而畫面看起來完全正常。
