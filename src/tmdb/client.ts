@@ -165,8 +165,11 @@ export class TmdbClient {
   }
 }
 
-/** 自明細中取出台灣的上映日。查無時回傳 null。 */
-export function taiwanReleaseDate(detail: TmdbMovieDetail): string | null {
+/** 自明細中取出台灣的上映日。查無時回傳 null。搜尋結果沒有 release_dates ⇒ 一律 null。 */
+// ★ 取**最早**那一天（David 裁決，全站一致）：TMDB 不保證區塊內的排序，取 [0] 時快照與
+//   匯入預覽對同一部片會給出兩個日期。改回 [0] 會讓 tests/pipeline.test.ts 的亂序案例變紅。
+export function taiwanReleaseDate(detail: Pick<TmdbMovieDetail, 'release_dates'>): string | null {
   const tw = detail.release_dates?.results.find(r => r.iso_3166_1 === TW_REGION)
-  return tw?.release_dates[0]?.release_date.slice(0, 10) ?? null
+  const dates = (tw?.release_dates ?? []).map(d => d.release_date.slice(0, 10)).sort()
+  return dates[0] ?? null
 }

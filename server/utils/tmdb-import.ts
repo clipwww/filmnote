@@ -2,10 +2,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { KnownFilm } from '#pipeline/tmdb/classify'
 import type { ImportPlan } from '#pipeline/tmdb/import-plan'
 import type { SeedFilmRow } from '#pipeline/tmdb/seed-row'
-import type { TmdbSearchResult } from '#pipeline/types'
+import type { TmdbMovieDetail, TmdbSearchResult } from '#pipeline/types'
 import type { ImportSource } from './tmdb-import-options'
 import type { Database, Json } from '~/types/database.types'
-import { TmdbClient, TmdbError } from '#pipeline/tmdb/client'
+import { taiwanReleaseDate, TmdbClient, TmdbError } from '#pipeline/tmdb/client'
 import { buildImportPlan } from '#pipeline/tmdb/import-plan'
 import { tmdbKey } from '#pipeline/tmdb/seed-row'
 import { MAX_SEARCH_RESULTS } from './tmdb-import-options'
@@ -35,14 +35,14 @@ export interface ImportCandidate {
 const SEED_BATCH = 20
 const LIBRARY_PAGE = 1000
 
-function toCandidate(r: TmdbSearchResult & { release_dates?: { results: { iso_3166_1: string, release_dates: { release_date: string }[] }[] } }): ImportCandidate {
-  const tw = r.release_dates?.results.find(x => x.iso_3166_1 === 'TW')?.release_dates.map(d => d.release_date.slice(0, 10)).sort()[0]
+function toCandidate(r: TmdbSearchResult & Pick<TmdbMovieDetail, 'release_dates'>): ImportCandidate {
   return {
     id: r.id,
     title: r.title ?? '',
     original_title: r.original_title ?? '',
     releaseDate: r.release_date || null,
-    twReleaseDate: tw ?? null,
+    // 與快照同一支（取最早）：兩邊各寫一份時曾經一個取 [0]、一個取最早。
+    twReleaseDate: taiwanReleaseDate(r),
     posterPath: r.poster_path ?? null,
   }
 }

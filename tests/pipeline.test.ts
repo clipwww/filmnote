@@ -152,6 +152,19 @@ describe('台灣上映日的取出', () => {
     }))).toBe('2024-02-14')
   })
 
+  it('★ 區塊內亂序時取最早那一天（全站一致的裁決）', () => {
+    // TMDB 不保證排序；取 [0] 會得到 2024-03-01。
+    expect(taiwanReleaseDate(detail({
+      results: [
+        { iso_3166_1: 'TW', release_dates: [
+          { release_date: '2024-03-01T00:00:00.000Z' },
+          { release_date: '2024-02-14T00:00:00.000Z' },
+          { release_date: '2024-02-20T00:00:00.000Z' },
+        ] },
+      ],
+    }))).toBe('2024-02-14')
+  })
+
   it('沒有台灣資料時回傳 null', () => {
     // 實測 110 年僅 42.6% 的片有台灣上映日，這是常見情況而非異常
     expect(taiwanReleaseDate(detail({
