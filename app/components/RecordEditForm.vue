@@ -5,7 +5,8 @@ import type { MyRecord } from '~/composables/useMyRecords'
 import type { VenueOption } from '~/composables/useRecordOptions'
 import type { RecordForm } from '~/schemas/record'
 import type { Database } from '~/types/database.types'
-import { recordSchema, toRecordRow } from '~/schemas/record'
+import { recordSchema } from '~/schemas/record'
+import { recordWriteToast, updateRecord } from '~/utils/record-write'
 
 /**
  * 抽屜裡的「編輯一筆紀錄」表單（2026-09-21，David 第 1、2 條）。
@@ -79,47 +80,17 @@ async function onSubmit(event: FormSubmitEvent<RecordForm>) {
   const form = event.data
   saving.value = true
   try {
-    /*
-     * ★ **單一 UPDATE，永遠不是「刪掉再新增」**：`id` 與 `created_at` 必須原封不動
-     * （David 第 2 條的驗收就是這個），`viewing_record_cost` 也是靠 `record_id` 掛著，
-     * 換一個 id 等於把票價孤兒化。
-     * ⚠️ `film_id` 跟其他欄位一起送：RLS 的 `record_update` 只在 `with check` 要求
-     * `film_usable_by(film_id, auth.uid())`，**沒有把 `film_id` 釘成常數**（活體查過）
-     * ⇒ 換片是被允許的，換到已移除／已合併的片才會被擋。
-     */
-    const { error } = await supabase
-      .from('viewing_record')
-      .update({ ...toRecordRow(form), film_id: form.film.id })
-      .eq('id', props.record.id)
-    if (error)
-      throw error
-
-    // 票價在另一張表，三種情況要分開處理。
-    // ★ null 是「刪掉這筆票價」，0 是「真的沒花錢」——不可混為一談。
-    if (form.cost === null) {
-      if (hadCost.value) {
-        const { error: de } = await supabase
-          .from('viewing_record_cost')
-          .delete()
-          .eq('record_id', props.record.id)
-        if (de)
-          throw de
-        hadCost.value = false
-      }
-    }
-    else {
-      const { error: ce } = await supabase
-        .from('viewing_record_cost')
-        .upsert({ record_id: props.record.id, amount: form.cost }, { onConflict: 'record_id' })
-      if (ce)
-        throw ce
-      hadCost.value = true
-    }
-
-    toast.add({ title: '已更新', color: 'success' })
+    // 單一 UPDATE（David 第 2 條）與票價三態都在 `~/utils/record-write`，理由也寫在那裡。
+    const result = await updateRecord(supabase, { id: props.record.id, form, hadCost: hadCost.value })
+    toast.add(recordWriteToast(result, { saved: '已更新', failed: '更新失敗' }))
+    if (result.status === 'failed')
+      return
+    hadCost.value = result.hasCost
+    // cost-failed 也要 emit：UPDATE 已經落地，列表不 refresh 就會停在舊值（改之前這裡報「更新失敗」）。
     emit('saved')
   }
   catch (e) {
+    // 模組把 PostgREST 的錯誤都收成結果了；會走到這裡的是網路層或導頁丟出來的例外。
     toast.add({ title: '更新失敗', description: (e as Error).message, color: 'error' })
   }
   finally {

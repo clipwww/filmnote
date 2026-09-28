@@ -4,7 +4,8 @@ import type { FilmOption } from '~/composables/useFilmSearch'
 import type { VenueOption } from '~/composables/useRecordOptions'
 import type { RecordForm } from '~/schemas/record'
 import type { Database } from '~/types/database.types'
-import { recordSchema, toRecordRow } from '~/schemas/record'
+import { recordSchema } from '~/schemas/record'
+import { createRecord, recordWriteToast } from '~/utils/record-write'
 
 definePageMeta({ layout: 'default' })
 useSeoMeta({ title: '記一場' })
@@ -102,35 +103,18 @@ async function onSubmit(event: FormSubmitEvent<RecordForm>) {
   const form = event.data
   saving.value = true
   try {
-    // 票價寫進獨立的 viewing_record_cost 表，不是 viewing_record 的欄位——
-    // RLS 只能遮「列」不能有條件地遮「欄」，show_cost 這條規則必須靠結構強制。
-    const { data: inserted, error } = await supabase
-      .from('viewing_record')
-      .insert({ ...toRecordRow(form), user_id: user.value.sub, film_id: form.film.id })
-      .select('id')
-      .single()
-    if (error)
-      throw error
-
-    // null 代表「沒有票價資料」，0 代表「真的沒花錢」——只有前者不寫入。
-    if (form.cost !== null) {
-      const { error: costError } = await supabase
-        .from('viewing_record_cost')
-        .insert({ record_id: inserted.id, amount: form.cost })
-      if (costError) {
-        // 紀錄已經建立，票價沒寫進去不該讓整筆消失。明說哪一半失敗即可。
-        // ★ 不用 color: 'warning'——Nuxt UI 的 warning 預設就是 Tailwind amber，
-        //   跟我們的 primary 同色會撞（DESIGN_SYSTEM §1.5）。用 error + 明確文案。
-        toast.add({ title: '記好了，但票價沒存成功', description: costError.message, color: 'error' })
-      }
-    }
-
+    // 寫入順序、票價三態、部分失敗的判定都在 `~/utils/record-write`；這裡只負責講給使用者聽。
+    const result = await createRecord(supabase, { form, userId: user.value.sub })
+    toast.add(recordWriteToast(result, { saved: '記好了', failed: '存檔失敗' }))
+    if (result.status === 'failed')
+      return
+    // cost-failed 也走到這裡：紀錄已經建立，票價沒寫進去不該讓整筆消失（留在表單上再按一次會重複一筆）。
     writeLastVenue(form.venueId)
     clearDraft() // 存進去了，草稿沒有理由再留著
-    toast.add({ title: '記好了', color: 'success' })
     await navigateTo('/app/records')
   }
   catch (e) {
+    // 模組把 PostgREST 的錯誤都收成結果了；會走到這裡的是網路層或導頁丟出來的例外。
     toast.add({ title: '存檔失敗', description: (e as Error).message, color: 'error' })
   }
   finally {

@@ -224,30 +224,4 @@ describe('/app/records 編輯抽屜', () => {
   })
 })
 
-/**
- * ★ 改作品（David 第 2 條）：**單一 UPDATE，不是刪掉再新增**。
- * ⚠️ 只驗「總數不變」分辨不出來——刪掉再新增也是 -1+1、總數一樣（交接 §1 第 2 條）。
- * 資料層的證據在 `scripts/`（見交接 §10.2 的 SQL 驗證）；這裡釘的是**寫入路徑的形狀**。
- */
-describe('/app/records 改作品的寫入路徑', () => {
-  const form = readFileSync(
-    fileURLToPath(new URL('../app/components/RecordEditForm.vue', import.meta.url)),
-    'utf8',
-  )
-
-  it('走 update().eq(id)，而且 film_id 跟著一起送', () => {
-    expect(form).toMatch(/\.update\(\{\s*\.\.\.toRecordRow\(form\),\s*film_id:\s*form\.film\.id\s*\}\)/)
-    expect(form).toMatch(/\.eq\('id',\s*props\.record\.id\)/)
-  })
-
-  it('★ viewing_record 完全沒有 delete 或 insert', () => {
-    // 這一條就是「不可以刪掉再新增」的靜態版本。
-    expect(form).not.toMatch(/from\('viewing_record'\)[\s\S]{0,80}\.delete\(/)
-    expect(form).not.toMatch(/from\('viewing_record'\)[\s\S]{0,80}\.insert\(/)
-  })
-
-  it('票價的三態沒有被壓成兩態（null ≠ 0）', () => {
-    expect(form).toMatch(/form\.cost === null/)
-    expect(form).toMatch(/onConflict:\s*'record_id'/)
-  })
-})
+// 改作品（David 第 2 條）的寫入路徑：介面測試在 `tests/record-write.test.ts`。
