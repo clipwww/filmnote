@@ -6,6 +6,7 @@ import type { RecordForm } from '~/schemas/record'
 import type { Database } from '~/types/database.types'
 import { recordSchema } from '~/schemas/record'
 import { createRecord, recordWriteToast } from '~/utils/record-write'
+import { taipeiToday } from '~/utils/taipei-time'
 
 definePageMeta({ layout: 'default' })
 useSeoMeta({ title: '記一場' })
@@ -18,17 +19,6 @@ const { venues } = useVenueOptions()
 const { read: readLastVenue, write: writeLastVenue } = useLastVenue()
 const { save: saveDraft, take: takeDraft, clear: clearDraft } = useRecordDraft()
 const { term: filmTerm, items: filmItems, loading: filmLoading, queried: filmQueried } = useFilmSearch()
-
-/**
- * 「今天」是使用者所在地的今天。`watched_on` 存的是台北牆上時間的日期（schema 用 date + time
- * 刻意避開時區）⇒ 取本地日期即可，**不要**經過 `toISOString()`：那會轉成 UTC，
- * 台灣時間早上 8 點前記的紀錄會被記成前一天。
- */
-function todayLocal(): string {
-  const d = new Date()
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
-}
 
 // UForm 的 state 是單一 reactive 物件，欄位名要與 zod schema 的 key 一致，
 // UFormField 的 name 才對得上錯誤訊息。
@@ -45,7 +35,7 @@ const state = reactive<{
   isPublic: boolean
 }>({
   film: undefined,
-  watchedOn: todayLocal(), // US-5：預設今天
+  watchedOn: taipeiToday(), // US-5：預設今天；全站一律台北（2026-09-28 裁決），不可經過 toISOString()
   watchedTime: '',
   venueId: undefined,
   ticketCount: null,
