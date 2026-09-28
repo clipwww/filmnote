@@ -5,6 +5,7 @@
  */
 
 import { normalizeCountry } from '#pipeline/normalize/country'
+import { taipeiParts } from '#pipeline/time/taipei'
 
 /** 上游一列的原始欄位。169 筆實測全部具備這些欄位且皆非 null。 */
 export interface MyLogItem {
@@ -41,25 +42,11 @@ export interface TaipeiWallClock {
  */
 // 方向與直覺相反：台北 08:00 之後的場次 UTC 日期相同，真正會跑掉的是**午夜場**
 // （台北 00:00 的 UTC 是前一天 16:00）——169 筆裡有 5 筆，不換算會全部退到前一天。
-// 用 Intl 而非硬寫 +8：台灣 1979 年以前實施過日光節約時間，硬寫會靜默地錯。
-const TAIPEI_PARTS = new Intl.DateTimeFormat('en-US', {
-  timeZone: 'Asia/Taipei',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  hourCycle: 'h23',
-})
-
+// 格式器與「用 Intl 不硬寫 +8」（1979 年前的日光節約時間）在 `#pipeline/time/taipei`，全站一份。
 export function toTaipeiWallClock(iso: string): TaipeiWallClock {
-  const instant = new Date(iso)
-  if (Number.isNaN(instant.getTime()))
+  const parts = taipeiParts(iso)
+  if (!parts)
     throw new Error(`無法解析的時間字串：${iso}`)
-
-  const parts: Record<string, string> = {}
-  for (const p of TAIPEI_PARTS.formatToParts(instant))
-    parts[p.type] = p.value
 
   return {
     watchedOn: `${parts.year}-${parts.month}-${parts.day}`,

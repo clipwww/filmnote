@@ -1,6 +1,7 @@
 import type { MyLogItem } from '#pipeline/import/mylog'
 import { Buffer } from 'node:buffer'
 import { parseRawWallClock, toTaipeiWallClock } from '#pipeline/import/mylog'
+import { taipeiParts } from '#pipeline/time/taipei'
 
 /**
  * 舊 log 專案匯出的 CSV → `MyLogItem[]`。CLI 匯入吃的是上游 JSON，這裡吃 CSV，
@@ -109,22 +110,9 @@ function tokenize(text: string): string[][] {
   return records
 }
 
-/** 台北牆上時間 → UTC 瞬間的 ISO 字串。 */
-const TAIPEI_FMT = new Intl.DateTimeFormat('en-US', {
-  timeZone: 'Asia/Taipei',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  hourCycle: 'h23',
-})
-
-/** 某個瞬間，台北時間比 UTC 快多少毫秒。 */
+/** 某個瞬間，台北時間比 UTC 快多少毫秒。格式器共用 `#pipeline/time/taipei` 那一份。 */
 function taipeiOffsetMs(instant: number): number {
-  const p: Record<string, string> = {}
-  for (const part of TAIPEI_FMT.formatToParts(new Date(instant)))
-    p[part.type] = part.value
+  const p = taipeiParts(instant)!
   const asUtc = Date.UTC(
     Number(p.year),
     Number(p.month) - 1,
