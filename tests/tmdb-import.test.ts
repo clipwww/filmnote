@@ -322,7 +322,7 @@ describe('tmdb-http：端點共用的建 client 與錯誤翻譯', () => {
     expect(tmdbHttpError(bug)).not.toHaveProperty('statusCode')
   })
 
-  it('TMDB 回 200 但 body 不是 JSON ⇒ 仍是 TmdbError（翻 502 而不是當成我們的 bug）', async () => {
+  it('body 不是 JSON（TMDB 回 200）⇒ 仍是 TmdbError（翻 502 而不是當成我們的 bug）', async () => {
     const fetchImpl = (async () => ({ ok: true, status: 200, json: async () => JSON.parse('<html>') })) as unknown as typeof fetch
     const failing = tmdbClientFor('k', { fetchImpl, sleepImpl: async () => {} }).search('奧德賽')
     await expect(failing).rejects.toBeInstanceOf(TmdbError)
