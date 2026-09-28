@@ -71,9 +71,12 @@ export class TmdbClient {
 
   /** 統計資訊，供匯入結束時回報。 */
   readonly stats = { requests: 0, retries: 0, throttled: 0 }
+  /** 閘門的併發數。批次呼叫端照這個開 worker，不另外帶一個數（兩個數分岔時多的 worker 只會排隊）。 */
+  readonly concurrency: number
 
   constructor(private readonly options: TmdbClientOptions) {
-    this.gate = new Gate(options.concurrency ?? 8)
+    this.concurrency = options.concurrency ?? 8
+    this.gate = new Gate(this.concurrency)
     this.maxRetries = options.maxRetries ?? 5
     this.fetchImpl = options.fetchImpl ?? fetch
     this.sleep = options.sleepImpl ?? defaultSleep

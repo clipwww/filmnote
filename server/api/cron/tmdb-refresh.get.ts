@@ -20,7 +20,7 @@ export default defineEventHandler(async (event) => {
   assertCronCaller(event)
 
   const options = parseRefreshOptions(getQuery(event) as Record<string, unknown>)
-  // 依賴在這裡建：缺 key 的 503 先於 service role；TmdbClient 的併發必須跟 options 同一個數。
+  // 依賴在這裡建：缺 key 的 503 先於 service role；刷新的 worker 數照 TmdbClient 的併發開。
   const tmdb = tmdbClientFor(useRuntimeConfig(event).tmdbApiKey, { concurrency: options.concurrency })
   const report = await runTmdbRefresh({ db: supabaseRefreshDb(serviceSupabase()), tmdb }, options)
 

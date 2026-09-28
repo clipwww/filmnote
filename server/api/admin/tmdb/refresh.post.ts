@@ -47,7 +47,7 @@ export default defineEventHandler(async (event) => {
   const options = clampManualOptions(parsed.data)
 
   // ③ 到這裡才動 service role，而且就寫在這一行看得見（`runTmdbRefresh` 內部不再自己拿）。
-  //   TmdbClient 先建：缺 key 的 503 要在碰 service role 之前；併發必須跟 options 同一個數。
+  //   TmdbClient 先建：缺 key 的 503 要在碰 service role 之前；刷新的 worker 數照它的併發開。
   const tmdb = tmdbClientFor(useRuntimeConfig(event).tmdbApiKey, { concurrency: options.concurrency })
   const report = await runTmdbRefresh({ db: supabaseRefreshDb(serviceSupabase()), tmdb }, options)
 

@@ -7,7 +7,7 @@ import type { FailureOutcome, TmdbDetailForSnapshot, TmdbSnapshotPatch } from '.
 // 顯式 import 而非 Nitro auto-import：本檔被 tests/tmdb-refresh.test.ts 直接載入（§7 #211）。
 import { createError } from 'h3'
 import { TmdbError } from '#pipeline/tmdb/client'
-import { DEFAULT_BUDGET_MS, DEFAULT_CONCURRENCY, DEFAULT_LIMIT } from './tmdb-refresh-options'
+import { DEFAULT_BUDGET_MS, DEFAULT_LIMIT } from './tmdb-refresh-options'
 import { failurePatch, outcomeForError, snapshotFromDetail } from './tmdb-snapshot'
 
 /**
@@ -104,16 +104,16 @@ export function supabaseRefreshDb(db: SupabaseClient<Database>): RefreshDb {
 /**
  * ★ 依賴由呼叫端（cron／手動端點）建好傳進來，這裡不碰 runtimeConfig 與 serviceSupabase：
  *   service role 只在端點裡、staff 檢查之後出現（BUILD_PLAN §5 Step 9a）。
- * ⚠️ `tmdb` 的併發要與 `options.concurrency` 相同：worker 數照後者開，兩者分岔時多的 worker 只會排隊。
+ * ★ worker 數取自 `tmdb.concurrency`，不另收一個併發參數：分開傳時兩個數會分岔（併發由建 client 的端點決定）。
  */
 export async function runTmdbRefresh(
   { db, tmdb }: { db: RefreshDb, tmdb: TmdbClient },
-  options: TmdbRefreshOptions = {},
+  options: Pick<TmdbRefreshOptions, 'limit' | 'budgetMs'> = {},
 ): Promise<TmdbRefreshReport> {
   const startedAt = Date.now()
   const limit = options.limit ?? DEFAULT_LIMIT
   const budgetMs = options.budgetMs ?? DEFAULT_BUDGET_MS
-  const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY
+  const concurrency = tmdb.concurrency
 
   const { rows, due } = await db.claimDue(limit)
 
