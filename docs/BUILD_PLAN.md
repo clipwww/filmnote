@@ -2228,6 +2228,8 @@ curl -s "$URL/rest/v1/takedown_notice?select=*" -H "apikey: $ANON"              
 2. 用**使用者自己的** client（`serverSupabaseClient(event)`）問資料庫 `is_staff()` —— 不是 `true` 就 403
 3. **通過 ② 之後**，才去拿 `serviceSupabase()` 幹活
 
+（2026-09-28 起）③ 的 `serviceSupabase()` 與 `TmdbClient` 都**寫在端點裡**、當參數傳進 `runTmdbRefresh()`／`executeImport()`（`supabaseRefreshDb()`／`supabaseImportDb()` 包成窄接口），編排函式內部不再自己拿 ⇒ service role 在端點檔裡、staff 檢查之後看得見，編排本身也能被 `tests/tmdb-refresh.test.ts`、`tests/tmdb-import.test.ts` 以假 fetch＋記憶體版接口驅動。建 client（缺 key 回 503）與 TMDB 錯誤翻 502 只有 `server/utils/tmdb-http.ts` 一處。
+
 決策本體是純函式 `assertStaffFrom(probe)`（`server/utils/admin-auth.ts`），supabase 的接線留在三支端點裡各寫一次——**那不是重複，是刻意的**：端點檔裡看得到 `serverSupabaseClient(event)` 這個字，讀的人一眼就知道問 `is_staff()` 的是使用者自己的 client；包進共用函式反而會讓最該被看見的事消失。而且 `#supabase/server` 是 Nuxt 模組建出來的別名、**vitest 解析不到**（踩雷 #212），決策與接線分開之後守門才測得到。斷言在 `tests/admin-tmdb-auth.test.ts`（18 條），其中有專門針對「已登入但不是 staff」那一種呼叫者的——§1.1 記載這個 repo 的授權**真的被那種人攻破過**（以他的身分呼叫 `rpc/merge_films` 實測回 204），所以 ② 不是形式。
 
 ⚠️ 這是踩雷 #26（「admin 端點不要用 service role 繞過 RLS 做授權判斷」）的**合法例外，而且邊界很窄**：例外的條件是「這件事只有 service_role 做得到，而且沒有任何 RPC 會替我們問 `is_staff()`」。在這個例外裡，`service_role` 仍然**只用來執行工作、絕不用來判斷誰有權限**——`admin-auth.ts` 從頭到尾沒有 import `serviceSupabase`，那是刻意的。要學的是「什麼時候不得不自己守門」以及「守門要長成什麼形狀」，不是「原來可以在端點自己判斷授權」。相關的反直覺後果見踩雷 #217。

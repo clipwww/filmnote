@@ -1,11 +1,15 @@
 import type { KnownFilm, ReleaseLike } from '#pipeline/tmdb/classify'
+import type { ImportPlanDb, ImportWriteDb, ReadbackRow, SuspectFilmRow } from '../server/utils/tmdb-import'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { TmdbClient, TmdbError } from '#pipeline/tmdb/client'
 import { buildImportPlan, rowsToImport } from '#pipeline/tmdb/import-plan'
 import { linkPreconditions } from '#pipeline/tmdb/link-check'
 import { toSeedRow } from '#pipeline/tmdb/seed-row'
 import { parseTmdbId } from '../app/utils/tmdb-id'
+import { tmdbClientFor, tmdbHttpError } from '../server/utils/tmdb-http'
+import { executeImport, planImport } from '../server/utils/tmdb-import'
 import { importBodySchema, importSourceSchema } from '../server/utils/tmdb-import-options'
 
 /**
@@ -114,11 +118,12 @@ describe('兩支端點的授權順序', () => {
     'utf8',
   ).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
 
-  it.each(['import-preview.post.ts', 'import.post.ts', 'link.post.ts'])('%s：assertStaffFrom 在任何讀寫之前', (name) => {
+  // refresh 也在內：service role 與 TmdbClient 改由端點建好傳進 runTmdbRefresh，接線落在這些檔裡。
+  it.each(['import-preview.post.ts', 'import.post.ts', 'link.post.ts', 'refresh.post.ts'])('%s：assertStaffFrom 在任何讀寫之前', (name) => {
     const s = src(name)
     const gate = s.indexOf('await assertStaffFrom(')
     expect(gate).toBeGreaterThan(0)
-    for (const call of ['planImport(', 'executeImport(', 'readBody(', 'serviceSupabase(', '.from('])
+    for (const call of ['planImport(', 'executeImport(', 'runTmdbRefresh(', 'tmdbClientFor(', 'readBody(', 'serviceSupabase(', '.from('])
       expect(!s.includes(call) || s.indexOf(call) > gate, call).toBe(true)
   })
 
@@ -156,5 +161,151 @@ describe('linkPreconditions（補 TMDB id）', () => {
 
   it('★ 識別鍵已屬於別人 ⇒ 409：identity 觸發器會把鍵搶過來', () => {
     expect(linkPreconditions(orphan, [], true)).toMatchObject({ ok: false, status: 409 })
+  })
+})
+
+// ── 介面測試：假 fetch 的 TmdbClient ＋ 記憶體版 ImportPlanDb / ImportWriteDb ──────────
+
+interface Reply { status: number, body?: unknown }
+
+/** 依路徑回應：`/movie/now_playing`、`/movie/upcoming`、`/search/movie`、`/movie/{id}`。 */
+function fakeTmdb(routes: Record<string, Reply>): TmdbClient {
+  const fetchImpl = (async (url: URL) => {
+    const reply = routes[url.pathname.replace('/3', '')] ?? { status: 404 }
+    return { ok: reply.status >= 200 && reply.status < 300, status: reply.status, json: async () => reply.body } as Response
+  }) as unknown as typeof fetch
+  return new TmdbClient({ apiKey: 'x', concurrency: 1, maxRetries: 0, fetchImpl, sleepImpl: async () => {} })
+}
+
+function tmdbDetail(id: number, title: string, extra: Record<string, unknown> = {}): Reply {
+  return {
+    status: 200,
+    body: { id, title, original_title: title, release_date: '2026-01-01', poster_path: null, popularity: 0, imdb_id: null, overview: '', runtime: 120, ...extra },
+  }
+}
+
+function fakePlanDb(library: KnownFilm[], identity: string[] = [], suspects: SuspectFilmRow[] = []) {
+  const pages: number[] = []
+  const db: ImportPlanDb = {
+    libraryPage: async (from, size) => {
+      pages.push(from)
+      return library.slice(from, from + size)
+    },
+    identityKeys: async keys => new Set(keys.filter(k => identity.includes(k))),
+    suspectFilms: async ids => suspects.filter(f => ids.includes(f.id)),
+  }
+  return { db, pages }
+}
+
+describe('planImport', () => {
+  it('★ 片庫分頁讀到底：第 1,000 列之後的作品也算進來', async () => {
+    // PostgREST 一次最多 1,000 列；只讀第一頁的話第 1,200 列那部會被當成新片。
+    const library = Array.from({ length: 1500 }, (_, i) => film({ id: `f${i}`, tmdb_id: i === 1200 ? 777 : null, title_zh: `庫存${i}` }))
+    const { db, pages } = fakePlanDb(library)
+    const tmdb = fakeTmdb({ '/movie/777': tmdbDetail(777, '第二頁的片') })
+    const preview = await planImport({ db, tmdb }, { kind: 'ids', ids: [777] })
+    expect(pages).toEqual([0, 1000])
+    expect(preview.librarySize).toBe(1500)
+    expect(preview.known.map(r => r.id)).toEqual([777])
+  })
+
+  it('ids 模式：404 進 notFound，台灣上映日取明細裡最早的一天', async () => {
+    const { db } = fakePlanDb([])
+    const tmdb = fakeTmdb({
+      '/movie/1': tmdbDetail(1, '新片', { release_dates: { results: [{ iso_3166_1: 'TW', release_dates: [{ release_date: '2026-03-01T00:00:00.000Z' }, { release_date: '2026-02-14T00:00:00.000Z' }] }] } }),
+    })
+    const preview = await planImport({ db, tmdb }, { kind: 'ids', ids: [1, 2] })
+    expect(preview.notFound).toEqual([2])
+    expect(preview.fresh.map(r => [r.id, r.twReleaseDate])).toEqual([[1, '2026-02-14']])
+  })
+
+  it('已有 identity 的進 blocked', async () => {
+    const { db } = fakePlanDb([], ['tmdb:5'])
+    const preview = await planImport({ db, tmdb: fakeTmdb({ '/movie/5': tmdbDetail(5, '有鍵沒列') }) }, { kind: 'ids', ids: [5] })
+    expect(preview.blocked.map(r => r.id)).toEqual([5])
+  })
+
+  it('★ ② 的判斷證據用傳進來的那個 client 補打明細，並帶出片庫那側', async () => {
+    const { db } = fakePlanDb(
+      [film({ id: 'b', title_zh: '孤兒片名' })],
+      [],
+      [{ id: 'b', runtime_minutes: 118, release_year: 2025, first_seen_roc_year: 114, country: '美國', ugc_poster_path: null, origin: 'gov', review_state: 'approved' }],
+    )
+    const tmdb = fakeTmdb({
+      '/movie/now_playing': { status: 200, body: { results: [{ id: 200, title: '孤兒片名', original_title: 'Orphan' }], total_pages: 1 } },
+      '/movie/upcoming': { status: 200, body: { results: [], total_pages: 1 } },
+      '/movie/200': tmdbDetail(200, '孤兒片名', { runtime: 117 }),
+    })
+    const preview = await planImport({ db, tmdb }, { kind: 'releases', pages: 1 })
+    expect(preview.suspected.map(s => s.release.id)).toEqual([200])
+    expect(preview.evidence.releases[200]).toEqual({ runtime: 117, twReleaseDate: null })
+    expect(preview.evidence.films.b).toMatchObject({ runtimeMinutes: 118, hasUgcPoster: false, pendingUgc: false })
+    // 清單兩支＋明細一支，全記在同一個 client 上（沒有另建第二個）。
+    expect(tmdb.stats.requests).toBe(3)
+  })
+
+  it('上游 TMDB 壞掉時原樣拋出 TmdbError，交給端點翻成 502', async () => {
+    const { db } = fakePlanDb([])
+    const failing = planImport({ db, tmdb: fakeTmdb({ '/search/movie': { status: 503 } }) }, { kind: 'search', q: '奧德賽' })
+    await expect(failing).rejects.toBeInstanceOf(TmdbError)
+    expect(await failing.catch(tmdbHttpError)).toMatchObject({ statusCode: 502 })
+  })
+})
+
+describe('executeImport', () => {
+  const rows = Array.from({ length: 45 }, (_, i) => toSeedRow(release(1000 + i, `新片${i}`)))
+
+  function fakeWriteDb(over: { failBatch?: number, back?: ReadbackRow[] } = {}) {
+    const batches: number[] = []
+    const db: ImportWriteDb = {
+      seedFilms: async (batch) => {
+        batches.push(batch.length)
+        if (batches.length === over.failBatch)
+          return { count: 0, error: 'canceling statement due to statement timeout' }
+        return { count: batch.length, error: null }
+      },
+      readback: async () => over.back ?? [],
+    }
+    return { db, batches }
+  }
+
+  it('分 20 部一批送（PostgREST 8 秒逾時），寫入數加總', async () => {
+    const { db, batches } = fakeWriteDb()
+    const result = await executeImport(db, rows)
+    expect(batches).toEqual([20, 20, 5])
+    expect(result.written).toBe(45)
+  })
+
+  it('★ 讀回判 ok：只有 origin=tmdb、title_zh_source=tmdb、已核准才算數', async () => {
+    const { db } = fakeWriteDb({
+      back: [
+        { tmdb_id: 1000, title_zh: '新片0', origin: 'tmdb', title_zh_source: 'tmdb', review_state: 'approved' },
+        // 0019 沒生效的樣子：寫進去了，但片名被標成官方的。
+        { tmdb_id: 1001, title_zh: '新片1', origin: 'tmdb', title_zh_source: 'gov', review_state: 'approved' },
+        { tmdb_id: 1002, title_zh: '新片2', origin: 'tmdb', title_zh_source: 'tmdb', review_state: 'pending' },
+      ],
+    })
+    const result = await executeImport(db, rows.slice(0, 3))
+    expect(result.readback.map(r => [r.tmdbId, r.ok])).toEqual([[1000, true], [1001, false], [1002, false]])
+  })
+
+  it('中途一批失敗 ⇒ 500，訊息帶已寫入的部數', async () => {
+    const { db, batches } = fakeWriteDb({ failBatch: 2 })
+    await expect(executeImport(db, rows)).rejects.toMatchObject({ statusCode: 500, statusMessage: expect.stringContaining('已寫入 20 部') })
+    expect(batches).toEqual([20, 20])
+  })
+})
+
+describe('tmdb-http：端點共用的建 client 與錯誤翻譯', () => {
+  it('★ 沒有 key ⇒ 503，不是空結果', () => {
+    expect(() => tmdbClientFor(undefined)).toThrow(expect.objectContaining({ statusCode: 503 }))
+    expect(() => tmdbClientFor('')).toThrow(expect.objectContaining({ statusCode: 503 }))
+    expect(tmdbClientFor('k')).toBeInstanceOf(TmdbClient)
+  })
+
+  it('已經是 HTTP 錯誤的原樣放行（讀片庫的 500 不能被改成 502）', () => {
+    const own = Object.assign(new Error('讀片庫失敗'), { statusCode: 500 })
+    expect(tmdbHttpError(own)).toBe(own)
+    expect(tmdbHttpError(new TmdbError('TMDB 回應 HTTP 401', 401))).toMatchObject({ statusCode: 502 })
   })
 })

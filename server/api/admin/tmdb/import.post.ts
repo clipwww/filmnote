@@ -9,7 +9,7 @@ import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
 // ★ **不信瀏覽器送來的預覽**：這裡自己重跑一次 `planImport()`，瀏覽器的勾選（`only`）
 //   只能從 ③ 裡再縮小範圍。
 // 授權三步，順序不可調換：① 登入 → ② 使用者自己的 client 問 is_staff() → ③ 通過後
-// 才動 service role（`executeImport()` 內部呼叫 `serviceSupabase()`）。
+// 才動 service role（`serviceSupabase()` 寫在本檔、傳給 `executeImport()`，內部不再自己拿）。
 
 export default defineEventHandler(async (event) => {
   const staff = await assertStaffFrom({
@@ -23,7 +23,11 @@ export default defineEventHandler(async (event) => {
 
   assertWithinRateLimit(event, { windowMs: 60_000, max: 5, scope: 'admin-tmdb-import' })
 
-  const plan = await planImport(await serverSupabaseClient<Database>(event), parsed.data.source)
+  const tmdb = tmdbClientFor(useRuntimeConfig(event).tmdbApiKey, { concurrency: 4 })
+  const plan = await planImport({ db: supabaseImportDb(await serverSupabaseClient<Database>(event)), tmdb }, parsed.data.source)
+    .catch((cause) => {
+      throw tmdbHttpError(cause)
+    })
   // 閘門 ②：會走 UPDATE 分支的一筆都不送（那條路會把年份寫成 9999）。
   if (plan.blocked.length) {
     throw createError({
@@ -35,7 +39,7 @@ export default defineEventHandler(async (event) => {
   if (!rows.length)
     return { written: 0, readback: [], plan }
 
-  const result = await executeImport(rows)
+  const result = await executeImport(supabaseImportDb(serviceSupabase()), rows)
 
   // eslint-disable-next-line no-console -- 管理動作的稽核日誌
   console.log('[admin/tmdb/import]', JSON.stringify({

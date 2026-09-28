@@ -20,7 +20,9 @@ export default defineEventHandler(async (event) => {
   assertCronCaller(event)
 
   const options = parseRefreshOptions(getQuery(event) as Record<string, unknown>)
-  const report = await runTmdbRefresh(options)
+  // 依賴在這裡建：缺 key 的 503 先於 service role；TmdbClient 的併發必須跟 options 同一個數。
+  const tmdb = tmdbClientFor(useRuntimeConfig(event).tmdbApiKey, { concurrency: options.concurrency })
+  const report = await runTmdbRefresh({ db: supabaseRefreshDb(serviceSupabase()), tmdb }, options)
 
   // cron 的執行紀錄是這支唯一的觀測面，數字一定要進 log 而不只是回應 body。
   console.log('[cron/tmdb-refresh]', JSON.stringify(report))

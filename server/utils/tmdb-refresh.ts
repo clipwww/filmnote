@@ -1,13 +1,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { TmdbClient } from '#pipeline/tmdb/client'
+import type { Database, Json } from '../../app/types/database.types'
 // 預設值與 `parseRefreshOptions` 搬到自足模組，理由見那個檔的檔頭（vitest 載得進來）。
 import type { TmdbRefreshOptions } from './tmdb-refresh-options'
-import type { TmdbDetailForSnapshot } from './tmdb-snapshot'
-import type { Database, Json } from '~/types/database.types'
-import { TmdbClient, TmdbError } from '#pipeline/tmdb/client'
+import type { FailureOutcome, TmdbDetailForSnapshot, TmdbSnapshotPatch } from './tmdb-snapshot'
+// 顯式 import 而非 Nitro auto-import：本檔被 tests/tmdb-refresh.test.ts 直接載入（§7 #211）。
+import { createError } from 'h3'
+import { TmdbError } from '#pipeline/tmdb/client'
 import { DEFAULT_BUDGET_MS, DEFAULT_CONCURRENCY, DEFAULT_LIMIT } from './tmdb-refresh-options'
 import { failurePatch, outcomeForError, snapshotFromDetail } from './tmdb-snapshot'
-
-export type { TmdbRefreshOptions }
 
 /**
  * TMDB 快照的批次刷新。排程走 Vercel Cron 而不是 pg_cron：Supabase 免費專案閒置會
@@ -41,54 +42,81 @@ export interface TmdbRefreshReport {
   errors: string[]
 }
 
-interface DueRow {
+export interface DueRow {
   film_id: string
   tmdb_id: number
   attempts: number
 }
 
+type FailedPatch = Exclude<FailureOutcome, { kind: 'fatal' }>['patch']
+
 /**
- * 取出到期的列。⚠️ `tmdb_refresh_due` 只 grant 給 service_role，所以拿到 0 列有兩種
- * 意思：真的沒到期，或**client 不是 service_role**（後者不會報錯）。
- * 因此 `due` 一併回報，看到 `due: 0` 時可以自己去 SQL 對一次。
+ * 刷新流程要的三件資料庫動作。★ 接口是動作不是 SupabaseClient：測試換上記憶體版就能驅動
+ * 整個流程（節流／中止／寫回失敗），正式版是下面的 `supabaseRefreshDb()`。
  */
-async function claimDue(db: SupabaseClient<Database>, limit: number): Promise<{ rows: DueRow[], due: number }> {
-  const { data, error, count } = await db
-    .from('tmdb_refresh_due')
-    .select('film_id,tmdb_id,attempts', { count: 'exact' })
-    // view 內已有 order by，這裡明寫一次是因為 PostgREST 會把 view 包進子查詢，
-    // 不保證外層順序。最舊到期的先刷。
-    .order('expires_at', { ascending: true, nullsFirst: true })
-    .limit(limit)
-
-  if (error)
-    throw createError({ statusCode: 500, statusMessage: `讀取 tmdb_refresh_due 失敗：${error.message}` })
-
-  const rows: DueRow[] = []
-  for (const row of data ?? []) {
-    // view 的欄位型別全是 nullable（PostgREST 對 view 一律如此），實際上
-    // film_id / tmdb_id 在來源表是 not null。這裡只是把型別收窄。
-    if (row.film_id && typeof row.tmdb_id === 'number')
-      rows.push({ film_id: row.film_id, tmdb_id: row.tmdb_id, attempts: row.attempts ?? 0 })
-  }
-
-  return { rows, due: count ?? rows.length }
+export interface RefreshDb {
+  claimDue: (limit: number) => Promise<{ rows: DueRow[], due: number }>
+  patchSnapshot: (filmId: string, patch: TmdbSnapshotPatch | FailedPatch) => Promise<{ error: string | null }>
+  /** `apply_tmdb_snapshot()`。★ 只覆寫 title_zh_source='tmdb' 的欄位，由函式本身的 CASE 擋住。 */
+  applySnapshot: (filmId: string) => Promise<{ error: string | null }>
 }
 
-export async function runTmdbRefresh(options: TmdbRefreshOptions = {}): Promise<TmdbRefreshReport> {
+/**
+ * 正式版。⚠️ 必須傳 service role client：`tmdb_refresh_due` 只 grant 給 service_role，
+ * 換成別的 client 不會報錯而是 0 列——因此 `due` 一併回報，看到 `due: 0` 時可以自己去 SQL 對一次。
+ */
+export function supabaseRefreshDb(db: SupabaseClient<Database>): RefreshDb {
+  return {
+    async claimDue(limit) {
+      const { data, error, count } = await db
+        .from('tmdb_refresh_due')
+        .select('film_id,tmdb_id,attempts', { count: 'exact' })
+        // view 內已有 order by，這裡明寫一次是因為 PostgREST 會把 view 包進子查詢，
+        // 不保證外層順序。最舊到期的先刷。
+        .order('expires_at', { ascending: true, nullsFirst: true })
+        .limit(limit)
+
+      if (error)
+        throw createError({ statusCode: 500, statusMessage: `讀取 tmdb_refresh_due 失敗：${error.message}` })
+
+      const rows: DueRow[] = []
+      for (const row of data ?? []) {
+        // view 的欄位型別全是 nullable（PostgREST 對 view 一律如此），實際上
+        // film_id / tmdb_id 在來源表是 not null。這裡只是把型別收窄。
+        if (row.film_id && typeof row.tmdb_id === 'number')
+          rows.push({ film_id: row.film_id, tmdb_id: row.tmdb_id, attempts: row.attempts ?? 0 })
+      }
+      return { rows, due: count ?? rows.length }
+    },
+    async patchSnapshot(filmId, patch) {
+      // payload 的索引簽章不滿足 `Json`（理由見 TmdbSnapshotPatch），在這一層轉。
+      const row = 'payload' in patch ? { ...patch, payload: patch.payload as Json } : patch
+      const { error } = await db.from('film_tmdb_snapshot').update(row).eq('film_id', filmId)
+      return { error: error?.message ?? null }
+    },
+    async applySnapshot(filmId) {
+      const { error } = await db.rpc('apply_tmdb_snapshot', { p_film_id: filmId })
+      return { error: error?.message ?? null }
+    },
+  }
+}
+
+/**
+ * ★ 依賴由呼叫端（cron／手動端點）建好傳進來，這裡不碰 runtimeConfig 與 serviceSupabase：
+ *   service role 只在端點裡、staff 檢查之後出現（BUILD_PLAN §5 Step 9a）。
+ * ⚠️ `tmdb` 的併發要與 `options.concurrency` 相同：worker 數照後者開，兩者分岔時多的 worker 只會排隊。
+ */
+export async function runTmdbRefresh(
+  { db, tmdb }: { db: RefreshDb, tmdb: TmdbClient },
+  options: TmdbRefreshOptions = {},
+): Promise<TmdbRefreshReport> {
   const startedAt = Date.now()
   const limit = options.limit ?? DEFAULT_LIMIT
   const budgetMs = options.budgetMs ?? DEFAULT_BUDGET_MS
   const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY
 
-  const apiKey = useRuntimeConfig().tmdbApiKey
-  if (!apiKey)
-    throw createError({ statusCode: 503, statusMessage: '未設定 NUXT_TMDB_API_KEY' })
+  const { rows, due } = await db.claimDue(limit)
 
-  const db = serviceSupabase()
-  const { rows, due } = await claimDue(db, limit)
-
-  const tmdb = new TmdbClient({ apiKey, concurrency })
   const report: TmdbRefreshReport = {
     due,
     claimed: rows.length,
@@ -150,25 +178,20 @@ export async function runTmdbRefresh(options: TmdbRefreshOptions = {}): Promise<
       else
         report.failed++
 
-      const { error } = await db.from('film_tmdb_snapshot').update(outcome.patch).eq('film_id', row.film_id)
+      const { error } = await db.patchSnapshot(row.film_id, outcome.patch)
       if (error)
-        noteError(`tmdb ${row.tmdb_id} 寫回失敗狀態時出錯：${error.message}`)
+        noteError(`tmdb ${row.tmdb_id} 寫回失敗狀態時出錯：${error}`)
       else
         noteError(`tmdb ${row.tmdb_id}：${message}`)
       return
     }
 
-    const snapshot = snapshotFromDetail(detail)
-    const { error: writeError } = await db
-      .from('film_tmdb_snapshot')
-      .update({ ...snapshot, payload: snapshot.payload as Json })
-      .eq('film_id', row.film_id)
+    const { error: writeError } = await db.patchSnapshot(row.film_id, snapshotFromDetail(detail))
 
     if (writeError) {
       report.failed++
-      const patch = failurePatch(row.attempts, `寫回快照失敗：${writeError.message}`)
-      await db.from('film_tmdb_snapshot').update(patch).eq('film_id', row.film_id)
-      noteError(`film ${row.film_id} 寫回快照失敗：${writeError.message}`)
+      await db.patchSnapshot(row.film_id, failurePatch(row.attempts, `寫回快照失敗：${writeError}`))
+      noteError(`film ${row.film_id} 寫回快照失敗：${writeError}`)
       return
     }
 
@@ -176,9 +199,9 @@ export async function runTmdbRefresh(options: TmdbRefreshOptions = {}): Promise<
 
     // 套用回 film 本體。★ 只覆寫 title_zh_source='tmdb' 的欄位——政府核准的
     //   中文片名由函式本身的 CASE 擋住，不是靠這裡少傳一個欄位。
-    const { error: applyError } = await db.rpc('apply_tmdb_snapshot', { p_film_id: row.film_id })
+    const { error: applyError } = await db.applySnapshot(row.film_id)
     if (applyError)
-      noteError(`film ${row.film_id} apply_tmdb_snapshot 失敗：${applyError.message}`)
+      noteError(`film ${row.film_id} apply_tmdb_snapshot 失敗：${applyError}`)
     else
       report.applied++
   }

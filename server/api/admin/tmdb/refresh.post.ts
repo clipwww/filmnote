@@ -46,8 +46,10 @@ export default defineEventHandler(async (event) => {
   // `#supabase/server`，vitest 載不進來 ⇒ 寫在這裡一條斷言都守不到）。
   const options = clampManualOptions(parsed.data)
 
-  // ③ 到這裡才動 service role——`runTmdbRefresh()` 內部呼叫 `serviceSupabase()`。
-  const report = await runTmdbRefresh(options)
+  // ③ 到這裡才動 service role，而且就寫在這一行看得見（`runTmdbRefresh` 內部不再自己拿）。
+  //   TmdbClient 先建：缺 key 的 503 要在碰 service role 之前；併發必須跟 options 同一個數。
+  const tmdb = tmdbClientFor(useRuntimeConfig(event).tmdbApiKey, { concurrency: options.concurrency })
+  const report = await runTmdbRefresh({ db: supabaseRefreshDb(serviceSupabase()), tmdb }, options)
 
   // 與 cron 那支刻意重複：出事時函式日誌是最先看得到的地方，查資料庫要另一套權限。
   // 多記一個 `by`，因為這一次是人按的。

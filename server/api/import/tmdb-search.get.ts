@@ -2,7 +2,6 @@ import type { TmdbSearchResult } from '#pipeline/types'
 import process from 'node:process'
 import { z } from 'zod'
 import { assertImportOwnerFrom } from '~~/server/utils/import-auth'
-import { TmdbClient } from '#pipeline/tmdb/client'
 import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
 
 /**
@@ -40,23 +39,14 @@ export default defineEventHandler(async (event) => {
   // 就是幾十個請求。
   assertWithinRateLimit(event, { windowMs: 60_000, max: 30, scope: 'tmdb-search' })
 
-  const apiKey = useRuntimeConfig().tmdbApiKey
-  if (!apiKey) {
-    // 沒有 key 回 503 不回空陣列：空陣列會被 UI 呈現成「TMDB 查無此片」，於是使用者
-    // 建了一部其實 TMDB 有的 UGC 作品——會說謊的空結果比錯誤訊息貴得多。
-    throw createError({ statusCode: 503, statusMessage: '未設定 NUXT_TMDB_API_KEY，線上比對暫不可用' })
-  }
-
+  // 沒有 key 回 503 不回空陣列：會說謊的空結果比錯誤訊息貴得多（理由見 tmdb-http.ts）。
+  const tmdb = tmdbClientFor(useRuntimeConfig(event).tmdbApiKey, { concurrency: 1 })
   let results: TmdbSearchResult[]
   try {
-    results = await new TmdbClient({ apiKey, concurrency: 1 }).search(parsed.data.q)
+    results = await tmdb.search(parsed.data.q)
   }
   catch (cause) {
-    // TmdbError 已含狀態碼；這裡統一翻成 502——是上游壞了，不是我們壞了。
-    throw createError({
-      statusCode: 502,
-      statusMessage: `TMDB 查詢失敗：${cause instanceof Error ? cause.message : String(cause)}`,
-    })
+    throw tmdbHttpError(cause)
   }
 
   const year = parsed.data.year

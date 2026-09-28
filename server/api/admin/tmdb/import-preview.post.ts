@@ -20,5 +20,9 @@ export default defineEventHandler(async (event) => {
 
   assertWithinRateLimit(event, { windowMs: 60_000, max: 20, scope: 'admin-tmdb-import-preview' })
 
-  return planImport(await serverSupabaseClient<Database>(event), parsed.data)
+  const tmdb = tmdbClientFor(useRuntimeConfig(event).tmdbApiKey, { concurrency: 4 })
+  const db = supabaseImportDb(await serverSupabaseClient<Database>(event))
+  return planImport({ db, tmdb }, parsed.data).catch((cause) => {
+    throw tmdbHttpError(cause)
+  })
 })
