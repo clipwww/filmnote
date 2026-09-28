@@ -131,7 +131,7 @@ onBeforeUnmount(releasePreview)
    它變成海報」唯一能被使用者親眼驗證的地方。 */
 const previewRecord = computed<TicketCardRecord>(() => ({
   id: 'preview',
-  watchedOn: taipeiToday(), // 「今天」全站一律是台北（2026-09-28 David 裁決）
+  watchedOn: taipeiToday(), // 「今天」全站一律是台北（2026-09-28 裁決）
   // 影城、場次、票價都是**下一步**才填的。空欄位在票根卡上就是不存在，
   // 不渲染「—」或「未知」佔位（§4.3 的票價規則同一條）。
   film: {

@@ -4,6 +4,7 @@
  * `tsconfig.pipeline.json` 兩者都不認識 ⇒ 測試一 import 就噴 `TS2304` 與 `TS2307`，
  * **而 `typecheck:app` 是綠的**。⇒ 被測試 import 的模組必須自足，不要放寬 tsconfig。
  */
+// ⚠️ 放在 `utils/` ⇒ `stampText`／`dayText`／`agoText` 是全站 auto-import：新增同名 helper 前先 grep。
 
 import { taipeiAgoText, taipeiDateText, taipeiDateTimeText } from '#pipeline/time/taipei'
 
