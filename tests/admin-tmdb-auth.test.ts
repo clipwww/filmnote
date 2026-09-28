@@ -18,6 +18,8 @@
  * 壞的」，所以綠燈本身不是證據，紅過才是。
  */
 
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import { apiErrorText, stampText } from '../app/utils/admin-format'
 import { assertStaffFrom } from '../server/utils/admin-auth'
@@ -174,6 +176,18 @@ describe('手動觸發的時間預算為什麼需要自己的上限', () => {
   it('夾預算不會動到 limit', () => {
     expect(clampManualOptions({ limit: 250, budgetMs: 1_800_000 }).limit).toBe(250)
     expect(clampManualOptions({}).limit).toBe(100)
+  })
+
+  // 跨檔一致性守衛，所以讀 .vue 原始碼：兩份數字刻意不共用（route→route import，§7 #80），
+  // 漂移時伺服器會靜默夾回——曾經 UI 給 60 秒、伺服器只給 25 秒，畫面還標著「上限」。
+  it('★ 維護面板的預算選單不超過伺服器上限，而標「上限」的那一格就等於它', () => {
+    const vue = readFileSync(fileURLToPath(new URL('../app/pages/admin/-TmdbMaintenance.vue', import.meta.url)), 'utf8')
+    const block = vue.match(/const BUDGET_OPTIONS = \[([\s\S]*?)\]/)?.[1] ?? ''
+    const options = [...block.matchAll(/label: '([^']*)', value: ([\d_]+)/g)]
+      .map(m => ({ label: m[1]!, value: Number(m[2]!.replaceAll('_', '')) }))
+    expect(options.length).toBeGreaterThan(0)
+    expect(Math.max(...options.map(o => o.value))).toBeLessThanOrEqual(MANUAL_MAX_BUDGET_MS)
+    expect(options.filter(o => o.label.includes('上限')).map(o => o.value)).toEqual([MANUAL_MAX_BUDGET_MS])
   })
 })
 
