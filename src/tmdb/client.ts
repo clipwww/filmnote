@@ -97,8 +97,12 @@ export class TmdbClient {
           return { ok: false, status: 0, cause } as unknown as Response
         })
 
-        if (response.ok)
-          return await response.json() as T
+        // 壞掉的 body 也算上游故障：不包成 TmdbError 的話端點會把它當成我們的 bug 回 500（tmdb-http.ts）。
+        if (response.ok) {
+          return await response.json().catch(() => {
+            throw new TmdbError(`TMDB 回應不是 JSON：${url.pathname}`, response.status)
+          }) as T
+        }
 
         if (!RETRYABLE_STATUS.has(response.status) && response.status !== 0)
           throw new TmdbError(`TMDB 回應 HTTP ${response.status}：${url.pathname}`, response.status)

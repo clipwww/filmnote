@@ -1,7 +1,7 @@
 import type { TmdbClientOptions } from '#pipeline/tmdb/client'
 // 顯式 import：本檔要能被 vitest 直接載入（§7 #211），而 vitest 沒有 Nitro 的自動匯入。
 import { createError } from 'h3'
-import { TmdbClient } from '#pipeline/tmdb/client'
+import { TmdbClient, TmdbError } from '#pipeline/tmdb/client'
 
 /**
  * 伺服器端點建 TmdbClient 與翻譯 TMDB 錯誤的唯一一處（之前 refresh／import／tmdb-search 各寫一份）。
@@ -16,12 +16,11 @@ export function tmdbClientFor(apiKey: string | undefined, options: Omit<TmdbClie
 }
 
 /**
- * 端點 catch 到的錯誤翻成 HTTP。已經是 HTTP 錯誤（例如讀片庫失敗的 500）原樣放行，其餘一律 502：
- * 是上游壞了不是我們壞了。TmdbError 自帶的狀態碼只進訊息，不當成我們的回應碼。
+ * 端點 catch 到的錯誤翻成 HTTP。只有 TmdbError 翻 502（上游壞了不是我們壞了），自帶狀態碼只進訊息。
+ * ★ 其他錯誤原樣放行（HTTP 錯誤照舊、程式錯誤由 Nitro 回 500）：全翻 502 會把我們的 bug 報成 TMDB 故障。
  */
 export function tmdbHttpError(cause: unknown): Error {
-  if (cause instanceof Error && 'statusCode' in cause)
-    return cause
-  const message = cause instanceof Error ? cause.message : String(cause)
-  return createError({ statusCode: 502, statusMessage: `TMDB 查詢失敗：${message}` })
+  if (!(cause instanceof TmdbError))
+    return cause instanceof Error ? cause : new Error(String(cause))
+  return createError({ statusCode: 502, statusMessage: `TMDB 查詢失敗：${cause.message}` })
 }

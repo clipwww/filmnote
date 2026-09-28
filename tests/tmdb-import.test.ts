@@ -308,4 +308,17 @@ describe('tmdb-http：端點共用的建 client 與錯誤翻譯', () => {
     expect(tmdbHttpError(own)).toBe(own)
     expect(tmdbHttpError(new TmdbError('TMDB 回應 HTTP 401', 401))).toMatchObject({ statusCode: 502 })
   })
+
+  it('★ 不是 TMDB 的錯誤原樣放行（Nitro 回 500），不被報成 TMDB 故障', () => {
+    const bug = new TypeError('Cannot read properties of undefined')
+    expect(tmdbHttpError(bug)).toBe(bug)
+    expect(tmdbHttpError(bug)).not.toHaveProperty('statusCode')
+  })
+
+  it('TMDB 回 200 但 body 不是 JSON ⇒ 仍是 TmdbError（翻 502 而不是當成我們的 bug）', async () => {
+    const fetchImpl = (async () => ({ ok: true, status: 200, json: async () => JSON.parse('<html>') })) as unknown as typeof fetch
+    const failing = tmdbClientFor('k', { fetchImpl, sleepImpl: async () => {} }).search('奧德賽')
+    await expect(failing).rejects.toBeInstanceOf(TmdbError)
+    expect(await failing.catch(tmdbHttpError)).toMatchObject({ statusCode: 502 })
+  })
 })
