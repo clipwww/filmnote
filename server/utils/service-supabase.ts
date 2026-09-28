@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js'
 let cached: SupabaseClient<Database> | null = null
 
 /**
- * service_role client。**只有 cron / 排程路由能用**，RLS 對它完全讓開，而
+ * service_role client。**只有 cron 與通過 staff 檢查（assertStaffFrom）之後的 admin 端點能用**，RLS 對它完全讓開，而
  * `apply_tmdb_snapshot()`／`purge_expired_tmdb_cache()` 認的是 `is_service_context()`
  * ⇒ 刷新流程只能走這支。★ 絕不可用在任何會把輸出回給瀏覽器的路由：那是
  * `publicSupabase()`（匿名視角、可快取）的工作，這支看得到全部資料 ⇒ 不可外流。
