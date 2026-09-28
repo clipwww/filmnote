@@ -1,12 +1,14 @@
 /**
- * 管理後台的兩支純顯示函式。**放在 `utils/` 而不是 `pages/admin/-admin-shared.ts` 的唯一理由：
+ * 管理後台的純顯示函式。**放在 `utils/` 而不是 `pages/admin/-admin-shared.ts` 的唯一理由：
  * 它們要能被 vitest 載入。** 那個檔吃 auto-import 也用了 `~/types/…` 別名，而
  * `tsconfig.pipeline.json` 兩者都不認識 ⇒ 測試一 import 就噴 `TS2304` 與 `TS2307`，
  * **而 `typecheck:app` 是綠的**。⇒ 被測試 import 的模組必須自足，不要放寬 tsconfig。
  */
 
+import { taipeiAgoText, taipeiDateText, taipeiDateTimeText } from '#pipeline/time/taipei'
+
 /**
- * `…T18:29:18.9+00:00` → `2026/09/05 18:29`（**台北牆上時間**）。與 `dayText()` 的分工：那支
+ * `…T18:29:18.9+00:00` → `2026/09/06 02:29`（**台北牆上時間**）。與 `dayText()` 的分工：那支
  * 只給日期（佇列列表精確到天就夠），這支用在「最後一次刷新是什麼時候」這種需要對帳的地方
  * ——差在小時的事件只印日期，會讓「今天凌晨跑過」跟「今天下午跑過」看起來一模一樣。
  */
@@ -16,24 +18,23 @@
  * 格式不合時回空字串，不做「盡量拼湊」。
  */
 export function stampText(iso: string | null | undefined): string {
-  if (!iso)
-    return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime()))
-    return ''
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Taipei',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).formatToParts(d)
-  const get = (t: string) => parts.find(p => p.type === t)?.value ?? ''
-  // ★ 分隔符在字串裡就組好。Vue 的 whitespace 預設是 'condense'，在 template
-  //   裡用相鄰插值加空白會被摺掉（`app/utils/format-datetime.ts` 檔頭同一個坑）。
-  return `${get('year')}/${get('month')}/${get('day')} ${get('hour')}:${get('minute')}`
+  return taipeiDateTimeText(iso)
+}
+
+/**
+ * `2026-09-22T16:00:00Z` → `2026-09-23`（台北牆上日期）。從 `pages/admin/-admin-shared.ts`
+ * 搬來的理由同檔頭：那個檔 vitest 載不動，放那裡就只能靠 regex 測。
+ */
+export function dayText(iso: string | null | undefined): string {
+  return taipeiDateText(iso)
+}
+
+/**
+ * `今天`／`昨天`／`N 天前`，數的是**台北日曆天**不是 24 小時：舊版 `floor(ms/86400000)` 讓
+ * 台北昨晚 23:50 建的列在今早 00:10 顯示「今天」。`now` 可注入是為了測跨午夜。
+ */
+export function agoText(iso: string | null | undefined, now: number | Date = Date.now()): string {
+  return taipeiAgoText(iso, now)
 }
 
 /**

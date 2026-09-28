@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Database } from '~/types/database.types'
-import { dayText, pgErrorText } from './-admin-shared'
+import { dayText } from '~/utils/admin-format'
+import { pgErrorText } from './-admin-shared'
 import AdminShell from './-AdminShell.vue'
 import StaffGate from './-StaffGate.vue'
 

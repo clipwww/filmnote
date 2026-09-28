@@ -39,55 +39,9 @@ export function useStaffGate() {
   }
 }
 
-/** `2026-09-04T…` → `2 天前`。給佇列列表用，精確到天就夠了。 */
-export function agoText(iso: string | null | undefined): string {
-  if (!iso)
-    return ''
-  const then = new Date(iso).getTime()
-  if (Number.isNaN(then))
-    return ''
-  const days = Math.floor((Date.now() - then) / 86_400_000)
-  if (days <= 0)
-    return '今天'
-  if (days === 1)
-    return '昨天'
-  return `${days} 天前`
-}
-
-/**
- * 距離某個時間點還剩幾個**日曆天**（過期回負數）。⚠️ **這不是工作日**：`SCREENS §14` 要的是
- * 「剩 N 個工作日」，而工作日只能由資料庫算（trigger 用 `business_days_after()`），
- * 前端再算一次就是兩個會分岔的答案，而分岔的那個會出現在法定期限上。
- */
-/*
- * 資料庫目前只給得出「期限是哪一天」（缺一支 `business_days_between`）⇒ 畫面上的權威值是
- * **期限日期本身**，這個日曆天數只用來決定緊急程度的門檻與排序，而且標籤上明寫「天」不寫
- * 「工作日」。
- */
-export function daysUntil(iso: string | null | undefined): number | null {
-  if (!iso)
-    return null
-  const target = new Date(iso).getTime()
-  if (Number.isNaN(target))
-    return null
-  return Math.ceil((target - Date.now()) / 86_400_000)
-}
-
-/** `2026-09-22T16:00:00Z` → `2026-09-22`（台北牆上日期）。 */
-export function dayText(iso: string | null | undefined): string {
-  if (!iso)
-    return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime()))
-    return ''
-  // 全站的日期語意都是台北牆上時間，這裡跟著走，不用瀏覽器本地時區。
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Taipei',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(d)
-}
+// `agoText`／`dayText` 已搬到 `~/utils/admin-format`（台北日曆天、vitest 測得到）。原本在這裡的
+// `daysUntil()`（日曆天剩餘天數）零呼叫端已刪：期限剩幾個工作日由 `takedowns.vue` 問 DB 的
+// `business_days_between()`，前端自己算日曆天就是第二份定義（`adminui.md` §3 第 3 點）。
 
 /**
  * PostgREST 的錯誤翻成人看得懂的話。`42501` 是 RPC 裡 `is_staff()` 擋下的、

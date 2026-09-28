@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import type { FilmOption } from '~/composables/useFilmSearch'
 import type { Database } from '~/types/database.types'
-import { apiErrorText } from '~/utils/admin-format'
-import { agoText, dayText } from './-admin-shared'
+import { agoText, apiErrorText, dayText } from '~/utils/admin-format'
 import AdminShell from './-AdminShell.vue'
 import StaffGate from './-StaffGate.vue'
 
