@@ -8,6 +8,11 @@ import { displayTitle } from './film-title'
  * `user_year_stats` RPC 的回傳形狀，以及把它轉成各張圖要的資料。轉換集中在這裡，
  * 是因為每一條都有一個「照直覺寫會錯、而且不會報錯」的地方，值得被測試蓋住。
  */
+/*
+ * 形狀手寫：RPC 宣告 `returns jsonb`，產生器只標得出 `Json`。契約變更請同步 `0003_user_year_stats.sql`。
+ * ⚠️ **不得進入任何可快取的輸出**：`totals.spend` 隨呼叫者的 RLS 而異，放進 SSR 快取等於把本人的
+ * 票價送給後面所有人。查無此使用者（或帳號不可服務）時 RPC 回 SQL NULL ⇒ 那是 404 不是錯誤。
+ */
 
 export interface YearTotals {
   records: number
@@ -24,11 +29,14 @@ export interface YearTotals {
 }
 
 export interface YearStats {
+  /** 正規化後的 username（呼叫時給舊名也會回傳現名）。 */
   username: string
+  /** 查詢的年度；null 代表涵蓋全部年度。 */
   year: number | null
   is_own: boolean
   available_years: number[]
   totals: YearTotals
+  /** `date` 是 `YYYY-MM-DD` 台北牆上日期，未經時區轉換。 */
   daily: { date: string, records: number, tickets: number }[]
   /** ⚠️ `weekday` 是 **isodow**：1=週一 … 7=週日。不是 `dow` 的 0=週日。 */
   weekday_hour: { weekday: number, hour: number, records: number }[]
@@ -61,6 +69,7 @@ export interface YearStats {
     spend_is_partial: boolean
   }[]
   venues: { venue_id: string | null, name: string | null, city: string | null, kind: string | null, records: number }[]
+  /** `country` 空字串 = 讀不到作品資訊（他人的私密 UGC 作品），UI 顯示「未分類」。 */
   countries: { country: string, records: number }[]
   formats: { code: string, label: string, records: number }[]
   repeats: { film_id: string, title_zh: string | null, slug: string | null, poster_path: string | null, records: number }[]

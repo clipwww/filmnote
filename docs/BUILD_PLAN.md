@@ -1153,7 +1153,7 @@ DEFINER 會讓 RLS 整個讓開，此時一個寫錯的 WHERE 不會回 403，
 數字，故回傳 `totals.spend_is_partial` 讓前端知道自己拿到的是不是全部。
 9999 的自我檢查會在它被改成 DEFINER 時讓 migration 失敗。
 
-回傳形狀的 TypeScript 契約在 `server/utils/user-year-stats.ts`
+回傳形狀的 TypeScript 契約在 `app/utils/stats.ts` 的 `YearStats`
 （RPC 宣告 `returns jsonb`，型別產生器只能標成 `Json`，故手寫）。
 
 ```sql
